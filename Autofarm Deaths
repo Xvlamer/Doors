@@ -1,16 +1,26 @@
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 
-local function getGuiButton(name)
+local function getGuiButton(name, parentPath)
     local playerGui = player:FindFirstChild("PlayerGui")
     if not playerGui then return nil end
     local mainUI = playerGui:FindFirstChild("MainUI")
     if not mainUI then return nil end
     
-    for _, descendant in ipairs(mainUI:GetDescendants()) do
-        if (descendant:IsA("TextButton") or descendant:IsA("ImageButton")) and descendant.Name == name then
-            return descendant
+    if parentPath then
+        local current = mainUI
+        for _, part in ipairs(parentPath) do
+            current = current:FindFirstChild(part)
+            if not current then return nil end
+        end
+        return current:FindFirstChild(name)
+    else
+        for _, descendant in ipairs(mainUI:GetDescendants()) do
+            if (descendant:IsA("TextButton") or descendant:IsA("ImageButton")) and descendant.Name == name then
+                return descendant
+            end
         end
     end
     return nil
@@ -20,59 +30,90 @@ local function clickButton(btn)
     if not btn then return end
     pcall(function()
         if not btn.AbsoluteSize or btn.AbsoluteSize.X == 0 then return end
-        
         local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
         local x, y = pos.X, pos.Y + 36
         
-        -- Instant physical click simulation
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
         task.wait(0.01)
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
         
-        -- Instant event connection firing
         if getconnections then
             pcall(function()
-                for _, conn in ipairs(getconnections(btn.Activated)) do
-                    conn:Fire()
-                end
-                for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-                    conn:Fire()
-                end
+                for _, conn in ipairs(getconnections(btn.Activated)) do conn:Fire() end
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do conn:Fire() end
             end)
         end
     end)
 end
 
-local function runFarmLoop()
-    while true do
-        task.wait(0.05) -- Ultra-fast loop tick rate
-        
+local shopDone = false
+local scriptExecuted = false
+
+local function spamProximityPrompts()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    for i = 1, 10 do
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") then
+                local parentPart = obj.Parent
+                if parentPart and parentPart:IsA("BasePart") then
+                    if (parentPart.Position - hrp.Position).Magnitude <= 10 then
+                        pcall(function()
+                            if fireproximityprompt then
+                                fireproximityprompt(obj)
+                            else
+                                obj:InputHoldBegin()
+                                task.wait(0.01)
+                                obj:InputHoldEnd()
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+        task.wait(0.05)
+    end
+end
+
+while true do
+    task.wait(0.05)
+    
+    if not scriptExecuted then
         local playBtn = getGuiButton("MainPlayButton")
         local hotelBtn = getGuiButton("Hotel")
-        local confirmBtn = getGuiButton("Confirm")
+        local elevatorConfirmBtn = getGuiButton("Confirm")
+        local shopConfirmBtn = getGuiButton("Confirm", {"ItemShop"})
         
-        if playBtn and playBtn.Visible and playBtn.AbsoluteSize.X > 0 then
+        if shopConfirmBtn and shopConfirmBtn.Visible and shopConfirmBtn.AbsoluteSize.X > 0 and not shopDone then
+            clickButton(shopConfirmBtn)
+            shopDone = true
+            task.wait(0.1)
+            
+            spamProximityPrompts()
+            task.wait(0.3)
+            
+            scriptExecuted = true
+            task.spawn(function()
+                local success, err = pcall(function()
+                    loadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/187f19b3cab5144ba87f91792383c3a4.lua"))()
+                end)
+                if not success then
+                    warn("[Xvlamer] Luarmor loadstring error: " .. tostring(err))
+                end
+            end)
+        elseif playBtn and playBtn.Visible and playBtn.AbsoluteSize.X > 0 then
             clickButton(playBtn)
             task.wait(0.1)
         elseif hotelBtn and hotelBtn.Visible and hotelBtn.AbsoluteSize.X > 0 then
             clickButton(hotelBtn)
             task.wait(0.1)
-        elseif confirmBtn and confirmBtn.Visible and confirmBtn.AbsoluteSize.X > 0 then
-            clickButton(confirmBtn)
-            task.wait(0.2)
-        else
-            -- Instant death trigger once inside the hotel
-            local char = player.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Health > 0 then
-                    hum.Health = 0
-                else
-                    task.wait(0.2)
-                end
-            end
+        elseif elevatorConfirmBtn and elevatorConfirmBtn.Visible and elevatorConfirmBtn.AbsoluteSize.X > 0 and not shopConfirmBtn then
+            clickButton(elevatorConfirmBtn)
+            task.wait(0.1)
         end
+    else
+        task.wait(1)
     end
 end
-
-task.spawn(runFarmLoop)
