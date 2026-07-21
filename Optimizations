@@ -32,15 +32,24 @@ local function optimizeObj(v)
             v.Transparency = 1
         elseif v:IsA("MeshPart") then
             if origParts[v] == nil then
-                origParts[v] = {Material = v.Material, TextureID = v.TextureID}
+                origParts[v] = {
+                    Material = v.Material,
+                    TextureID = v.TextureID,
+                    Reflectance = v.Reflectance
+                }
             end
             v.Material = Enum.Material.SmoothPlastic
             v.TextureID = ""
+            v.Reflectance = 0
         elseif v:IsA("BasePart") then
             if origParts[v] == nil then
-                origParts[v] = v.Material
+                origParts[v] = {
+                    Material = v.Material,
+                    Reflectance = v.Reflectance
+                }
             end
             v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
         end
     end)
 end
@@ -58,9 +67,10 @@ local function applyOptimizations()
         FogStart = Lighting.FogStart
     }
 
-    Lighting.Ambient = Color3.fromRGB(235, 235, 235)
-    Lighting.OutdoorAmbient = Color3.fromRGB(235, 235, 235)
-    Lighting.Brightness = 1.8
+    -- Toned down lighting (slightly dimmer and softer than before)
+    Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+    Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+    Lighting.Brightness = 1.4
     Lighting.GlobalShadows = false
 
     for _, v in ipairs(Workspace:GetDescendants()) do
@@ -149,10 +159,9 @@ local function revertOptimizations()
         if obj and obj.Parent then
             pcall(function()
                 if type(data) == "table" then
-                    obj.Material = data.Material
-                    obj.TextureID = data.TextureID
-                else
-                    obj.Material = data
+                    if data.Material then obj.Material = data.Material end
+                    if data.TextureID ~= nil then obj.TextureID = data.TextureID end
+                    if data.Reflectance ~= nil then obj.Reflectance = data.Reflectance end
                 end
             end)
         end
