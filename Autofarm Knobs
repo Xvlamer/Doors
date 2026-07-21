@@ -22,7 +22,6 @@ local function getMinesButton()
     local mainUI = playerGui:FindFirstChild("MainUI")
     if not mainUI then return nil end
     
-    -- Exact hierarchy path: SidePanel -> Frames -> Floors -> List -> Mines
     local sidePanel = mainUI:FindFirstChild("SidePanel")
     if sidePanel then
         local frames = sidePanel:FindFirstChild("Frames")
@@ -38,7 +37,6 @@ local function getMinesButton()
         end
     end
     
-    -- Fallback search
     for _, descendant in ipairs(mainUI:GetDescendants()) do
         if descendant:IsA("GuiButton") then
             local nameLower = descendant.Name:lower()
@@ -61,7 +59,6 @@ local function clickButtonAccurately(btn)
     end)
 end
 
--- Check if we are in the lobby
 local playBtn = getGuiButton("MainPlayButton")
 if playBtn then
     local playerGui = Player:FindFirstChild("PlayerGui")
@@ -134,7 +131,6 @@ if playBtn then
         actionTaken = true
         warningGui:Destroy()
         
-        -- Turn switch back off in the GUI
         if getgenv().XvlamersHubToggles and getgenv().XvlamersHubToggles["Knob Farm"] then
             pcall(function()
                 getgenv().XvlamersHubToggles["Knob Farm"](false)
@@ -147,7 +143,8 @@ if playBtn then
         actionTaken = true
         warningGui:Destroy()
         
-        -- Press MainPlayButton then Mines accurately, then stop
+        print("autofarm knobs is on")
+        
         task.spawn(function()
             local pBtn = getGuiButton("MainPlayButton")
             if pBtn then
@@ -164,5 +161,4 @@ if playBtn then
     return
 end
 
--- In-game execution logic goes here
-print("[Xvlamer] Knob Farm running in-game...")
+print("autofarm knobs is on")
