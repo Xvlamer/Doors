@@ -5,25 +5,28 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 print("[Xvlamer Hub] Death Farm Status: ON")
 
 local running = true
+local success = false
 
-local function fireButtonCompletely(btn)
+local function clickButton(btn)
     if not btn then return end
     pcall(function()
         btn.Visible = true
         btn.Active = true
         
-        local events = {"MouseButton1Down", "MouseButton1Up", "MouseButton1Click", "Activated"}
-        for _, eventName in ipairs(events) do
-            if btn[eventName] then
-                pcall(function() firesignal(btn[eventName]) end)
-                pcall(function()
-                    if getconnections then
-                        for _, conn in ipairs(getconnections(btn[eventName])) do
-                            conn:Fire()
-                        end
-                    end
-                end)
-            end
+        if firesignal then
+            pcall(function() firesignal(btn.MouseButton1Click) end)
+            pcall(function() firesignal(btn.Activated) end)
+        end
+        
+        if getconnections then
+            pcall(function()
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                    conn:Fire()
+                end
+                for _, conn in ipairs(getconnections(btn.Activated)) do
+                    conn:Fire()
+                end
+            end)
         end
         
         local absPos = btn.AbsolutePosition
@@ -34,7 +37,7 @@ local function fireButtonCompletely(btn)
             if VirtualInputManager then
                 pcall(function()
                     VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-                    task.wait(0.04)
+                    task.wait(0.05)
                     VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
                 end)
             end
@@ -43,31 +46,37 @@ local function fireButtonCompletely(btn)
 end
 
 task.spawn(function()
-    while running do
-        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 2)
-        if playerGui then
-            local mainPlayBtn = playerGui:FindFirstChild("MainPlayButton", true)
+    while running and not success do
+        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if not playerGui or not running then break end
+        
+        local mainPlayBtn = playerGui:FindFirstChild("MainPlayButton", true)
+        if mainPlayBtn and mainPlayBtn.Visible then
+            clickButton(mainPlayBtn)
+            task.wait(0.4)
+            
+            if not running then break end
+            
             local hotelBtn = playerGui:FindFirstChild("Hotel", true)
-            local confirmBtn = playerGui:FindFirstChild("Confirm", true)
-
-            if mainPlayBtn and hotelBtn and confirmBtn then
-                if mainPlayBtn.Visible then
-                    fireButtonCompletely(mainPlayBtn)
-                    task.wait(0.1)
-                end
-
-                if hotelBtn.Visible then
-                    fireButtonCompletely(hotelBtn)
-                    task.wait(0.1)
-                end
-
-                if confirmBtn.Visible then
-                    fireButtonCompletely(confirmBtn)
-                    task.wait(0.3)
+            if hotelBtn and hotelBtn.Visible then
+                clickButton(hotelBtn)
+                task.wait(0.4)
+                
+                if not running then break end
+                
+                local confirmBtn = playerGui:FindFirstChild("Confirm", true)
+                if confirmBtn and confirmBtn.Visible then
+                    clickButton(confirmBtn)
+                    task.wait(0.5)
+                    
+                    success = true
+                    print("[Xvlamer Hub] Death Farm: Success. Stopping execution.")
+                    break
                 end
             end
         end
-        task.wait(0.2)
+        
+        task.wait(0.5)
     end
 end)
 
