@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 print("[Xvlamer Hub] Death Farm Status: ON")
 
@@ -10,57 +11,84 @@ local function fireButton(btn)
     pcall(function()
         btn.Visible = true
         btn.Active = true
-    end)
-    pcall(function()
+        
+        -- Method 1: Fire standard Roblox signals
         if firesignal then
-            firesignal(btn.Activated)
-            firesignal(btn.MouseButton1Click)
+            pcall(function() firesignal(btn.MouseButton1Click) end)
+            pcall(function() firesignal(btn.Activated) end)
         end
-    end)
-    pcall(function()
+        
+        -- Method 2: Force all active script connections attached to the button
         if getconnections then
-            for _, conn in ipairs(getconnections(btn.Activated)) do
-                conn:Fire()
-            end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-                conn:Fire()
+            pcall(function()
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                    conn:Fire()
+                end
+                for _, conn in ipairs(getconnections(btn.Activated)) do
+                    conn:Fire()
+                end
+            end)
+        end
+        
+        -- Method 3: Simulate a real mouse click using VirtualInputManager on the button's screen coordinates
+        local absPos = btn.AbsolutePosition
+        local absSize = btn.AbsoluteSize
+        if absSize.X > 0 and absSize.Y > 0 then
+            local centerX = absPos.X + (absSize.X / 2)
+            local centerY = absPos.Y + (absSize.Y / 2)
+            if VirtualInputManager then
+                pcall(function()
+                    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+                    task.wait(0.02)
+                    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+                end)
             end
         end
     end)
+end
+
+local function findButton(parent, name)
+    if not parent then return nil end
+    -- Check direct descendants and deep recursive tree
+    local found = parent:FindFirstChild(name, true)
+    if found then return found end
+    for _, descendant in ipairs(parent:GetDescendants()) do
+        if descendant.Name == name then
+            return descendant
+        end
+    end
+    return nil
 end
 
 task.spawn(function()
     while running do
         local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 2)
         if playerGui then
-            local mainUi = playerGui:FindFirstChild("MainUI", true)
-            if mainUi then
-                local mainPlayBtn = mainUi:FindFirstChild("MainPlayButton", true)
-                local hotelBtn = mainUi:FindFirstChild("Hotel", true)
-                local confirmBtn = mainUi:FindFirstChild("Confirm", true)
+            local mainPlayBtn = findButton(playerGui, "MainPlayButton")
+            local hotelBtn = findButton(playerGui, "Hotel")
+            local confirmBtn = findButton(playerGui, "Confirm")
 
-                -- Check if the buttons are present before clicking
-                if mainPlayBtn or hotelBtn or confirmBtn then
-                    if mainPlayBtn then
-                        fireButton(mainPlayBtn)
-                        task.wait(0.02)
-                    end
-                    if hotelBtn then
-                        fireButton(hotelBtn)
-                        task.wait(0.02)
-                    end
-                    if confirmBtn then
-                        fireButton(confirmBtn)
-                        task.wait(0.02)
-                    end
+            -- Continuously verify and click if the buttons are present and visible
+            if mainPlayBtn or hotelBtn or confirmBtn then
+                if mainPlayBtn then
+                    fireButton(mainPlayBtn)
+                    task.wait(0.05)
+                end
+                if hotelBtn then
+                    fireButton(hotelBtn)
+                    task.wait(0.05)
+                end
+                if confirmBtn then
+                    fireButton(confirmBtn)
+                    task.wait(0.05)
                 end
             end
         end
-        task.wait(0.2) -- Efficient polling interval while waiting for UI elements to appear
+        task.wait(0.2) -- Fast, lightweight checking loop
     end
 end)
 
--- Cleanup function called automatically by your GUI when toggled off
+-- Cleanup function called automatically when switched off in the GUI
 return function()
     running = false
     print("[Xvlamer Hub] Death Farm Status: OFF")
