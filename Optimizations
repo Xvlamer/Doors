@@ -1,4 +1,4 @@
--- Extreme Roblox FPS & Reflection Optimization Module v3
+-- Extreme Roblox FPS & Reflection Optimization Module v4
 local Optimizer = {}
 
 local Lighting = game:GetService("Lighting")
@@ -7,6 +7,8 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 local isEnabled = false
+local isTransitioning = false
+local sweepToken = 0
 local connections = {}
 
 local cache = {
@@ -35,12 +37,19 @@ local function checkBillboard(v)
     if not isEnabled then return end
     
     if v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
-        local character = v.Parent
-        -- Check if it's attached to a player model
+        local character = nil
+        local parent = v.Parent
+        if parent then
+            if parent:IsA("BasePart") then
+                character = parent.Parent
+            elseif parent:IsA("Model") then
+                character = parent
+            end
+        end
+        
         if character and character:IsA("Model") then
             local player = Players:GetPlayerFromCharacter(character)
             if player then
-                -- Hide only if NOT self and NOT a friend
                 if not isFriendOrSelf(player) then
                     if cache.billboards[v] == nil then
                         cache.billboards[v] = v.Enabled
@@ -104,12 +113,12 @@ local function applyOptimization(v)
     checkBillboard(v)
 end
 
-local function optimizeWorkspace()
+local function optimizeWorkspace(currentToken)
     local stack = Workspace:GetChildren()
     task.spawn(function()
-        while #stack > 0 and isEnabled do
+        while #stack > 0 and isEnabled and sweepToken == currentToken do
             local budget = os.clock() + 0.005 
-            while #stack > 0 and os.clock() < budget do
+            while #stack > 0 and os.clock() < budget and sweepToken == currentToken do
                 local node = table.remove(stack)
                 if node then
                     applyOptimization(node)
@@ -120,13 +129,20 @@ local function optimizeWorkspace()
                     end
                 end
             end
-            if #stack > 0 then task.wait() end
+            if #stack > 0 and sweepToken == currentToken then 
+                task.wait() 
+            end
         end
     end)
 end
 
 function Optimizer.Enable()
-    if isEnabled then return end
+    if isEnabled or isTransitioning then return end
+    isTransitioning = true
+    
+    sweepToken = sweepToken + 1
+    local currentToken = sweepToken
+
     isEnabled = true
 
     pcall(function()
@@ -172,11 +188,15 @@ function Optimizer.Enable()
         end
     end)
 
-    optimizeWorkspace()
+    optimizeWorkspace(currentToken)
+    isTransitioning = false
 end
 
 function Optimizer.Disable()
-    if not isEnabled then return end
+    if (not isEnabled) or isTransitioning then return end
+    isTransitioning = true
+    
+    sweepToken = sweepToken + 1 -- Instantly kills any active background sweeps
     isEnabled = false
 
     for _, conn in pairs(connections) do
@@ -238,6 +258,8 @@ function Optimizer.Disable()
         end
     end
     table.clear(cache.billboards)
+    
+    isTransitioning = false
 end
 
 function Optimizer.Toggle(state)
