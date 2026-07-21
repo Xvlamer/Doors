@@ -2,52 +2,81 @@ local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
 
-local function clickButton(button)
-    if not button then return end
+local function getGuiButton(name)
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    local mainUI = playerGui:FindFirstChild("MainUI")
+    if not mainUI then return nil end
+    
+    for _, descendant in ipairs(mainUI:GetDescendants()) do
+        if (descendant:IsA("TextButton") or descendant:IsA("ImageButton")) and descendant.Name == name then
+            return descendant
+        end
+    end
+    return nil
+end
+
+local function clickButton(btn)
+    if not btn then return end
     pcall(function()
-        local pos = button.AbsolutePosition + (button.AbsoluteSize / 2)
-        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y + 36, 0, true, game, 0)
-        task.wait(0.05)
-        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y + 36, 0, false, game, 0)
+        if not btn.AbsoluteSize or btn.AbsoluteSize.X == 0 then return end
+        
+        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+        local x, y = pos.X, pos.Y + 36
+        
+        -- Simulate physical mouse click
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+        task.wait(0.03)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        
+        -- Force-fire button connections if supported by the executor
+        if getconnections then
+            pcall(function()
+                for _, conn in ipairs(getconnections(btn.Activated)) do
+                    conn:Fire()
+                end
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                    conn:Fire()
+                end
+            end)
+        end
     end)
 end
 
-local function runDeathFarmLoop()
+local function runFarmLoop()
     while true do
-        task.wait(1)
+        task.wait(0.4)
         
-        local clickedLobbyUI = false
+        -- Check the 3 mandatory lobby buttons in exact sequential order
+        local playBtn = getGuiButton("MainPlayButton")
+        local hotelBtn = getGuiButton("Hotel")
+        local confirmBtn = getGuiButton("Confirm")
         
-        -- Step 1: Scan and click lobby/elevator/start buttons to enter the game
-        for _, gui in ipairs(player.PlayerGui:GetDescendants()) do
-            if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
-                local text = (gui:IsA("TextButton") and gui.Text:lower()) or ""
-                if text:find("play") or text:find("elevator") or text:find("start") or text:find("solo") or text:find("ready") then
-                    clickButton(gui)
-                    clickedLobbyUI = true
-                    task.wait(1.5)
-                    break
-                end
-            end
-        end
-        
-        -- Step 2: Once inside the hotel, execute the death hack/cycle
-        if not clickedLobbyUI then
+        if playBtn and playBtn.Visible and playBtn.AbsoluteSize.X > 0 then
+            clickButton(playBtn)
+            task.wait(0.6)
+        elseif hotelBtn and hotelBtn.Visible and hotelBtn.AbsoluteSize.X > 0 then
+            clickButton(hotelBtn)
+            task.wait(0.6)
+        elseif confirmBtn and confirmBtn.Visible and confirmBtn.AbsoluteSize.X > 0 then
+            clickButton(confirmBtn)
+            task.wait(1.5)
+        else
+            -- Once inside the game/hotel, execute the death loop cycle
             local char = player.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            
-            if hum and hum.Health > 0 then
-                -- Force death to progress the death farm stats
-                pcall(function()
-                    hum.Health = 0
-                end)
-                task.wait(2)
-            elseif hum and hum.Health <= 0 then
-                -- Wait out the respawn cycle before looping back to the lobby check
-                task.wait(3)
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    task.wait(0.5)
+                    pcall(function()
+                        hum.Health = 0
+                    end)
+                elseif hum and hum.Health <= 0 then
+                    task.wait(2.5)
+                end
             end
         end
     end
 end
 
-task.spawn(runDeathFarmLoop)
+task.spawn(runFarmLoop)
