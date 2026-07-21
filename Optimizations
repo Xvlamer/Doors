@@ -17,9 +17,6 @@ local cache = {
     terrain = {},
     quality = nil
 }
-setmetatable(cache.props, {__mode = "k"})
-setmetatable(cache.surfaces, {__mode = "k"})
-setmetatable(cache.fx, {__mode = "k"})
 
 local function applyOptimization(v)
     if not isEnabled then return end
@@ -174,7 +171,7 @@ local function executeDisable(currentToken)
     table.clear(cache.terrain)
 
     for obj, props in pairs(cache.props) do
-        if obj and obj.Parent then
+        if obj then
             for propName, propValue in pairs(props) do
                 pcall(function() obj[propName] = propValue end)
             end
