@@ -1,13 +1,11 @@
--- Extreme Roblox FPS & Reflection Optimization Module v4
 local Optimizer = {}
 
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 
 local isEnabled = false
-local isTransitioning = false
+local targetState = false
+local isProcessing = false
 local sweepToken = 0
 local connections = {}
 
@@ -17,49 +15,11 @@ local cache = {
     fx = {},
     lighting = {},
     terrain = {},
-    billboards = {},
     quality = nil
 }
 setmetatable(cache.props, {__mode = "k"})
 setmetatable(cache.surfaces, {__mode = "k"})
 setmetatable(cache.fx, {__mode = "k"})
-setmetatable(cache.billboards, {__mode = "k"})
-
-local function isFriendOrSelf(player)
-    if player == LocalPlayer then return true end
-    local success, result = pcall(function()
-        return player:IsFriendsWith(LocalPlayer.UserId)
-    end)
-    return success and result
-end
-
-local function checkBillboard(v)
-    if not isEnabled then return end
-    
-    if v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
-        local character = nil
-        local parent = v.Parent
-        if parent then
-            if parent:IsA("BasePart") then
-                character = parent.Parent
-            elseif parent:IsA("Model") then
-                character = parent
-            end
-        end
-        
-        if character and character:IsA("Model") then
-            local player = Players:GetPlayerFromCharacter(character)
-            if player then
-                if not isFriendOrSelf(player) then
-                    if cache.billboards[v] == nil then
-                        cache.billboards[v] = v.Enabled
-                    end
-                    pcall(function() v.Enabled = false end)
-                end
-            end
-        end
-    end
-end
 
 local function applyOptimization(v)
     if not isEnabled then return end
@@ -109,11 +69,60 @@ local function applyOptimization(v)
             end
         end
     end
-    
-    checkBillboard(v)
 end
 
-local function optimizeWorkspace(currentToken)
+local function executeEnable(currentToken)
+    isEnabled = true
+
+    pcall(function()
+        if cache.quality == nil then
+            cache.quality = settings().Rendering.QualityLevel
+        end
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    end)
+
+    if next(cache.lighting) == nil then
+        cache.lighting = {
+            GlobalShadows = Lighting.GlobalShadows,
+            EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
+            EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale
+        }
+    end
+
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.EnvironmentSpecularScale = 0
+        Lighting.EnvironmentDiffuseScale = 0
+    end)
+
+    for _, v in pairs(Lighting:GetChildren()) do
+        applyOptimization(v)
+    end
+
+    local terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if terrain and next(cache.terrain) == nil then
+        cache.terrain = {
+            WaterWaveSize = terrain.WaterWaveSize,
+            WaterWaveSpeed = terrain.WaterWaveSpeed,
+            WaterReflectance = terrain.WaterReflectance,
+            WaterTransparency = terrain.WaterTransparency
+        }
+        pcall(function()
+            terrain.WaterWaveSize = 0
+            terrain.WaterWaveSpeed = 0
+            terrain.WaterReflectance = 0
+            terrain.WaterTransparency = 0
+        end)
+    end
+
+    if not connections.descendantAdded then
+        connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v)
+            if isEnabled then
+                applyOptimization(v)
+            end
+        end)
+    end
+
     local stack = Workspace:GetChildren()
     task.spawn(function()
         while #stack > 0 and isEnabled and sweepToken == currentToken do
@@ -136,73 +145,14 @@ local function optimizeWorkspace(currentToken)
     end)
 end
 
-function Optimizer.Enable()
-    if isEnabled or isTransitioning then return end
-    isTransitioning = true
-    
-    sweepToken = sweepToken + 1
-    local currentToken = sweepToken
-
-    isEnabled = true
-
-    pcall(function()
-        cache.quality = settings().Rendering.QualityLevel
-        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-    end)
-
-    cache.lighting = {
-        GlobalShadows = Lighting.GlobalShadows,
-        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
-        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale
-    }
-
-    pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.EnvironmentSpecularScale = 0
-        Lighting.EnvironmentDiffuseScale = 0
-    end)
-
-    for _, v in pairs(Lighting:GetChildren()) do
-        applyOptimization(v)
-    end
-
-    local terrain = Workspace:FindFirstChildOfClass("Terrain")
-    if terrain then
-        cache.terrain = {
-            WaterWaveSize = terrain.WaterWaveSize,
-            WaterWaveSpeed = terrain.WaterWaveSpeed,
-            WaterReflectance = terrain.WaterReflectance,
-            WaterTransparency = terrain.WaterTransparency
-        }
-        pcall(function()
-            terrain.WaterWaveSize = 0
-            terrain.WaterWaveSpeed = 0
-            terrain.WaterReflectance = 0
-            terrain.WaterTransparency = 0
-        end)
-    end
-
-    connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v)
-        if isEnabled then
-            applyOptimization(v)
-        end
-    end)
-
-    optimizeWorkspace(currentToken)
-    isTransitioning = false
-end
-
-function Optimizer.Disable()
-    if (not isEnabled) or isTransitioning then return end
-    isTransitioning = true
-    
-    sweepToken = sweepToken + 1 -- Instantly kills any active background sweeps
+local function executeDisable(currentToken)
+    sweepToken = currentToken
     isEnabled = false
 
-    for _, conn in pairs(connections) do
-        pcall(function() conn:Disconnect() end)
+    if connections.descendantAdded then
+        pcall(function() connections.descendantAdded:Disconnect() end)
+        connections.descendantAdded = nil
     end
-    table.clear(connections)
 
     pcall(function()
         if cache.quality then
@@ -251,23 +201,38 @@ function Optimizer.Disable()
         end
     end
     table.clear(cache.fx)
+end
 
-    for obj, oldState in pairs(cache.billboards) do
-        if obj then
-            pcall(function() obj.Enabled = oldState end)
+local function processQueue()
+    if isProcessing then return end
+    isProcessing = true
+
+    while targetState ~= isEnabled do
+        sweepToken = sweepToken + 1
+        local currentToken = sweepToken
+        
+        if targetState then
+            executeEnable(currentToken)
+        else
+            executeDisable(currentToken)
         end
+        task.wait(0.05)
     end
-    table.clear(cache.billboards)
-    
-    isTransitioning = false
+
+    isProcessing = false
 end
 
 function Optimizer.Toggle(state)
-    if state then
-        Optimizer.Enable()
-    else
-        Optimizer.Disable()
-    end
+    targetState = state and true or false
+    task.spawn(processQueue)
+end
+
+function Optimizer.Enable()
+    Optimizer.Toggle(true)
+end
+
+function Optimizer.Disable()
+    Optimizer.Toggle(false)
 end
 
 return Optimizer
