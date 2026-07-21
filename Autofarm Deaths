@@ -51,26 +51,25 @@ task.spawn(function()
         if not playerGui or not running then break end
         
         local mainPlayBtn = playerGui:FindFirstChild("MainPlayButton", true)
-        if mainPlayBtn and mainPlayBtn.Visible then
+        if mainPlayBtn and mainPlayBtn.Visible and running then
             clickButton(mainPlayBtn)
             task.wait(0.4)
             
             if not running then break end
             
             local hotelBtn = playerGui:FindFirstChild("Hotel", true)
-            if hotelBtn and hotelBtn.Visible then
+            if hotelBtn and hotelBtn.Visible and running then
                 clickButton(hotelBtn)
                 task.wait(0.4)
                 
                 if not running then break end
                 
                 local confirmBtn = playerGui:FindFirstChild("Confirm", true)
-                if confirmBtn and confirmBtn.Visible then
+                if confirmBtn and confirmBtn.Visible and running then
                     clickButton(confirmBtn)
                     task.wait(0.5)
                     
                     success = true
-                    print("[Xvlamer Hub] Death Farm: Success. Stopping execution.")
                     break
                 end
             end
