@@ -1,1 +1,118 @@
+local Optimizer = {}
+local L = game:GetService("Lighting")
+local W = game:GetService("Workspace")
+local T = W:FindFirstChildOfClass("Terrain")
 
+local active = false
+local conn = nil
+local origL = {}
+local pParts = {}
+
+local function opt(v)
+    if not active then return end
+    
+    if v:IsA("BasePart") then
+        if not pParts[v] then
+            pParts[v] = {r = v.Reflectance, m = v.Material, c = v.CastShadow}
+        end
+        v.Reflectance = 0
+        v.CastShadow = false
+        if v.Material ~= Enum.Material.SmoothPlastic then
+            v.Material = Enum.Material.SmoothPlastic
+        end
+    elseif v:IsA("SurfaceAppearance") or v:IsA("Decal") or v:IsA("Texture") then
+        if not pParts[v] then 
+            pParts[v] = {p = v.Parent} 
+        end
+        v.Parent = nil
+    elseif v:IsA("PostEffect") or v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+        if v.Enabled then
+            if not pParts[v] then 
+                pParts[v] = {e = true} 
+            end
+            v.Enabled = false
+        end
+    end
+end
+
+function Optimizer.Enable()
+    if active then return end
+    active = true
+    
+    origL = {
+        gs = L.GlobalShadows,
+        es = L.EnvironmentSpecularScale,
+        ed = L.EnvironmentDiffuseScale
+    }
+    
+    L.GlobalShadows = false
+    L.EnvironmentSpecularScale = 0
+    L.EnvironmentDiffuseScale = 0
+    
+    if T then
+        origL.tw = T.WaterWaveSize
+        origL.ts = T.WaterWaveSpeed
+        origL.tr = T.WaterReflectance
+        origL.tt = T.WaterTransparency
+        T.WaterWaveSize = 0
+        T.WaterWaveSpeed = 0
+        T.WaterReflectance = 0
+        T.WaterTransparency = 1
+    end
+    
+    local des = W:GetDescendants()
+    task.spawn(function()
+        for i = 1, #des do
+            opt(des[i])
+            if i % 250 == 0 then task.wait() end
+        end
+    end)
+    
+    conn = W.DescendantAdded:Connect(opt)
+end
+
+function Optimizer.Disable()
+    if not active then return end
+    active = false
+    
+    if conn then 
+        conn:Disconnect() 
+        conn = nil 
+    end
+    
+    L.GlobalShadows = origL.gs
+    L.EnvironmentSpecularScale = origL.es
+    L.EnvironmentDiffuseScale = origL.ed
+    
+    if T and origL.tw then
+        T.WaterWaveSize = origL.tw
+        T.WaterWaveSpeed = origL.ts
+        T.WaterReflectance = origL.tr
+        T.WaterTransparency = origL.tt
+    end
+    
+    for v, d in pairs(pParts) do
+        if v then
+            if v:IsA("BasePart") then
+                v.Reflectance = d.r
+                v.Material = d.m
+                v.CastShadow = d.c
+            elseif d.p then
+                v.Parent = d.p
+            elseif d.e then
+                v.Enabled = true
+            end
+        end
+    end
+    table.clear(pParts)
+end
+
+function Optimizer.Toggle(s)
+    if s then 
+        Optimizer.Enable() 
+    else 
+        Optimizer.Disable() 
+    end
+end
+
+return Optimizer
