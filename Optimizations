@@ -7,6 +7,7 @@ local isEnabled = false
 local targetState = false
 local isProcessing = false
 local sweepToken = 0
+local activeWorker = nil
 local connections = {}
 
 local cache = {
@@ -18,24 +19,33 @@ local cache = {
     quality = nil
 }
 
-local function applyOptimization(v)
-    if not isEnabled then return end
+local function applyOptimization(v, currentToken)
+    if not isEnabled or sweepToken ~= currentToken then return end
 
     if v:IsA("BasePart") then
         if not cache.props[v] then
-            cache.props[v] = {
-                Reflectance = v.Reflectance,
-                Material = v.Material,
-                CastShadow = v.CastShadow
-            }
-        end
-        pcall(function()
-            v.Reflectance = 0
-            v.CastShadow = false
-            if v.Material ~= Enum.Material.SmoothPlastic and v.Material ~= Enum.Material.Plastic then
-                v.Material = Enum.Material.SmoothPlastic
+            local mat = v.Material
+            if mat ~= Enum.Material.SmoothPlastic and mat ~= Enum.Material.Plastic then
+                cache.props[v] = {
+                    Reflectance = v.Reflectance,
+                    Material = mat,
+                    CastShadow = v.CastShadow
+                }
+                pcall(function()
+                    v.Reflectance = 0
+                    v.CastShadow = false
+                    v.Material = Enum.Material.SmoothPlastic
+                end)
             end
-        end)
+        else
+            pcall(function()
+                v.Reflectance = 0
+                v.CastShadow = false
+                if v.Material ~= Enum.Material.SmoothPlastic and v.Material ~= Enum.Material.Plastic then
+                    v.Material = Enum.Material.SmoothPlastic
+                end
+            end)
+        end
 
     elseif v:IsA("SurfaceAppearance") then
         if not cache.surfaces[v] then
@@ -93,7 +103,7 @@ local function executeEnable(currentToken)
     end)
 
     for _, v in pairs(Lighting:GetChildren()) do
-        applyOptimization(v)
+        applyOptimization(v, currentToken)
     end
 
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
@@ -115,20 +125,20 @@ local function executeEnable(currentToken)
     if not connections.descendantAdded then
         connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v)
             if isEnabled then
-                applyOptimization(v)
+                applyOptimization(v, currentToken)
             end
         end)
     end
 
     local stack = Workspace:GetChildren()
-    task.spawn(function()
+    activeWorker = task.spawn(function()
         while #stack > 0 and isEnabled and sweepToken == currentToken do
             local budget = os.clock() + 0.005 
             while #stack > 0 and os.clock() < budget and sweepToken == currentToken do
                 local node = table.remove(stack)
                 if node then
-                    applyOptimization(node)
-                    if node.Parent ~= nil then
+                    applyOptimization(node, currentToken)
+                    if node.Parent ~= nil and sweepToken == currentToken then
                         for _, child in ipairs(node:GetChildren()) do
                             table.insert(stack, child)
                         end
@@ -145,6 +155,11 @@ end
 local function executeDisable(currentToken)
     sweepToken = currentToken
     isEnabled = false
+
+    if activeWorker then
+        pcall(function() task.cancel(activeWorker) end)
+        activeWorker = nil
+    end
 
     if connections.descendantAdded then
         pcall(function() connections.descendantAdded:Disconnect() end)
@@ -220,7 +235,9 @@ local function processQueue()
 end
 
 function Optimizer.Toggle(state)
-    targetState = state and true or false
+    local newState = state and true or false
+    if targetState == newState then return end
+    targetState = newState
     task.spawn(processQueue)
 end
 
