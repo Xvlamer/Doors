@@ -1,54 +1,68 @@
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
 
-local function getLobbyButtons()
-    local mainPlay, hotel, confirm
-    
-    for _, gui in ipairs(playerGui:GetDescendants()) do
-        if gui.Name == "MainPlayButton" then
-            mainPlay = gui
-        elseif gui.Name == "Hotel" then
-            hotel = gui
-        elseif gui.Name == "Confirm" then
-            confirm = gui
-        end
-        
-        -- Early exit if all three are found
-        if mainPlay and hotel and confirm then
-            break
-        end
-    end
-    
-    return mainPlay, hotel, confirm
-end
+local LOBBY_PLACE_ID = 6516141723
 
-local function handleLobbySpawn()
-    local mainPlayButton, hotelButton, confirmButton = getLobbyButtons()
-    
-    -- Check if all three buttons exist before attempting any clicks
-    if mainPlayButton and hotelButton and confirmButton then
-        -- Press them in order, extremely fast
-        task.spawn(function()
-            pcall(function()
-                if firesignal then
-                    firesignal(mainPlayButton.Activated)
-                    firesignal(hotelButton.Activated)
-                    firesignal(confirmButton.Activated)
-                else
-                    mainPlayButton.MouseButton1Click:Fire()
-                    hotelButton.MouseButton1Click:Fire()
-                    confirmButton.MouseButton1Click:Fire()
-                end
-            end)
-        end)
-    else
-        -- Skip the button process entirely if buttons are missing and continue script
+local function checkAndJoinLobby()
+    -- Check if we are in the main lobby first before anything else
+    if game.PlaceId ~= LOBBY_PLACE_ID then
         return false
     end
-    
+
+    task.spawn(function()
+        local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+        if not playerGui then return end
+        local mainUi = playerGui:WaitForChild("MainUI", 10)
+        if not mainUi then return end
+
+        local function fireButton(btn)
+            if btn then
+                pcall(function()
+                    btn.Visible = true
+                end)
+                pcall(function()
+                    if getconnections then
+                        for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                            conn:Fire()
+                        end
+                    end
+                end)
+                pcall(function()
+                    if firesignal then
+                        firesignal(btn.MouseButton1Click)
+                    end
+                end)
+            end
+        end
+
+        -- Find the 3 target buttons dynamically within MainUI
+        local mainPlayBtn = mainUi:FindFirstChild("MainPlayButton", true)
+        local hotelBtn = mainUi:FindFirstChild("Hotel", true)
+        local confirmBtn = mainUi:FindFirstChild("Confirm", true)
+
+        -- 1st: Click MainPlayButton
+        if mainPlayBtn then
+            fireButton(mainPlayBtn)
+        end
+
+        -- Minimal delay to ensure the game registers the first click before the next
+        task.wait(0.05)
+
+        -- 2nd: Click Hotel button
+        if hotelBtn then
+            fireButton(hotelBtn)
+        end
+
+        task.wait(0.05)
+
+        -- 3rd: Click Confirm button
+        if confirmBtn then
+            fireButton(confirmBtn)
+        end
+    end)
+
     return true
 end
 
--- Execute the lobby check
-handleLobbySpawn()
+-- Execute immediately when loaded via loadstring
+return checkAndJoinLobby()
