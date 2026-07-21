@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-
 local player = Players.LocalPlayer
 
 local function clickButton(button)
@@ -13,42 +12,42 @@ local function clickButton(button)
     end)
 end
 
-local function startDeathFarm()
+local function runDeathFarmLoop()
     while true do
         task.wait(1)
-        local char = player.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
         
-        if hum and hum.Health <= 0 then
-            -- Wait for death screen elements to load in
-            task.wait(1.5)
-            
-            local found = false
-            for _, gui in ipairs(player.PlayerGui:GetDescendants()) do
-                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                    local text = (gui:IsA("TextButton") and gui.Text:lower()) or ""
-                    if text:find("again") or text:find("restart") or text:find("lobby") or text:find("revive") or text:find("respawn") then
-                        clickButton(gui)
-                        found = true
-                        break
-                    end
+        local clickedLobbyUI = false
+        
+        -- Step 1: Scan and click lobby/elevator/start buttons to enter the game
+        for _, gui in ipairs(player.PlayerGui:GetDescendants()) do
+            if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
+                local text = (gui:IsA("TextButton") and gui.Text:lower()) or ""
+                if text:find("play") or text:find("elevator") or text:find("start") or text:find("solo") or text:find("ready") then
+                    clickButton(gui)
+                    clickedLobbyUI = true
+                    task.wait(1.5)
+                    break
                 end
             end
+        end
+        
+        -- Step 2: Once inside the hotel, execute the death hack/cycle
+        if not clickedLobbyUI then
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
             
-            -- Fallback if UI button wasn't matched immediately
-            if not found then
+            if hum and hum.Health > 0 then
+                -- Force death to progress the death farm stats
                 pcall(function()
-                    if char:FindFirstChild("HumanoidRootPart") then
-                        char.HumanoidRootPart:Destroy()
-                    end
+                    hum.Health = 0
                 end)
+                task.wait(2)
+            elseif hum and hum.Health <= 0 then
+                -- Wait out the respawn cycle before looping back to the lobby check
+                task.wait(3)
             end
-            
-            -- Wait for the player to successfully respawn before looping
-            player.CharacterAdded:Wait()
-            task.wait(2)
         end
     end
 end
 
-task.spawn(startDeathFarm)
+task.spawn(runDeathFarmLoop)
