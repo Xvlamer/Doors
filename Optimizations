@@ -1,117 +1,250 @@
+-- Extreme Roblox FPS & Reflection Optimization Module v3
 local Optimizer = {}
-local L = game:GetService("Lighting")
-local W = game:GetService("Workspace")
-local T = W:FindFirstChildOfClass("Terrain")
 
-local active = false
-local conn = nil
-local origL = {}
-local pParts = {}
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
-local function opt(v)
-    if not active then return end
+local isEnabled = false
+local connections = {}
+
+local cache = {
+    props = {},
+    surfaces = {},
+    fx = {},
+    lighting = {},
+    terrain = {},
+    billboards = {},
+    quality = nil
+}
+setmetatable(cache.props, {__mode = "k"})
+setmetatable(cache.surfaces, {__mode = "k"})
+setmetatable(cache.fx, {__mode = "k"})
+setmetatable(cache.billboards, {__mode = "k"})
+
+local function isFriendOrSelf(player)
+    if player == LocalPlayer then return true end
+    local success, result = pcall(function()
+        return player:IsFriendsWith(LocalPlayer.UserId)
+    end)
+    return success and result
+end
+
+local function checkBillboard(v)
+    if not isEnabled then return end
     
-    if v:IsA("BasePart") then
-        if not pParts[v] then
-            pParts[v] = {r = v.Reflectance, m = v.Material, c = v.CastShadow}
-        end
-        v.Reflectance = 0
-        v.CastShadow = false
-        if v.Material ~= Enum.Material.SmoothPlastic then
-            v.Material = Enum.Material.SmoothPlastic
-        end
-    elseif v:IsA("SurfaceAppearance") or v:IsA("Decal") or v:IsA("Texture") then
-        if not pParts[v] then 
-            pParts[v] = {p = v.Parent} 
-        end
-        v.Parent = nil
-    elseif v:IsA("PostEffect") or v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
-        if v.Enabled then
-            if not pParts[v] then 
-                pParts[v] = {e = true} 
+    if v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+        local character = v.Parent
+        -- Check if it's attached to a player model
+        if character and character:IsA("Model") then
+            local player = Players:GetPlayerFromCharacter(character)
+            if player then
+                -- Hide only if NOT self and NOT a friend
+                if not isFriendOrSelf(player) then
+                    if cache.billboards[v] == nil then
+                        cache.billboards[v] = v.Enabled
+                    end
+                    pcall(function() v.Enabled = false end)
+                end
             end
-            v.Enabled = false
         end
     end
+end
+
+local function applyOptimization(v)
+    if not isEnabled then return end
+
+    if v:IsA("BasePart") then
+        if not cache.props[v] then
+            cache.props[v] = {
+                Reflectance = v.Reflectance,
+                Material = v.Material,
+                CastShadow = v.CastShadow
+            }
+        end
+        pcall(function()
+            v.Reflectance = 0
+            v.CastShadow = false
+            if v.Material ~= Enum.Material.SmoothPlastic and v.Material ~= Enum.Material.Plastic then
+                v.Material = Enum.Material.SmoothPlastic
+            end
+        end)
+
+    elseif v:IsA("SurfaceAppearance") then
+        if not cache.surfaces[v] then
+            cache.surfaces[v] = v.Parent
+        end
+        pcall(function() v.Parent = nil end)
+
+    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+        if cache.fx[v] == nil then
+            cache.fx[v] = v.Enabled
+        end
+        pcall(function() v.Enabled = false end)
+
+    elseif v:IsA("Decal") or v:IsA("Texture") then
+        if not cache.props[v] then
+            cache.props[v] = { Transparency = v.Transparency }
+        end
+        pcall(function() v.Transparency = 1 end)
+        
+    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
+        if cache.fx[v] == nil then
+            if v:IsA("Sky") or v:IsA("Atmosphere") then
+                cache.fx[v] = v.Parent
+                pcall(function() v.Parent = nil end)
+            else
+                cache.fx[v] = v.Enabled
+                pcall(function() v.Enabled = false end)
+            end
+        end
+    end
+    
+    checkBillboard(v)
+end
+
+local function optimizeWorkspace()
+    local stack = Workspace:GetChildren()
+    task.spawn(function()
+        while #stack > 0 and isEnabled do
+            local budget = os.clock() + 0.005 
+            while #stack > 0 and os.clock() < budget do
+                local node = table.remove(stack)
+                if node then
+                    applyOptimization(node)
+                    if node.Parent ~= nil then
+                        for _, child in ipairs(node:GetChildren()) do
+                            table.insert(stack, child)
+                        end
+                    end
+                end
+            end
+            if #stack > 0 then task.wait() end
+        end
+    end)
 end
 
 function Optimizer.Enable()
-    if active then return end
-    active = true
-    
-    origL = {
-        gs = L.GlobalShadows,
-        es = L.EnvironmentSpecularScale,
-        ed = L.EnvironmentDiffuseScale
+    if isEnabled then return end
+    isEnabled = true
+
+    pcall(function()
+        cache.quality = settings().Rendering.QualityLevel
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    end)
+
+    cache.lighting = {
+        GlobalShadows = Lighting.GlobalShadows,
+        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
+        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale
     }
-    
-    L.GlobalShadows = false
-    L.EnvironmentSpecularScale = 0
-    L.EnvironmentDiffuseScale = 0
-    
-    if T then
-        origL.tw = T.WaterWaveSize
-        origL.ts = T.WaterWaveSpeed
-        origL.tr = T.WaterReflectance
-        origL.tt = T.WaterTransparency
-        T.WaterWaveSize = 0
-        T.WaterWaveSpeed = 0
-        T.WaterReflectance = 0
-        T.WaterTransparency = 1
+
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.EnvironmentSpecularScale = 0
+        Lighting.EnvironmentDiffuseScale = 0
+    end)
+
+    for _, v in pairs(Lighting:GetChildren()) do
+        applyOptimization(v)
     end
-    
-    local des = W:GetDescendants()
-    task.spawn(function()
-        for i = 1, #des do
-            opt(des[i])
-            if i % 250 == 0 then task.wait() end
+
+    local terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        cache.terrain = {
+            WaterWaveSize = terrain.WaterWaveSize,
+            WaterWaveSpeed = terrain.WaterWaveSpeed,
+            WaterReflectance = terrain.WaterReflectance,
+            WaterTransparency = terrain.WaterTransparency
+        }
+        pcall(function()
+            terrain.WaterWaveSize = 0
+            terrain.WaterWaveSpeed = 0
+            terrain.WaterReflectance = 0
+            terrain.WaterTransparency = 0
+        end)
+    end
+
+    connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v)
+        if isEnabled then
+            applyOptimization(v)
         end
     end)
-    
-    conn = W.DescendantAdded:Connect(opt)
+
+    optimizeWorkspace()
 end
 
 function Optimizer.Disable()
-    if not active then return end
-    active = false
-    
-    if conn then 
-        conn:Disconnect() 
-        conn = nil 
+    if not isEnabled then return end
+    isEnabled = false
+
+    for _, conn in pairs(connections) do
+        pcall(function() conn:Disconnect() end)
     end
-    
-    L.GlobalShadows = origL.gs
-    L.EnvironmentSpecularScale = origL.es
-    L.EnvironmentDiffuseScale = origL.ed
-    
-    if T and origL.tw then
-        T.WaterWaveSize = origL.tw
-        T.WaterWaveSpeed = origL.ts
-        T.WaterReflectance = origL.tr
-        T.WaterTransparency = origL.tt
+    table.clear(connections)
+
+    pcall(function()
+        if cache.quality then
+            settings().Rendering.QualityLevel = cache.quality
+        end
+    end)
+
+    for k, v in pairs(cache.lighting) do
+        pcall(function() Lighting[k] = v end)
     end
-    
-    for v, d in pairs(pParts) do
-        if v then
-            if v:IsA("BasePart") then
-                v.Reflectance = d.r
-                v.Material = d.m
-                v.CastShadow = d.c
-            elseif d.p then
-                v.Parent = d.p
-            elseif d.e then
-                v.Enabled = true
+    table.clear(cache.lighting)
+
+    local terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        for k, v in pairs(cache.terrain) do
+            pcall(function() terrain[k] = v end)
+        end
+    end
+    table.clear(cache.terrain)
+
+    for obj, props in pairs(cache.props) do
+        if obj and obj.Parent then
+            for propName, propValue in pairs(props) do
+                pcall(function() obj[propName] = propValue end)
             end
         end
     end
-    table.clear(pParts)
+    table.clear(cache.props)
+
+    for obj, oldParent in pairs(cache.surfaces) do
+        if obj and oldParent then
+            pcall(function() obj.Parent = oldParent end)
+        end
+    end
+    table.clear(cache.surfaces)
+
+    for obj, oldState in pairs(cache.fx) do
+        if obj then
+            pcall(function() 
+                if type(oldState) == "boolean" then
+                    obj.Enabled = oldState
+                else
+                    obj.Parent = oldState 
+                end
+            end)
+        end
+    end
+    table.clear(cache.fx)
+
+    for obj, oldState in pairs(cache.billboards) do
+        if obj then
+            pcall(function() obj.Enabled = oldState end)
+        end
+    end
+    table.clear(cache.billboards)
 end
 
-function Optimizer.Toggle(s)
-    if s then 
-        Optimizer.Enable() 
-    else 
-        Optimizer.Disable() 
+function Optimizer.Toggle(state)
+    if state then
+        Optimizer.Enable()
+    else
+        Optimizer.Disable()
     end
 end
 
