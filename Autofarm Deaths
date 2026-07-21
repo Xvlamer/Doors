@@ -1,1 +1,54 @@
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
+local function getLobbyButtons()
+    local mainPlay, hotel, confirm
+    
+    for _, gui in ipairs(playerGui:GetDescendants()) do
+        if gui.Name == "MainPlayButton" then
+            mainPlay = gui
+        elseif gui.Name == "Hotel" then
+            hotel = gui
+        elseif gui.Name == "Confirm" then
+            confirm = gui
+        end
+        
+        -- Early exit if all three are found
+        if mainPlay and hotel and confirm then
+            break
+        end
+    end
+    
+    return mainPlay, hotel, confirm
+end
+
+local function handleLobbySpawn()
+    local mainPlayButton, hotelButton, confirmButton = getLobbyButtons()
+    
+    -- Check if all three buttons exist before attempting any clicks
+    if mainPlayButton and hotelButton and confirmButton then
+        -- Press them in order, extremely fast
+        task.spawn(function()
+            pcall(function()
+                if firesignal then
+                    firesignal(mainPlayButton.Activated)
+                    firesignal(hotelButton.Activated)
+                    firesignal(confirmButton.Activated)
+                else
+                    mainPlayButton.MouseButton1Click:Fire()
+                    hotelButton.MouseButton1Click:Fire()
+                    confirmButton.MouseButton1Click:Fire()
+                end
+            end)
+        end)
+    else
+        -- Skip the button process entirely if buttons are missing and continue script
+        return false
+    end
+    
+    return true
+end
+
+-- Execute the lobby check
+handleLobbySpawn()
