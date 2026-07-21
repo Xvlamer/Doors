@@ -1,68 +1,67 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local LOBBY_PLACE_ID = 6516141723
+print("[Xvlamer Hub] Death Farm Status: ON")
 
-local function checkAndJoinLobby()
-    -- Check if we are in the main lobby first before anything else
-    if game.PlaceId ~= LOBBY_PLACE_ID then
-        return false
-    end
+local running = true
 
-    task.spawn(function()
-        local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
-        if not playerGui then return end
-        local mainUi = playerGui:WaitForChild("MainUI", 10)
-        if not mainUi then return end
-
-        local function fireButton(btn)
-            if btn then
-                pcall(function()
-                    btn.Visible = true
-                end)
-                pcall(function()
-                    if getconnections then
-                        for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-                            conn:Fire()
-                        end
-                    end
-                end)
-                pcall(function()
-                    if firesignal then
-                        firesignal(btn.MouseButton1Click)
-                    end
-                end)
-            end
-        end
-
-        -- Find the 3 target buttons dynamically within MainUI
-        local mainPlayBtn = mainUi:FindFirstChild("MainPlayButton", true)
-        local hotelBtn = mainUi:FindFirstChild("Hotel", true)
-        local confirmBtn = mainUi:FindFirstChild("Confirm", true)
-
-        -- 1st: Click MainPlayButton
-        if mainPlayBtn then
-            fireButton(mainPlayBtn)
-        end
-
-        -- Minimal delay to ensure the game registers the first click before the next
-        task.wait(0.05)
-
-        -- 2nd: Click Hotel button
-        if hotelBtn then
-            fireButton(hotelBtn)
-        end
-
-        task.wait(0.05)
-
-        -- 3rd: Click Confirm button
-        if confirmBtn then
-            fireButton(confirmBtn)
+local function fireButton(btn)
+    if not btn then return end
+    pcall(function()
+        btn.Visible = true
+        btn.Active = true
+    end)
+    pcall(function()
+        if firesignal then
+            firesignal(btn.Activated)
+            firesignal(btn.MouseButton1Click)
         end
     end)
-
-    return true
+    pcall(function()
+        if getconnections then
+            for _, conn in ipairs(getconnections(btn.Activated)) do
+                conn:Fire()
+            end
+            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                conn:Fire()
+            end
+        end
+    end)
 end
 
--- Execute immediately when loaded via loadstring
-return checkAndJoinLobby()
+task.spawn(function()
+    while running do
+        local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 2)
+        if playerGui then
+            local mainUi = playerGui:FindFirstChild("MainUI", true)
+            if mainUi then
+                local mainPlayBtn = mainUi:FindFirstChild("MainPlayButton", true)
+                local hotelBtn = mainUi:FindFirstChild("Hotel", true)
+                local confirmBtn = mainUi:FindFirstChild("Confirm", true)
+
+                -- Check if the buttons are present before clicking
+                if mainPlayBtn or hotelBtn or confirmBtn then
+                    if mainPlayBtn then
+                        fireButton(mainPlayBtn)
+                        task.wait(0.02)
+                    end
+                    if hotelBtn then
+                        fireButton(hotelBtn)
+                        task.wait(0.02)
+                    end
+                    if confirmBtn then
+                        fireButton(confirmBtn)
+                        task.wait(0.02)
+                    end
+                end
+            end
+        end
+        task.wait(0.2) -- Efficient polling interval while waiting for UI elements to appear
+    end
+end)
+
+-- Cleanup function called automatically by your GUI when toggled off
+return function()
+    running = false
+    print("[Xvlamer Hub] Death Farm Status: OFF")
+end
