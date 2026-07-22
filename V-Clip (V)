@@ -11,24 +11,60 @@ local function executeRawScript(key)
                     if hrp and cam then
                         hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (1.5 * dt))
                     end
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
                 end
             end)
         end
         return
     elseif key == "VClipSpam" or key == "V-Clip Spam" then
         getgenv().XvlamerStop_VClipSpam = false
+        local lockedY = nil
         while not getgenv().XvlamerStop_VClipSpam do
-            local dt = RS.Heartbeat:Wait()
             pcall(function()
                 local char = P.Character
                 if char then
                     local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
                     local cam = Workspace.CurrentCamera
-                    if hrp and cam then
-                        hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (2.5 * dt))
+                    if hrp and cam and humanoid then
+                        -- Lock onto the exact Y level when walking off an edge
+                        if not lockedY then
+                            lockedY = hrp.Position.Y
+                        end
+                        
+                        -- Flatten the look vector so movement is strictly horizontal (no falling/rising)
+                        local look = cam.CFrame.LookVector
+                        local flatLook = Vector3.new(look.X, 0, look.Z)
+                        if flatLook.Magnitude > 0 then
+                            flatLook = flatLook.Unit
+                        else
+                            flatLook = Vector3.new(0, 0, -1)
+                        end
+                        
+                        -- Move forward horizontally while preserving the locked Y height
+                        local currentPos = hrp.Position
+                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * 2.5), lockedY, currentPos.Z + (flatLook.Z * 2.5))
+                        hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
+                        
+                        -- Anti-cheat bypass: Force grounded running state and kill velocity flags
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        
+                        -- Noclip all parts
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
+                        end
                     end
                 end
             end)
+            task.wait(0.05) -- Spams roughly 20 times a second
         end
         return
     end
