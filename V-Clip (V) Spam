@@ -16,22 +16,45 @@ local function executeRawScript(key)
             end)
         end)
 
-        while not getgenv().XvlamerStop_VClip do
-            local dt = RS.Heartbeat:Wait()
-            pcall(function()
-                local char = P.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local cam = Workspace.CurrentCamera
-                    if hrp and cam then
-                        hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (12 * dt))
-                    end
+        task.spawn(function()
+            while not getgenv().XvlamerStop_VClip do
+                -- Move phase: Active movement for 0.1 seconds
+                local moveStart = tick()
+                while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClip do
+                    local dt = RS.Heartbeat:Wait()
+                    pcall(function()
+                        local char = P.Character
+                        if char then
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            local cam = Workspace.CurrentCamera
+                            if hrp and cam then
+                                hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (10 * dt))
+                            end
+                        end
+                    end)
                 end
-            end)
-        end
-        
-        if noclipConn then noclipConn:Disconnect() end
+                
+                -- Stop phase: Pauses and locks position for 0.1 seconds to create a stepped/pulsed motion
+                local pauseStart = tick()
+                while tick() - pauseStart < 0.1 and not getgenv().XvlamerStop_VClip do
+                    RS.Heartbeat:Wait()
+                    pcall(function()
+                        local char = P.Character
+                        if char then
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                            end
+                        end
+                    end)
+                end
+            end
+            
+            if noclipConn then noclipConn:Disconnect() end
+        end)
         return
+        
     elseif key == "VClipSpam" or key == "V-Clip Spam" then
         getgenv().XvlamerStop_VClipSpam = false
         local lockedY = nil
@@ -50,49 +73,68 @@ local function executeRawScript(key)
             end)
         end)
 
-        while not getgenv().XvlamerStop_VClipSpam do
-            local dt = RS.Heartbeat:Wait()
-            pcall(function()
-                local char = P.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local humanoid = char:FindFirstChildOfClass("Humanoid")
-                    local cam = Workspace.CurrentCamera
-                    
-                    if hrp and cam and humanoid then
-                        -- Lock onto the exact Y level when toggled on or walking off an edge
-                        if not lockedY then
-                            lockedY = hrp.Position.Y
+        task.spawn(function()
+            while not getgenv().XvlamerStop_VClipSpam do
+                -- Move phase: Active translation for 0.1 seconds
+                local moveStart = tick()
+                while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
+                    local dt = RS.Heartbeat:Wait()
+                    pcall(function()
+                        local char = P.Character
+                        if char then
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            local humanoid = char:FindFirstChildOfClass("Humanoid")
+                            local cam = Workspace.CurrentCamera
+                            
+                            if hrp and cam and humanoid then
+                                if not lockedY then
+                                    lockedY = hrp.Position.Y
+                                end
+                                
+                                local look = cam.CFrame.LookVector
+                                local flatLook = Vector3.new(look.X, 0, look.Z)
+                                if flatLook.Magnitude > 0 then
+                                    flatLook = flatLook.Unit
+                                else
+                                    flatLook = Vector3.new(0, 0, -1)
+                                end
+                                
+                                local currentPos = hrp.Position
+                                local speed = 12
+                                local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
+                                hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
+                                
+                                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                            else
+                                lockedY = nil
+                            end
                         end
-                        
-                        -- Flatten the look vector to ensure strictly horizontal movement (no falling or rising)
-                        local look = cam.CFrame.LookVector
-                        local flatLook = Vector3.new(look.X, 0, look.Z)
-                        if flatLook.Magnitude > 0 then
-                            flatLook = flatLook.Unit
-                        else
-                            flatLook = Vector3.new(0, 0, -1)
-                        end
-                        
-                        -- Use delta-time (dt) scaling instead of choppy fixed-delay task.wait() 
-                        -- to eliminate stuttering/stopping, tuned to a smooth, balanced speed.
-                        local currentPos = hrp.Position
-                        local speed = 14
-                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
-                        hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
-                        
-                        -- Anti-cheat bypass: Force state to Running to trick the game into thinking you are grounded
-                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                    end
-                else
-                    lockedY = nil
+                    end)
                 end
-            end)
-        end
-        
-        if noclipConn then noclipConn:Disconnect() end
+                
+                -- Stop phase: Complete pause for 0.1 seconds before the next step
+                local pauseStart = tick()
+                while tick() - pauseStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
+                    RS.Heartbeat:Wait()
+                    pcall(function()
+                        local char = P.Character
+                        if char then
+                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                            local humanoid = char:FindFirstChildOfClass("Humanoid")
+                            if hrp and humanoid then
+                                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                            end
+                        end
+                    end)
+                end
+            end
+            
+            if noclipConn then noclipConn:Disconnect() end
+        end)
         return
     end
 
