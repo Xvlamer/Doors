@@ -30,51 +30,51 @@ humanoid.JumpHeight = 0
 
 local connections = {}
 
--- Constant flow loop running every frame
-local function onStepped(dt)
-    if getgenv().XvlamerStop_VClip then
-        return
-    end
+-- Maintain anti-cheat grounding and wall noclip every frame
+table.insert(connections, RunService.Stepped:Connect(function()
+    if getgenv().XvlamerStop_VClip then return end
     
     if not character or not character.Parent or not rootPart or not humanoid or humanoid.Health <= 0 then
         return
     end
 
-    -- Enforce stripped movement constraints continuously
     humanoid.WalkSpeed = 0
     humanoid.JumpPower = 0
     humanoid.JumpHeight = 0
 
-    -- Trick the game and anti-cheat into thinking the player is running/grounded
     pcall(function()
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
     end)
 
-    -- Enable wall noclip across all character parts
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
             part.CanCollide = false
         end
     end
+end))
 
-    -- Constant forward float at 1.5 studs per second based on facing direction
+-- Use physics velocity for a perfectly smooth, constant forward flow without teleporting or stuttering
+table.insert(connections, RunService.RenderStepped:Connect(function()
+    if getgenv().XvlamerStop_VClip then return end
+    
+    if not rootPart or not rootPart.Parent then return end
+
     local lookVec = camera.CFrame.LookVector
-    rootPart.CFrame = rootPart.CFrame + (lookVec * (1.5 * dt))
-    rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    rootPart.AssemblyLinearVelocity = lookVec * 1.5
     rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-end
+end))
 
-table.insert(connections, RunService.Stepped:Connect(onStepped))
-
--- Monitor stop flag
+-- Monitor stop flag and clean up
 table.insert(connections, RunService.Heartbeat:Connect(function()
     if getgenv().XvlamerStop_VClip then
         for _, conn in ipairs(connections) do
             pcall(function() conn:Disconnect() end)
         end
         
-        -- Restore original movement parameters
         pcall(function()
+            if rootPart and rootPart.Parent then
+                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end
             if humanoid and humanoid.Parent then
                 humanoid.WalkSpeed = originalWalkSpeed or 16
                 humanoid.JumpPower = originalJumpPower or 50
