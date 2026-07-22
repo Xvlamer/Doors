@@ -22,20 +22,49 @@ local function executeRawScript(key)
         return
     elseif key == "VClipSpam" or key == "V-Clip Spam" then
         getgenv().XvlamerStop_VClipSpam = false
+        local lockedY = nil
         while not getgenv().XvlamerStop_VClipSpam do
             pcall(function()
                 local char = P.Character
                 if char then
                     local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
                     local cam = Workspace.CurrentCamera
-                    if hrp and cam then
-                        hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * 3)
-                    end
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
+                    
+                    if hrp and cam and humanoid then
+                        -- Lock onto the exact Y level when toggled on or walking off an edge
+                        if not lockedY then
+                            lockedY = hrp.Position.Y
+                        end
+                        
+                        -- Flatten the look vector to ensure strictly horizontal movement (no falling or rising)
+                        local look = cam.CFrame.LookVector
+                        local flatLook = Vector3.new(look.X, 0, look.Z)
+                        if flatLook.Magnitude > 0 then
+                            flatLook = flatLook.Unit
+                        else
+                            flatLook = Vector3.new(0, 0, -1)
+                        end
+                        
+                        -- Move forward horizontally while forcing the locked Y height
+                        local currentPos = hrp.Position
+                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * 3), lockedY, currentPos.Z + (flatLook.Z * 3))
+                        hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
+                        
+                        -- Anti-cheat bypass: Force state to Running to trick the game into thinking you are grounded
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        
+                        -- Keep noclip active across all descendants
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
                         end
                     end
+                else
+                    lockedY = nil
                 end
             end)
             task.wait(0.05) -- Spams roughly 20 times a second
