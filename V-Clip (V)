@@ -1,52 +1,53 @@
--- V-Clip Loadstring Script
+-- V-Clip Continuous Loadstring Script
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local function executeVClip()
-    if not character or not humanoid or not rootPart or humanoid.Health <= 0 then 
-        return 
-    end
+-- Reset stop flag and print status
+getgenv().XvlamerStop_VClip = false
+print("on")
 
-    -- Save current states and lock movement
-    local oldWalkSpeed = humanoid.WalkSpeed
-    local oldJumpPower = humanoid.JumpPower
-    
-    humanoid.WalkSpeed = 0
-    humanoid.JumpPower = 0
-    humanoid.PlatformStand = true
+task.spawn(function()
+    while not getgenv().XvlamerStop_VClip do
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
 
-    -- Calculate target position (2 studs forward based on facing direction)
-    local startCFrame = rootPart.CFrame
-    local forwardVector = startCFrame.LookVector
-    local targetCFrame = startCFrame + (forwardVector * 2)
-
-    local duration = 0.25 -- Duration of the smooth glide in seconds
-    local elapsed = 0
-    local connection
-
-    connection = RunService.RenderStepped:Connect(function(dt)
-        elapsed = elapsed + dt
-        local alpha = math.clamp(elapsed / duration, 0, 1)
-
-        -- Smoothly interpolate position and zero out physics velocity
-        rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-        rootPart.AssemblyLinearVelocity = Vector3.zero
-        rootPart.AssemblyAngularVelocity = Vector3.zero
-
-        if alpha >= 1 then
-            connection:Disconnect()
+        if character and humanoid and rootPart and humanoid.Health > 0 then
+            -- Save current states and lock movement
+            local oldWalkSpeed = humanoid.WalkSpeed
+            local oldJumpPower = humanoid.JumpPower
             
+            humanoid.WalkSpeed = 0
+            humanoid.JumpPower = 0
+            humanoid.PlatformStand = true
+
+            -- Calculate target position (2 studs forward)
+            local startCFrame = rootPart.CFrame
+            local forwardVector = startCFrame.LookVector
+            local targetCFrame = startCFrame + (forwardVector * 2)
+
+            local duration = 0.25
+            local elapsed = 0
+
+            while elapsed < duration and not getgenv().XvlamerStop_VClip do
+                local dt = RunService.RenderStepped:Wait()
+                elapsed = elapsed + dt
+                local alpha = math.clamp(elapsed / duration, 0, 1)
+
+                rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+                rootPart.AssemblyLinearVelocity = Vector3.zero
+                rootPart.AssemblyAngularVelocity = Vector3.zero
+            end
+
             -- Restore original movement parameters
             humanoid.PlatformStand = false
             humanoid.WalkSpeed = oldWalkSpeed
             humanoid.JumpPower = oldJumpPower
         end
-    end)
-end
 
-executeVClip()
+        -- Brief pause between loops so it continuously glides while active
+        task.wait(0.1)
+    end
+end)
