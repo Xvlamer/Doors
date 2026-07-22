@@ -2,88 +2,77 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
-local LevitateControl = {}
-local isRunning = false
-local connections = {}
+local LevitateModule = {}
+local isEnabled = false
+local connection = nil
+local originalCFrame = nil
 
-function LevitateControl.Toggle(state)
+function LevitateModule.Toggle(state)
     local newState = state and true or false
-    if isRunning == newState then return end
-    isRunning = newState
+    if isEnabled == newState then return end
+    isEnabled = newState
 
     local character = LocalPlayer.Character
     if not character then return end
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-    if isRunning then
-        -- Anti-cheat mitigation/bypass layer for client-side integrity checks
-        pcall(function()
-            if syn and syn.protect_gui then
-                -- Executor specific protection hooks if available
-            end
-            local mt = getrawmetatable(game)
-            if mt then
-                setreadonly(mt, false)
-                local oldIndex = mt.__index
-                -- Neutralize common client-side kick or walk/jump checks
-                mt.__index = newcclosure(function(self, property)
-                    if property == "WalkSpeed" or property == "JumpPower" or property == "JumpHeight" then
-                        return 16
-                    end
-                    return oldIndex(self, property)
-                end)
-                setreadonly(mt, true)
-            end
-        end)
+    if isEnabled then
+        if rootPart then
+            originalCFrame = rootPart.CFrame
+        end
 
+        -- Lock humanoid control entirely to prevent walking, jumping, or physics interference
         if humanoid then
-            humanoid.WalkSpeed = 0
-            humanoid.JumpPower = 0
-            humanoid.JumpHeight = 0
+            humanoid.PlatformStanding = true
             humanoid.AutoRotate = false
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, false)
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
         end
 
-        -- Continuous high-priority loop for Noclip, Freezing, and Levitation (2 studs/sec)
-        connections.Stepped = RunService.Stepped:Connect(function(_, deltaTime)
-            if not isRunning or not character or not humanoidRootPart then return end
-            
-            -- Enforce Noclip on all character parts
+        -- High-frequency loop running on Stepped for anti-cheat bypass and precise movement control
+        connection = RunService.Stepped:Connect(function(_, deltaTime)
+            if not isEnabled or not character or not rootPart or not humanoid then return end
+
+            -- Enforce continuous noclip on all character parts
             for _, part in ipairs(character:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
                 end
             end
 
-            -- Freeze velocities to prevent physics jitter/fallback from anti-cheats
-            humanoidRootPart.AssemblyLinearVelocity = Vector3.zero
-            humanoidRootPart.AssemblyAngularVelocity = Vector3.zero
+            -- Neutralize velocity forces to bypass server/client anti-cheat position rollbacks
+            rootPart.AssemblyLinearVelocity = Vector3.zero
+            rootPart.AssemblyAngularVelocity = Vector3.zero
 
-            -- Smooth vertical levitation at exactly 2 studs per second
-            humanoidRootPart.CFrame = humanoidRootPart.CFrame + Vector3.new(0, 2 * deltaTime, 0)
+            -- Smoothly levitate upwards at exactly 2 studs per second while preserving orientation
+            rootPart.CFrame = rootPart.CFrame + Vector3.new(0, 2 * deltaTime, 0)
         end)
-
     else
-        -- Clean up connections and stop loops
-        if connections.Stepped then
-            connections.Stepped:Disconnect()
-            connections.Stepped = nil
+        -- Terminate the execution loop cleanly
+        if connection then
+            connection:Disconnect()
+            connection = nil
         end
 
-        -- Restore original Humanoid states and physics properties
+        -- Restore original Humanoid state properties
         if humanoid then
-            humanoid.WalkSpeed = 16
-            humanoid.JumpPower = 50
-            humanoid.JumpHeight = 7.2
+            humanoid.PlatformStanding = false
             humanoid.AutoRotate = true
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
         end
 
+        -- Return the player directly back to their original starting position
+        if rootPart and originalCFrame then
+            rootPart.CFrame = originalCFrame
+            rootPart.AssemblyLinearVelocity = Vector3.zero
+            rootPart.AssemblyAngularVelocity = Vector3.zero
+        end
+
+        -- Restore collision settings on character parts
         if character then
             for _, part in ipairs(character:GetDescendants()) do
                 if part:IsA("BasePart") then
@@ -91,15 +80,17 @@ function LevitateControl.Toggle(state)
                 end
             end
         end
+
+        originalCFrame = nil
     end
 end
 
-function LevitateControl.Enable()
-    LevitateControl.Toggle(true)
+function LevitateModule.Enable()
+    LevitateModule.Toggle(true)
 end
 
-function LevitateControl.Disable()
-    LevitateControl.Toggle(false)
+function LevitateModule.Disable()
+    LevitateModule.Toggle(false)
 end
 
-return LevitateControl
+return LevitateModule
