@@ -37,6 +37,7 @@ pcall(function()
         local part = descendants[i]
         if part:IsA("BasePart") then
             part.CanCollide = false
+            part.Massless = true
         end
     end
 end)
@@ -56,6 +57,7 @@ table.insert(conns, RS.Stepped:Connect(function()
         local part = descendants[i]
         if part:IsA("BasePart") then
             part.CanCollide = false
+            part.Massless = true
         end
     end
 end))
@@ -97,6 +99,7 @@ table.insert(conns, RS.Heartbeat:Connect(function()
                     local part = descendants[i]
                     if part:IsA("BasePart") then
                         part.CanCollide = true
+                        part.Massless = false
                     end
                 end
             end
