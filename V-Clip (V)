@@ -1,53 +1,60 @@
--- V-Clip Continuous Loadstring Script
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 
--- Reset stop flag and print status
 getgenv().XvlamerStop_VClip = false
-print("on")
 
-task.spawn(function()
-    while not getgenv().XvlamerStop_VClip do
-        local character = player.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+local moveSpeed = 2
 
-        if character and humanoid and rootPart and humanoid.Health > 0 then
-            -- Save current states and lock movement
-            local oldWalkSpeed = humanoid.WalkSpeed
-            local oldJumpPower = humanoid.JumpPower
-            
-            humanoid.WalkSpeed = 0
-            humanoid.JumpPower = 0
-            humanoid.PlatformStand = true
+local oldWalkSpeed, oldJumpPower
+local initialCharacter = player.Character
+local initialHumanoid = initialCharacter and initialCharacter:FindFirstChildOfClass("Humanoid")
 
-            -- Calculate target position (2 studs forward)
-            local startCFrame = rootPart.CFrame
-            local forwardVector = startCFrame.LookVector
-            local targetCFrame = startCFrame + (forwardVector * 2)
+if initialHumanoid then
+    oldWalkSpeed = initialHumanoid.WalkSpeed
+    oldJumpPower = initialHumanoid.JumpPower
+end
 
-            local duration = 0.25
-            local elapsed = 0
-
-            while elapsed < duration and not getgenv().XvlamerStop_VClip do
-                local dt = RunService.RenderStepped:Wait()
-                elapsed = elapsed + dt
-                local alpha = math.clamp(elapsed / duration, 0, 1)
-
-                rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-                rootPart.AssemblyLinearVelocity = Vector3.zero
-                rootPart.AssemblyAngularVelocity = Vector3.zero
+local connection
+connection = RunService.Stepped:Connect(function(_, dt)
+    if getgenv().XvlamerStop_VClip then
+        if connection then connection:Disconnect() end
+        
+        local currentCharacter = player.Character
+        if currentCharacter then
+            for _, part in ipairs(currentCharacter:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
             end
+            local currentHumanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
+            if currentHumanoid then
+                if oldWalkSpeed then currentHumanoid.WalkSpeed = oldWalkSpeed end
+                if oldJumpPower then currentHumanoid.JumpPower = oldJumpPower end
+            end
+        end
+        return
+    end
 
-            -- Restore original movement parameters
-            humanoid.PlatformStand = false
-            humanoid.WalkSpeed = oldWalkSpeed
-            humanoid.JumpPower = oldJumpPower
+    local currentCharacter = player.Character
+    local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+    local rootPart = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+
+    if currentCharacter and currentHumanoid and rootPart and currentHumanoid.Health > 0 then
+        currentHumanoid.WalkSpeed = 0
+        currentHumanoid.JumpPower = 0
+
+        for _, part in ipairs(currentCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
         end
 
-        -- Brief pause between loops so it continuously glides while active
-        task.wait(0.1)
+        local translation = rootPart.CFrame.LookVector * (moveSpeed * dt)
+        rootPart.CFrame = rootPart.CFrame + translation
+        
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+        rootPart.AssemblyAngularVelocity = Vector3.zero
     end
 end)
