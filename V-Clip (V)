@@ -5,7 +5,7 @@ local player = Players.LocalPlayer
 
 getgenv().XvlamerStop_VClip = false
 
-local moveSpeed = 2
+local moveSpeed = 1.5
 
 local oldWalkSpeed, oldJumpPower
 local initialCharacter = player.Character
@@ -17,7 +17,7 @@ if initialHumanoid then
 end
 
 local connection
-connection = RunService.Stepped:Connect(function(_, dt)
+connection = RunService.Heartbeat:Connect(function(dt)
     if getgenv().XvlamerStop_VClip then
         if connection then connection:Disconnect() end
         
@@ -55,10 +55,8 @@ connection = RunService.Stepped:Connect(function(_, dt)
             end
         end
 
-        local translation = rootPart.CFrame.LookVector * (moveSpeed * dt)
-        rootPart.CFrame = rootPart.CFrame + translation
-        
-        rootPart.AssemblyLinearVelocity = Vector3.zero
-        rootPart.AssemblyAngularVelocity = Vector3.zero
+        rootPart.CFrame = rootPart.CFrame + (rootPart.CFrame.LookVector * (moveSpeed * dt))
+        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
 end)
