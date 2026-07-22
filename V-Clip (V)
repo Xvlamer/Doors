@@ -16,9 +16,9 @@ local char = lp.Character or lp.CharacterAdded:Wait()
 local hum = char:WaitForChild("Humanoid")
 local hrp = char:WaitForChild("HumanoidRootPart")
 
-local oldSpeed = hum.WalkSpeed
-local oldJump = hum.JumpPower
-local oldHeight = hum.JumpHeight
+local oldSpeed = hum.WalkSpeed > 0 and hum.WalkSpeed or 16
+local oldJump = hum.JumpPower > 0 and hum.JumpPower or 50
+local oldHeight = hum.JumpHeight > 0 and hum.JumpHeight or 7.2
 local oldPlatformStand = hum.PlatformStand
 local oldAutoRotate = hum.AutoRotate
 
@@ -30,7 +30,7 @@ hum.AutoRotate = false
 local conns = {}
 local vec0 = Vector3.zero
 local physState = Enum.HumanoidStateType.Physics
-local getUpState = Enum.HumanoidStateType.GettingUp
+local runningState = Enum.HumanoidStateType.Running
 local lockedY = hrp.Position.Y
 
 local cleanedUp = false
@@ -58,12 +58,12 @@ local function cleanup()
             hrp.AssemblyAngularVelocity = vec0
         end
         if hum and hum.Parent then
-            hum.WalkSpeed = oldSpeed or 16
-            hum.JumpPower = oldJump or 50
-            hum.JumpHeight = oldHeight or 7.2
-            hum.PlatformStand = oldPlatformStand or false
-            hum.AutoRotate = oldAutoRotate or true
-            hum:ChangeState(getUpState)
+            hum.PlatformStand = false
+            hum.AutoRotate = true
+            hum.WalkSpeed = oldSpeed
+            hum.JumpPower = oldJump
+            hum.JumpHeight = oldHeight
+            hum:ChangeState(runningState)
         end
     end)
     
