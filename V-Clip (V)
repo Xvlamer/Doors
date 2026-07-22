@@ -6,7 +6,7 @@ local lp = P.LocalPlayer
 
 if getgenv().Xvlamer_VClipRunning then
     getgenv().XvlamerStop_VClip = true
-    task.wait(0.01)
+    task.wait(0.05)
 end
 
 getgenv().XvlamerStop_VClip = false
@@ -19,19 +19,25 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local oldSpeed = hum.WalkSpeed
 local oldJump = hum.JumpPower
 local oldHeight = hum.JumpHeight
+local oldPlatformStand = hum.PlatformStand
+local oldAutoRotate = hum.AutoRotate
 
 hum.WalkSpeed = 0
 hum.JumpPower = 0
 hum.JumpHeight = 0
+hum.AutoRotate = false
 
 local conns = {}
-local runningState = Enum.HumanoidStateType.Running
 local vec0 = Vector3.zero
+local physState = Enum.HumanoidStateType.Physics
+local getUpState = Enum.HumanoidStateType.GettingUp
 local lockedY = hrp.Position.Y
 
 pcall(function()
     lockedY = hrp.Position.Y
-    hum:ChangeState(runningState)
+    hum.PlatformStand = true
+    hum:ChangeState(physState)
+    
     local descendants = char:GetDescendants()
     for i = 1, #descendants do
         local part = descendants[i]
@@ -49,8 +55,9 @@ table.insert(conns, RS.Stepped:Connect(function()
     hum.WalkSpeed = 0
     hum.JumpPower = 0
     hum.JumpHeight = 0
+    hum.PlatformStand = true
     
-    pcall(function() hum:ChangeState(runningState) end)
+    pcall(function() hum:ChangeState(physState) end)
     
     local descendants = char:GetDescendants()
     for i = 1, #descendants do
@@ -72,7 +79,7 @@ table.insert(conns, RS.RenderStepped:Connect(function(dt)
     end
     
     local currentPos = hrp.Position
-    local nextPos = currentPos + (flatForward * 1.5 * dt)
+    local nextPos = currentPos + (flatForward * 1.75 * dt)
     
     hrp.CFrame = CFrame.new(nextPos.X, lockedY, nextPos.Z) * CFrame.Angles(hrp.CFrame:ToEulerAnglesXYZ())
     hrp.AssemblyLinearVelocity = vec0
@@ -87,11 +94,15 @@ table.insert(conns, RS.Heartbeat:Connect(function()
         pcall(function()
             if hrp and hrp.Parent then 
                 hrp.AssemblyLinearVelocity = vec0 
+                hrp.AssemblyAngularVelocity = vec0
             end
             if hum and hum.Parent then
                 hum.WalkSpeed = oldSpeed or 16
                 hum.JumpPower = oldJump or 50
                 hum.JumpHeight = oldHeight or 7.2
+                hum.PlatformStand = oldPlatformStand or false
+                hum.AutoRotate = oldAutoRotate or true
+                hum:ChangeState(getUpState)
             end
             if char and char.Parent then
                 local descendants = char:GetDescendants()
