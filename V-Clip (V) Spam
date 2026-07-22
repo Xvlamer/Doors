@@ -1,1 +1,62 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
+local player = Players.LocalPlayer
+
+getgenv().XvlamerStop_VClipSpam = false
+
+task.spawn(function()
+    while not getgenv().XvlamerStop_VClipSpam do
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+
+        if character and humanoid and rootPart and humanoid.Health > 0 then
+            local oldWalkSpeed = humanoid.WalkSpeed
+            local oldJumpPower = humanoid.JumpPower
+            
+            humanoid.WalkSpeed = 0
+            humanoid.JumpPower = 0
+
+            for _, part in ipairs(character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+
+            rootPart.CFrame = rootPart.CFrame + (rootPart.CFrame.LookVector * 0.2)
+            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+
+            local elapsed = 0
+            while elapsed < 0.2 and not getgenv().XvlamerStop_VClipSpam do
+                local dt = RunService.Heartbeat:Wait()
+                elapsed = elapsed + dt
+                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+                for _, part in ipairs(character:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+
+            humanoid.WalkSpeed = oldWalkSpeed
+            humanoid.JumpPower = oldJumpPower
+        end
+
+        task.wait(0.2)
+    end
+
+    local character = player.Character
+    if character then
+        for _, part in ipairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                if part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end)
