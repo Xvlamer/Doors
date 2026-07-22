@@ -11,6 +11,9 @@ local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local guiName = "XvlamersHub"
 
+-- Platform Detection
+local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+
 -- [ CONFIGURABLE KEY ] Set to test
 local CORRECT_KEY = "test"
 
@@ -32,14 +35,6 @@ local PLACE_IDS = {
 }
 
 local function canRunFarm(farmName)
-    local placeId = game.PlaceId
-    if placeId == PLACE_IDS.Mines then
-        if farmName ~= "Knob Farm" then return false, "Only Knob Farm can be used in the Mines!" end
-    elseif placeId == PLACE_IDS.Hotel then
-        if farmName ~= "Death Farm" then return false, "Only Death Farm can be used in the Hotel!" end
-    elseif placeId == PLACE_IDS.Rooms then
-        if farmName ~= "Stardust Farm" then return false, "Only Stardust Farm can be used in the Rooms!" end
-    end
     return true
 end
 
@@ -146,28 +141,6 @@ local function findAndFireButton(keywords, timeout)
     return false
 end
 
-local function triggerMinesTransition()
-    task.spawn(function()
-        task.wait(0.5)
-        findAndFireButton({"PLAY", "START", "CREATE", "ELEVATOR", "SOLO"}, 4)
-        task.wait(0.6)
-        findAndFireButton({"MINES", "SUBSURFACE"}, 4)
-        task.wait(0.6)
-        findAndFireButton({"CONFIRM", "YES", "START", "READY"}, 4)
-    end)
-end
-
-local function triggerHotelTransition()
-    task.spawn(function()
-        task.wait(0.5)
-        findAndFireButton({"PLAY", "START", "CREATE", "ELEVATOR", "SOLO"}, 4)
-        task.wait(0.6)
-        findAndFireButton({"HOTEL", "THE HOTEL"}, 4)
-        task.wait(0.6)
-        findAndFireButton({"CONFIRM", "YES", "START", "READY"}, 4)
-    end)
-end
-
 local Optimizer = {}
 do
     local isEnabled, targetState, isProcessing, sweepToken = false, false, false, 0
@@ -267,6 +240,36 @@ local function setAntiAFK(enabled)
     end
 end
 
+local function setUnlockFPS(enabled)
+    local state = state or {}
+    state.UnlockFps = enabled
+    if type(saveState) == "function" then saveState() end
+    if enabled then
+        pcall(function()
+            if typeof(setfpscap) == "function" then
+                setfpscap(9999)
+            end
+        end)
+        pcall(function()
+            local userGameSettings = UserSettings():GetService("UserGameSettings")
+            userGameSettings.SavedMaxFps = 9999
+        end)
+        pcall(function()
+            settings().Rendering.FramerateLimit = 9999
+        end)
+    else
+        pcall(function()
+            if typeof(setfpscap) == "function" then
+                setfpscap(60)
+            end
+        end)
+        pcall(function()
+            local userGameSettings = UserSettings():GetService("UserGameSettings")
+            userGameSettings.SavedMaxFps = 60
+        end)
+    end
+end
+
 local GAME_IDS = { [2440500124] = true, [6516141723] = true }
 local cgId = game.GameId > 0 and game.GameId or game.PlaceId
 if not GAME_IDS[cgId] then 
@@ -274,7 +277,7 @@ if not GAME_IDS[cgId] then
 end
 
 local stateFile = "XvlamersSaveState.json"
-local state = { ActiveFarm = nil, VClip = false, Optimizations = false, AntiAFK = false, KeyExpiry = 0 }
+local state = { ActiveFarm = nil, VClip = false, VClipSpam = false, Optimizations = false, UnlockFps = false, AntiAFK = false, KeyExpiry = 0 }
 
 local readSuccess, readData = pcall(function() if isfile and isfile(stateFile) then return readfile(stateFile) end end)
 if readSuccess and readData then
@@ -288,6 +291,7 @@ end
 
 local function purge()
     setAntiAFK(false)
+    setUnlockFPS(false)
     if Optimizer and type(Optimizer.Disable) == "function" then pcall(function() Optimizer.Disable() end) end
     local connCount = #HubConnections
     for i = 1, connCount do
@@ -334,33 +338,17 @@ local function makeUniversalDraggable(guiFrame)
 end
 
 local function initializeMainHub()
-    local mGui = create("ScreenGui", {Name="XvlamersMobileToggle", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=1, Parent=safeUI})
-    if syn and syn.protect_gui then pcall(function() syn.protect_gui(mGui) end) end
-
-    local mBtn = create("TextButton", {Size=UDim2.new(0,54,0,54), Position=UDim2.new(0.5,-27,0,16), BackgroundColor3=Color3.fromRGB(13,13,17), Text="XV", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBlack, TextSize=16, Parent=mGui})
-    create("UICorner", {CornerRadius=UDim.new(1,0), Parent=mBtn})
-    create("UIStroke", {Color=THEME_PURPLE, Transparency=0.2, Thickness=2, Parent=mBtn})
-
-    trackConnection(mBtn.MouseEnter:Connect(function() TS:Create(mBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(24, 24, 32)}):Play() end))
-    trackConnection(mBtn.MouseLeave:Connect(function() TS:Create(mBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(13, 13, 17)}):Play() end))
-
-    local mDragging, mDragInput, mDragStart, mStartPos
-    trackConnection(mBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            mDragging = true; mDragStart = input.Position; mStartPos = mBtn.Position
-            local endConn; endConn = input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then mDragging = false; if endConn then endConn:Disconnect() end end end)
-            trackConnection(endConn)
-        end
-    end))
-    trackConnection(UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then mDragInput = input end end))
-    trackConnection(UIS.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - mDragStart; mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) end end))
+    local mGui = nil
+    local setMainGuiVisible = function(visible) end
 
     local sg = create("ScreenGui", {Name=guiName, ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=1, Parent=safeUI})
     if syn and syn.protect_gui then pcall(function() syn.protect_gui(sg) end) end
 
-    -- FIX: Added AnchorPoint and ClipsDescendants for unified scaling
+    local targetWidth = isMobile and 310 or 380
+    local targetHeight = isMobile and 300 or 330
+
     local main = create("Frame", {
-        Size=UDim2.new(0,340,0,290), 
+        Size=UDim2.new(0, isMobile and 280 or 340, 0, isMobile and 260 or 290), 
         Position=UDim2.new(0.5,0,0.5,0), 
         AnchorPoint=Vector2.new(0.5, 0.5), 
         BackgroundColor3=Color3.fromRGB(11, 11, 15), 
@@ -373,21 +361,44 @@ local function initializeMainHub()
     create("UICorner", {CornerRadius=UDim.new(0,14), Parent=main})
     local mainStroke = create("UIStroke", {Color=THEME_PURPLE, Thickness=1.5, Transparency=1, Parent=main})
 
-    -- FIX: Run identically timed tweens for both Frame and Stroke
-    TS:Create(main, ANIM_INFO_IN, {Size = UDim2.new(0, 380, 0, 330), BackgroundTransparency = 0}):Play()
+    TS:Create(main, ANIM_INFO_IN, {Size = UDim2.new(0, targetWidth, 0, targetHeight), BackgroundTransparency = 0}):Play()
     TS:Create(mainStroke, ANIM_INFO_IN, {Transparency = 0}):Play()
 
     makeUniversalDraggable(main)
 
-    local setMainGuiVisible = function(visible) main.Visible = visible end
+    setMainGuiVisible = function(visible) main.Visible = visible end
     statusLabel = create("TextLabel", {Size=UDim2.new(1,-32,0,26), Position=UDim2.new(0,16,1,-34), BackgroundTransparency=1, Font=Enum.Font.GothamMedium, Text="Anti-AFK: OFF", TextColor3=Color3.fromRGB(130, 130, 150), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, Parent=main})
 
     updateAntiAFKStatus = function(isOn)
         if isOn then statusLabel.Text = "Anti-AFK: ON"; statusLabel.TextColor3 = Color3.fromRGB(46, 213, 115) else statusLabel.Text = "Anti-AFK: OFF"; statusLabel.TextColor3 = Color3.fromRGB(130, 130, 150) end
     end
 
-    mBtn.MouseButton1Click:Connect(function() setMainGuiVisible(not main.Visible) end)
     trackConnection(UIS.InputBegan:Connect(function(input) if input.KeyCode == Enum.KeyCode.RightShift then setMainGuiVisible(not main.Visible) end end))
+
+    if isMobile then
+        mGui = create("ScreenGui", {Name="XvlamersMobileToggle", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999999, Parent=safeUI})
+        if syn and syn.protect_gui then pcall(function() syn.protect_gui(mGui) end) end
+
+        local mBtn = create("TextButton", {Size=UDim2.new(0,54,0,54), Position=UDim2.new(0.5,-27,0,16), BackgroundColor3=Color3.fromRGB(13,13,17), Text="XV", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBlack, TextSize=16, Parent=mGui})
+        create("UICorner", {CornerRadius=UDim.new(1,0), Parent=mBtn})
+        create("UIStroke", {Color=THEME_PURPLE, Transparency=0.2, Thickness=2, Parent=mBtn})
+
+        trackConnection(mBtn.MouseEnter:Connect(function() TS:Create(mBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(24, 24, 32)}):Play() end))
+        trackConnection(mBtn.MouseLeave:Connect(function() TS:Create(mBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(13, 13, 17)}):Play() end))
+
+        local mDragging, mDragInput, mDragStart, mStartPos
+        trackConnection(mBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                mDragging = true; mDragStart = input.Position; mStartPos = mBtn.Position
+                local endConn; endConn = input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then mDragging = false; if endConn then endConn:Disconnect() end end end)
+                trackConnection(endConn)
+            end
+        end))
+        trackConnection(UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then mDragInput = input end end))
+        trackConnection(UIS.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - mDragStart; mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) end end))
+
+        mBtn.MouseButton1Click:Connect(function() setMainGuiVisible(not main.Visible) end)
+    end
 
     local top = create("Frame", {Size=UDim2.new(1,0,0,46), BackgroundColor3=Color3.fromRGB(16, 16, 22), BorderSizePixel=0, Parent=main}); create("UICorner", {CornerRadius=UDim.new(0,14), Parent=top})
     create("Frame", {Size=UDim2.new(1,0,0,12), Position=UDim2.new(0,0,1,-12), BackgroundColor3=Color3.fromRGB(16, 16, 22), BorderSizePixel=0, Parent=top})
@@ -418,16 +429,8 @@ local function initializeMainHub()
         tabRow.Visible = not isMin; 
         tabContent.Visible = not isMin; 
         statusLabel.Visible = not isMin; 
-        TS:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Size = isMin and UDim2.new(0,380,0,46) or UDim2.new(0,380,0,330)}):Play()
+        TS:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Size = isMin and UDim2.new(0,targetWidth,0,46) or UDim2.new(0,targetWidth,0,targetHeight)}):Play()
         minBtn.Text = isMin and "+" or "-" 
-    end)
-    
-    closeBtn.MouseButton1Click:Connect(function()
-        -- FIX: Unified Close Tween
-        TS:Create(main, ANIM_INFO_OUT, {Size = UDim2.new(0, 340, 0, 0), BackgroundTransparency = 1}):Play()
-        TS:Create(mainStroke, ANIM_INFO_OUT, {Transparency = 1}):Play()
-        task.wait(0.35)
-        purge()
     end)
 
     local activeThreads = {}
@@ -444,11 +447,11 @@ local function initializeMainHub()
     local function showPopupModal(modalName, titleText, messageText, cancelText, confirmText, onCancel, onConfirm)
         purgePhantomGUIs()
         setMainGuiVisible(false)
+        if mGui then mGui.Enabled = false end
 
         local warnGui = Instance.new("ScreenGui")
-        warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 100; warnGui.Parent = safeUI
+        warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 1000000; warnGui.Parent = safeUI
 
-        -- FIX: Added unified animation properties to popup modals as well
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(0, 340, 0, 180); 
         frame.Position = UDim2.new(0.5, 0, 0.5, 0); 
@@ -473,43 +476,67 @@ local function initializeMainHub()
             TS:Create(frame, ANIM_INFO_OUT, {Size = UDim2.new(0, 340, 0, 0)}):Play()
             TS:Create(warnStroke, ANIM_INFO_OUT, {Transparency = 1}):Play()
             task.wait(0.35)
-            warnGui:Destroy(); setMainGuiVisible(true); if callback then callback() end
+            warnGui:Destroy()
+            setMainGuiVisible(true)
+            if mGui then mGui.Enabled = true end
+            if callback then callback() end
         end
 
         cBtn.MouseButton1Click:Connect(function() closeModalAndRun(onCancel) end)
         cfBtn.MouseButton1Click:Connect(function() closeModalAndRun(onConfirm) end)
     end
 
-    local function showDeathFarmWarning(onConfirm, onCancel)
-        showPopupModal("XvlamersDeathWarning", "⚠️ DEATH FARM WARNING", "u must run in hotel, and you must re-open your Roblox to end because of how the script works. Would you like to turn it on?", "Cancel", "Confirm", onCancel, onConfirm)
-    end
-    
-    local function showKnobFarmWarning(onConfirm, onCancel)
-        showPopupModal("XvlamersKnobWarning", "⚠️ KNOB FARM WARNING", "It will automatically put you in with 150% modifiers, and you must run it in the Mines.", "Cancel", "Confirm", onCancel, onConfirm)
-    end
-    
-    local function showGoldWarning(onConfirm, onCancel)
-        showPopupModal("XvlamersGoldWarning", "⚠️ KNOBS/GOLD WARNING", "You need more than 0 gold/knobs to run Knob Farm!", "Cancel", "Confirm", onCancel, onCancel)
-    end
-
-    local function getCoins()
-        local ls = P:FindFirstChild("leaderstats")
-        if ls then
-            local cVal = ls:FindFirstChild("Knobs") or ls:FindFirstChild("Gold")
-            if cVal then return cVal.Value end
-        end
-        return 1
-    end
+    closeBtn.MouseButton1Click:Connect(function()
+        showPopupModal(
+            "XvlamersExitWarning",
+            "⚠️ EXIT HUB",
+            "Are you sure you want to close Xvlamer's Hub and stop all active automations?",
+            "Cancel",
+            "Exit",
+            function() end,
+            function()
+                TS:Create(main, ANIM_INFO_OUT, {Size = UDim2.new(0, 340, 0, 0), BackgroundTransparency = 1}):Play()
+                TS:Create(mainStroke, ANIM_INFO_OUT, {Transparency = 1}):Play()
+                task.wait(0.35)
+                purge()
+            end
+        )
+    end)
 
     local function executeRawScript(key)
+        local url = ""
         if key == "Knob Farm" then
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs"))()
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs"
         elseif key == "Death Farm" then
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Deaths"))()
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Deaths"
         elseif key == "Stardust Farm" then
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"
         elseif key == "V-Clip (V)" or key == "VClip" then
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)"))()
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)"
+        elseif key == "V-Clip (V) Spam" or key == "VClipSpam" then
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)%20Spam"
+        end
+        
+        if url ~= "" then
+            local success, res = pcall(function()
+                return game:HttpGet(url)
+            end)
+            if success and res then
+                local fn, compileErr = loadstring(res)
+                if fn then
+                    local runSuccess, runErr = pcall(fn)
+                    if not runSuccess then
+                        warn("[Xvlamers Hub] Runtime error in " .. key .. ": " .. tostring(runErr))
+                        pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = key .. " crashed: " .. tostring(runErr), Duration = 5}) end)
+                    end
+                else
+                    warn("[Xvlamers Hub] Compile error in " .. key .. ": " .. tostring(compileErr))
+                    pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = key .. " failed to compile.", Duration = 5}) end)
+                end
+            else
+                warn("[Xvlamers Hub] HTTP error fetching " .. key)
+                pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = "Failed to fetch " .. key .. " from GitHub.", Duration = 5}) end)
+            end
         end
     end
 
@@ -520,14 +547,7 @@ local function initializeMainHub()
         if key == "Stardust Farm" then getgenv().XvlamerStop_StardustFarm = false end
 
         activeThreads[key] = task.spawn(function()
-            if key == "Knob Farm" or key == "Death Farm" or key == "Stardust Farm" then
-                purgePhantomGUIs()
-                task.wait(1.5)
-                if getgenv()["XvlamerStop_" .. key:gsub("%s+", "")] == true then return end
-                executeRawScript(key)
-            else
-                executeRawScript(key)
-            end
+            executeRawScript(key)
         end)
     end
 
@@ -556,94 +576,22 @@ local function initializeMainHub()
             if isRadio then
                 if on then
                     for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                    local allowed, reason = canRunFarm(name)
-                    
-                    if game.PlaceId == PLACE_IDS.Lobby then
-                        if not skipWarning then
-                            if name == "Knob Farm" then
-                                showKnobFarmWarning(
-                                    function()
-                                        state.ActiveFarm = name
-                                        saveState()
-                                        triggerMinesTransition()
-                                    end,
-                                    function()
-                                        setVisual(false)
-                                        on = false
-                                    end
-                                )
-                                return
-                            elseif name == "Death Farm" then
-                                showDeathFarmWarning(
-                                    function()
-                                        state.ActiveFarm = name
-                                        saveState()
-                                        triggerHotelTransition()
-                                    end,
-                                    function()
-                                        setVisual(false)
-                                        on = false
-                                    end
-                                )
-                                return
-                            end
-                        end
-                    end
-
-                    if not allowed then
-                        setVisual(false); on = false
-                        pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = reason, Duration = 5}) end)
-                        return
-                    end
-
-                    if not skipWarning and game.PlaceId == PLACE_IDS.Mines and name == "Knob Farm" then
-                        showKnobFarmWarning(
-                            function()
-                                if getCoins() == 0 then
-                                    setVisual(false)
-                                    on = false
-                                    showGoldWarning(
-                                        function() end,
-                                        function()
-                                            setVisual(false)
-                                            on = false
-                                        end
-                                    )
-                                    return
-                                end
-                                state.ActiveFarm = name
-                                saveState()
-                                runThread(name)
-                            end,
-                            function()
-                                setVisual(false)
-                                on = false
-                            end
-                        )
-                        return
-                    elseif not skipWarning and game.PlaceId == PLACE_IDS.Hotel and name == "Death Farm" then
-                        showDeathFarmWarning(
-                            function()
-                                state.ActiveFarm = name
-                                saveState()
-                                runThread(name)
-                            end,
-                            function()
-                                setVisual(false)
-                                on = false
-                            end
-                        )
-                        return
-                    end
-
-                    state.ActiveFarm = name; saveState(); runThread(name)
+                    state.ActiveFarm = name
+                    saveState()
+                    runThread(name)
                 else
                     if state.ActiveFarm == name then state.ActiveFarm = nil; saveState() end
                     stopThread(name)
                 end
             else
                 state[stateKey] = on; saveState()
-                if stateKey == "Optimizations" then Optimizer.Toggle(on) elseif stateKey == "AntiAFK" then setAntiAFK(on) else
+                if stateKey == "Optimizations" then 
+                    Optimizer.Toggle(on) 
+                elseif stateKey == "AntiAFK" then 
+                    setAntiAFK(on) 
+                elseif stateKey == "UnlockFps" then 
+                    setUnlockFPS(on) 
+                else
                     if on then runThread(stateKey) else stopThread(stateKey) end
                 end
             end
@@ -662,7 +610,13 @@ local function initializeMainHub()
         
         if not isRadio and state[stateKey] == true and stateKey ~= "Optimizations" then
             on = true; setVisual(true)
-            if stateKey == "AntiAFK" then setAntiAFK(true) else runThread(stateKey) end
+            if stateKey == "AntiAFK" then 
+                setAntiAFK(true) 
+            elseif stateKey == "UnlockFps" then 
+                setUnlockFPS(true) 
+            else 
+                runThread(stateKey) 
+            end
         end
     end
 
@@ -670,10 +624,13 @@ local function initializeMainHub()
     createToggle("Death Farm", pages[2], true, nil, 2)
     createToggle("Stardust Farm", pages[2], true, nil, 3)
     createToggle("V-Clip (V)", pages[3], false, "VClip", 1)
-    createToggle("Optimizations", pages[3], false, "Optimizations", 2)
-    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 3)
+    createToggle("V-Clip (V) Spam", pages[3], false, "VClipSpam", 2)
+    createToggle("Optimizations", pages[3], false, "Optimizations", 3)
+    createToggle("Unlock fps", pages[3], false, "UnlockFps", 4)
+    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5)
 
     if state.AntiAFK then setAntiAFK(true); if toggleHandlers["AntiAFK"] then toggleHandlers["AntiAFK"].update(true) end end
+    if state.UnlockFps then setUnlockFPS(true); if toggleHandlers["UnlockFps"] then toggleHandlers["UnlockFps"].update(true) end end
 
     trackConnection(UIS.InputBegan:Connect(function(input, gameProcessed) if input.KeyCode == Enum.KeyCode.V then if toggleHandlers["VClip"] then toggleHandlers["VClip"].update(true) end end end))
     trackConnection(UIS.InputEnded:Connect(function(input, gameProcessed) if input.KeyCode == Enum.KeyCode.V then if toggleHandlers["VClip"] then toggleHandlers["VClip"].update(false) end end end))
@@ -698,7 +655,6 @@ local function startKeySystem()
 
     local backdrop = create("Frame", {Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.fromRGB(0,0,0), BackgroundTransparency=1, Parent=keyGui})
 
-    -- FIX: Anchor point and ClipsDescendants for the Key System
     local keyFrame = create("Frame", {
         Size=UDim2.new(0, 340, 0, 130), 
         Position=UDim2.new(0.5, 0, 0.5, 0), 
@@ -712,7 +668,6 @@ local function startKeySystem()
     create("UICorner", {CornerRadius=UDim.new(0, 14), Parent=keyFrame})
     local stroke = create("UIStroke", {Color=THEME_PURPLE, Transparency=1, Thickness=1.5, Parent=keyFrame})
 
-    -- FIX: Unified Open Tween
     TS:Create(keyFrame, ANIM_INFO_IN, {Size = UDim2.new(0, 380, 0, 158), BackgroundTransparency = 0}):Play()
     TS:Create(stroke, ANIM_INFO_IN, {Transparency = 0.15}):Play()
 
@@ -729,7 +684,6 @@ local function startKeySystem()
     end)
 
     closeKeyBtn.MouseButton1Click:Connect(function()
-        -- FIX: Unified Close Tween
         TS:Create(keyFrame, ANIM_INFO_OUT, {Size = UDim2.new(0, 340, 0, 0), BackgroundTransparency = 1}):Play()
         TS:Create(stroke, ANIM_INFO_OUT, {Transparency = 1}):Play()
         task.wait(0.35)
@@ -787,7 +741,6 @@ local function startKeySystem()
             state.KeyExpiry = os.time() + 86400
             saveState()
             
-            -- FIX: Unified Close Tween for Key System acceptance
             TS:Create(keyFrame, ANIM_INFO_OUT, {Size = UDim2.new(0, 340, 0, 0), BackgroundTransparency = 1}):Play()
             TS:Create(stroke, ANIM_INFO_OUT, {Transparency = 1}):Play()
             task.wait(0.35)
