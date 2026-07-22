@@ -1,171 +1,93 @@
-local function executeRawScript(key)
-    if key == "V-Clip" or key == "VClip" then
-        getgenv().XvlamerStop_VClip = false
-        
-        -- Dedicated per-frame noclip connection to prevent collisions from re-enabling
-        local noclipConn = RS.Stepped:Connect(function()
-            pcall(function()
-                local char = P.Character
-                if char then
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
-                    end
-                end
-            end)
-        end)
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local P = Players.LocalPlayer
 
-        task.spawn(function()
-            while not getgenv().XvlamerStop_VClip do
-                -- Move phase: Active movement for 0.1 seconds
-                local moveStart = tick()
-                while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClip do
-                    local dt = RS.Heartbeat:Wait()
-                    pcall(function()
-                        local char = P.Character
-                        if char then
-                            local hrp = char:FindFirstChild("HumanoidRootPart")
-                            local cam = Workspace.CurrentCamera
-                            if hrp and cam then
-                                hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (10 * dt))
-                            end
-                        end
-                    end)
-                end
-                
-                -- Stop phase: Pauses and locks position for 0.1 seconds to create a stepped/pulsed motion
-                local pauseStart = tick()
-                while tick() - pauseStart < 0.1 and not getgenv().XvlamerStop_VClip do
-                    RS.Heartbeat:Wait()
-                    pcall(function()
-                        local char = P.Character
-                        if char then
-                            local hrp = char:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                            end
-                        end
-                    end)
-                end
-            end
-            
-            if noclipConn then noclipConn:Disconnect() end
-        end)
-        return
-        
-    elseif key == "VClipSpam" or key == "V-Clip Spam" then
-        getgenv().XvlamerStop_VClipSpam = false
-        local lockedY = nil
-        
-        -- Dedicated per-frame noclip connection for Y-locked vclip mode
-        local noclipConn = RS.Stepped:Connect(function()
-            pcall(function()
-                local char = P.Character
-                if char then
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
-                    end
-                end
-            end)
-        end)
+-- Stop any previous running instance of V-Clip Spam
+getgenv().XvlamerStop_VClipSpam = true
+task.wait(0.1)
+getgenv().XvlamerStop_VClipSpam = false
 
-        task.spawn(function()
-            while not getgenv().XvlamerStop_VClipSpam do
-                -- Move phase: Active translation for 0.1 seconds
-                local moveStart = tick()
-                while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
-                    local dt = RS.Heartbeat:Wait()
-                    pcall(function()
-                        local char = P.Character
-                        if char then
-                            local hrp = char:FindFirstChild("HumanoidRootPart")
-                            local humanoid = char:FindFirstChildOfClass("Humanoid")
-                            local cam = Workspace.CurrentCamera
-                            
-                            if hrp and cam and humanoid then
-                                if not lockedY then
-                                    lockedY = hrp.Position.Y
-                                end
-                                
-                                local look = cam.CFrame.LookVector
-                                local flatLook = Vector3.new(look.X, 0, look.Z)
-                                if flatLook.Magnitude > 0 then
-                                    flatLook = flatLook.Unit
-                                else
-                                    flatLook = Vector3.new(0, 0, -1)
-                                end
-                                
-                                local currentPos = hrp.Position
-                                local speed = 12
-                                local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
-                                hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
-                                
-                                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                            else
-                                lockedY = nil
-                            end
-                        end
-                    end)
-                end
-                
-                -- Stop phase: Complete pause for 0.1 seconds before the next step
-                local pauseStart = tick()
-                while tick() - pauseStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
-                    RS.Heartbeat:Wait()
-                    pcall(function()
-                        local char = P.Character
-                        if char then
-                            local hrp = char:FindFirstChild("HumanoidRootPart")
-                            local humanoid = char:FindFirstChildOfClass("Humanoid")
-                            if hrp and humanoid then
-                                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                            end
-                        end
-                    end)
-                end
-            end
-            
-            if noclipConn then noclipConn:Disconnect() end
-        end)
-        return
-    end
+local connections = {}
+local lockedY = nil
 
-    local url = ""
-    if key == "Knob Farm" then
-        url = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Autofarm%20Knobs"
-    elseif key == "Death Farm" then
-        url = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Autofarm%20Deaths"
-    elseif key == "Stardust Farm" then
-        url = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Autofarm%20Stardust"
-    end
-    
-    if url ~= "" then
-        local success, res = pcall(function()
-            return game:HttpGet(url)
-        end)
-        if success and res then
-            local fn, compileErr = loadstring(res)
-            if fn then
-                local runSuccess, runErr = pcall(fn)
-                if not runSuccess then
-                    warn("[Xvlamers Hub] Runtime error in " .. key .. ": " .. tostring(runErr))
-                    pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = key .. " crashed: " .. tostring(runErr), Duration = 5}) end)
-                end
-            else
-                warn("[Xvlamers Hub] Compile error in " .. key .. ": " .. tostring(compileErr))
-                pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = key .. " failed to compile.", Duration = 5}) end)
+-- Aggressive per-frame noclip connection
+table.insert(connections, RunService.Stepped:Connect(function()
+    if getgenv().XvlamerStop_VClipSpam then return end
+    local char = P.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
             end
-        else
-            warn("[Xvlamers Hub] HTTP error fetching " .. key)
-            pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = "Failed to fetch " .. key .. " from GitHub.", Duration = 5}) end)
         end
     end
-end
+end))
+
+-- Slower pulsed movement loop for V-Clip Spam with Y-level locking
+task.spawn(function()
+    while not getgenv().XvlamerStop_VClipSpam do
+        -- Move phase: active movement for 0.1 seconds
+        local moveStart = tick()
+        while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
+            local dt = RunService.Heartbeat:Wait()
+            pcall(function()
+                local char = P.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    local cam = Workspace.CurrentCamera
+                    
+                    if hrp and cam and humanoid then
+                        if not lockedY then
+                            lockedY = hrp.Position.Y
+                        end
+                        
+                        local look = cam.CFrame.LookVector
+                        local flatLook = Vector3.new(look.X, 0, look.Z)
+                        if flatLook.Magnitude > 0 then
+                            flatLook = flatLook.Unit
+                        else
+                            flatLook = Vector3.new(0, 0, -1)
+                        end
+                        
+                        local currentPos = hrp.Position
+                        local speed = 10
+                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
+                        hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
+                        
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    else
+                        lockedY = nil
+                    end
+                end
+            end)
+        end
+        
+        -- Stop / Pause phase: Longer delay (0.3 seconds) to make the spam significantly slower and more controlled
+        local pauseStart = tick()
+        local pauseDuration = 0.3
+        while tick() - pauseStart < pauseDuration and not getgenv().XvlamerStop_VClipSpam do
+            RunService.Heartbeat:Wait()
+            pcall(function()
+                local char = P.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    if hrp and humanoid then
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    end
+                end
+            end)
+        end
+    end
+    
+    -- Clean up connections on stop
+    for _, conn in ipairs(connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+end)
