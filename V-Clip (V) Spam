@@ -10,6 +10,7 @@ getgenv().XvlamerStop_VClipSpam = false
 
 local connections = {}
 local lockedY = nil
+local originalWalkSpeed = 16
 
 -- Aggressive per-frame noclip connection
 table.insert(connections, RunService.Stepped:Connect(function()
@@ -24,10 +25,21 @@ table.insert(connections, RunService.Stepped:Connect(function()
     end
 end))
 
--- Slower pulsed movement loop for V-Clip Spam with Y-level locking
+-- Calibrated V-Clip Spam script with normal walking disabled (WalkSpeed = 0)
 task.spawn(function()
+    pcall(function()
+        local char = P.Character
+        if char then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                originalWalkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+                humanoid.WalkSpeed = 0
+            end
+        end
+    end)
+
     while not getgenv().XvlamerStop_VClipSpam do
-        -- Move phase: active movement for 0.1 seconds
+        -- Move phase: active movement for 0.1 seconds at 1.5 speed
         local moveStart = tick()
         while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
             local dt = RunService.Heartbeat:Wait()
@@ -39,10 +51,15 @@ task.spawn(function()
                     local cam = Workspace.CurrentCamera
                     
                     if hrp and cam and humanoid then
+                        if humanoid.WalkSpeed ~= 0 then
+                            humanoid.WalkSpeed = 0
+                        end
+                        
                         if not lockedY then
                             lockedY = hrp.Position.Y
                         end
                         
+                        -- Flatten camera vector completely to prevent any vertical flying when looking up/down
                         local look = cam.CFrame.LookVector
                         local flatLook = Vector3.new(look.X, 0, look.Z)
                         if flatLook.Magnitude > 0 then
@@ -52,7 +69,7 @@ task.spawn(function()
                         end
                         
                         local currentPos = hrp.Position
-                        local speed = 10
+                        local speed = 1.5
                         local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
                         hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
                         
@@ -66,9 +83,9 @@ task.spawn(function()
             end)
         end
         
-        -- Stop / Pause phase: Longer delay (0.3 seconds) to make the spam significantly slower and more controlled
+        -- Stop / Pause phase: Controlled pause to maintain the 1.5 studs per second target rate
         local pauseStart = tick()
-        local pauseDuration = 0.3
+        local pauseDuration = 0.4
         while tick() - pauseStart < pauseDuration and not getgenv().XvlamerStop_VClipSpam do
             RunService.Heartbeat:Wait()
             pcall(function()
@@ -77,6 +94,9 @@ task.spawn(function()
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     local humanoid = char:FindFirstChildOfClass("Humanoid")
                     if hrp and humanoid then
+                        if humanoid.WalkSpeed ~= 0 then
+                            humanoid.WalkSpeed = 0
+                        end
                         humanoid:ChangeState(Enum.HumanoidStateType.Running)
                         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
@@ -86,6 +106,17 @@ task.spawn(function()
         end
     end
     
+    -- Restore original walkspeed on stop
+    pcall(function()
+        local char = P.Character
+        if char then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = originalWalkSpeed
+            end
+        end
+    end)
+
     -- Clean up connections on stop
     for _, conn in ipairs(connections) do
         pcall(function() conn:Disconnect() end)
