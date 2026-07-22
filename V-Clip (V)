@@ -21,10 +21,12 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local oldSpeed = hum.WalkSpeed
 local oldJump = hum.JumpPower
 local oldHeight = hum.JumpHeight
+local oldAnchored = hrp.Anchored
 
 hum.WalkSpeed = 0
 hum.JumpPower = 0
 hum.JumpHeight = 0
+hrp.Anchored = true
 
 local conns = {}
 local runningState = Enum.HumanoidStateType.Running
@@ -37,6 +39,7 @@ table.insert(conns, RS.Stepped:Connect(function()
     hum.WalkSpeed = 0
     hum.JumpPower = 0
     hum.JumpHeight = 0
+    hrp.Anchored = true
     
     pcall(function() hum:ChangeState(runningState) end)
     
@@ -49,9 +52,10 @@ table.insert(conns, RS.Stepped:Connect(function()
     end
 end))
 
-table.insert(conns, RS.RenderStepped:Connect(function()
+table.insert(conns, RS.RenderStepped:Connect(function(dt)
     if getgenv().XvlamerStop_VClip or not hrp or not hrp.Parent then return end
-    hrp.AssemblyLinearVelocity = cam.CFrame.LookVector * 1.5
+    hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * 1.5 * dt)
+    hrp.AssemblyLinearVelocity = vec0
     hrp.AssemblyAngularVelocity = vec0
 end))
 
@@ -61,7 +65,10 @@ table.insert(conns, RS.Heartbeat:Connect(function()
             pcall(function() conns[i]:Disconnect() end)
         end
         pcall(function()
-            if hrp and hrp.Parent then hrp.AssemblyLinearVelocity = vec0 end
+            if hrp and hrp.Parent then 
+                hrp.Anchored = oldAnchored
+                hrp.AssemblyLinearVelocity = vec0 
+            end
             if hum and hum.Parent then
                 hum.WalkSpeed = oldSpeed or 16
                 hum.JumpPower = oldJump or 50
