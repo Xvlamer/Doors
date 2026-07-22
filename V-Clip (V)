@@ -23,7 +23,7 @@ table.insert(connections, RunService.Stepped:Connect(function()
     end
 end))
 
--- Smooth movement loop synchronized with Heartbeat
+-- Smooth movement loop synchronized with Heartbeat (Fixed for flat ground & no flying)
 table.insert(connections, RunService.Heartbeat:Connect(function(dt)
     if getgenv().XvlamerStop_VClip then
         for _, conn in ipairs(connections) do
@@ -43,10 +43,18 @@ table.insert(connections, RunService.Heartbeat:Connect(function(dt)
         if hrp and cam and humanoid then
             humanoid:ChangeState(Enum.HumanoidStateType.Running)
             
-            -- Smooth forward movement along camera look vector
+            -- Flatten camera look vector to XZ plane to completely prevent flying when looking up/down
             local look = cam.CFrame.LookVector
+            local flatLook = Vector3.new(look.X, 0, look.Z)
+            if flatLook.Magnitude > 0 then
+                flatLook = flatLook.Unit
+            else
+                flatLook = Vector3.new(0, 0, -1)
+            end
+            
+            -- Move straight on flat ground
             local speed = 16
-            hrp.CFrame = hrp.CFrame + (look * (speed * dt))
+            hrp.CFrame = hrp.CFrame + (flatLook * (speed * dt))
             
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
