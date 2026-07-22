@@ -1,11 +1,10 @@
 local G = game
 local RS = G:GetService("RunService")
 local P = G:GetService("Players")
-local W = G:GetService("Workspace")
 
 local lp = P.LocalPlayer
-local cam = W.CurrentCamera
 
+-- Prevent overlapping executions
 if getgenv().Xvlamer_VClipRunning then
     getgenv().XvlamerStop_VClip = true
     task.wait(0.05)
@@ -18,11 +17,13 @@ local char = lp.Character or lp.CharacterAdded:Wait()
 local hum = char:WaitForChild("Humanoid")
 local hrp = char:WaitForChild("HumanoidRootPart")
 
+-- Store original states to revert later
 local oldSpeed = hum.WalkSpeed
 local oldJump = hum.JumpPower
 local oldHeight = hum.JumpHeight
 local oldAnchored = hrp.Anchored
 
+-- Lock down default movement
 hum.WalkSpeed = 0
 hum.JumpPower = 0
 hum.JumpHeight = 0
@@ -32,17 +33,21 @@ local conns = {}
 local runningState = Enum.HumanoidStateType.Running
 local vec0 = Vector3.zero
 
+-- 1. Constant Noclip & State Enforcement (Stepped runs before physics)
 table.insert(conns, RS.Stepped:Connect(function()
     if getgenv().XvlamerStop_VClip then return end
     if not char or not char.Parent or not hrp or not hum or hum.Health <= 0 then return end
 
+    -- Enforce lockdown every frame in case the game tries to update it
     hum.WalkSpeed = 0
     hum.JumpPower = 0
     hum.JumpHeight = 0
     hrp.Anchored = true
     
+    -- Trick the game into thinking you are constantly running on the ground
     pcall(function() hum:ChangeState(runningState) end)
     
+    -- Absolute noclip
     local descendants = char:GetDescendants()
     for i = 1, #descendants do
         local part = descendants[i]
@@ -52,13 +57,28 @@ table.insert(conns, RS.Stepped:Connect(function()
     end
 end))
 
+-- 2. CFrame Movement (RenderStepped ensures it looks perfectly smooth locally)
 table.insert(conns, RS.RenderStepped:Connect(function(dt)
     if getgenv().XvlamerStop_VClip or not hrp or not hrp.Parent then return end
-    hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * 1.5 * dt)
+    
+    -- Get the direction the character is physically facing
+    local lookDir = hrp.CFrame.LookVector
+    
+    -- Strip the Y axis to completely disable up/down movement, then normalize it
+    local flatForward = Vector3.new(lookDir.X, 0, lookDir.Z)
+    if flatForward.Magnitude > 0 then
+        flatForward = flatForward.Unit
+    end
+    
+    -- Move exactly 2 studs per second on a constant flow
+    hrp.CFrame = hrp.CFrame + (flatForward * 2 * dt)
+    
+    -- Kill any residual velocity
     hrp.AssemblyLinearVelocity = vec0
     hrp.AssemblyAngularVelocity = vec0
 end))
 
+-- 3. Cleanup & Restoration
 table.insert(conns, RS.Heartbeat:Connect(function()
     if getgenv().XvlamerStop_VClip then
         for i = 1, #conns do
