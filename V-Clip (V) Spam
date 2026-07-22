@@ -1,124 +1,107 @@
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local P = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
 
--- Stop any previous running instance of V-Clip Spam
-getgenv().XvlamerStop_VClipSpam = true
-task.wait(0.1)
-getgenv().XvlamerStop_VClipSpam = false
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
 
-local connections = {}
-local lockedY = nil
-local originalWalkSpeed = 16
+if getgenv().StopVClip then
+    pcall(getgenv().StopVClip)
+end
 
--- Aggressive per-frame noclip connection
-table.insert(connections, RunService.Stepped:Connect(function()
-    if getgenv().XvlamerStop_VClipSpam then return end
-    local char = P.Character
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end
-end))
+getgenv().VClipSpam = true
 
--- Calibrated V-Clip Spam script with normal walking disabled (WalkSpeed = 0)
-task.spawn(function()
+local noclipConnection = RunService.Stepped:Connect(function()
     pcall(function()
-        local char = P.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                originalWalkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
-                humanoid.WalkSpeed = 0
+        local character = player.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
             end
         end
     end)
+end)
 
-    while not getgenv().XvlamerStop_VClipSpam do
-        -- Move phase: active movement for 0.1 seconds at 1.5 speed
-        local moveStart = tick()
-        while tick() - moveStart < 0.1 and not getgenv().XvlamerStop_VClipSpam do
-            local dt = RunService.Heartbeat:Wait()
-            pcall(function()
-                local char = P.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local humanoid = char:FindFirstChildOfClass("Humanoid")
-                    local cam = Workspace.CurrentCamera
+local vclipTask = task.spawn(function()
+    local lockedY = nil
+    while true do
+        pcall(function()
+            local character = player.Character
+            if character then
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                
+                if hrp and humanoid then
+                    humanoid.WalkSpeed = 0
+                    humanoid.JumpPower = 0
                     
-                    if hrp and cam and humanoid then
-                        if humanoid.WalkSpeed ~= 0 then
-                            humanoid.WalkSpeed = 0
-                        end
-                        
-                        if not lockedY then
-                            lockedY = hrp.Position.Y
-                        end
-                        
-                        -- Flatten camera vector completely to prevent any vertical flying when looking up/down
-                        local look = cam.CFrame.LookVector
-                        local flatLook = Vector3.new(look.X, 0, look.Z)
-                        if flatLook.Magnitude > 0 then
-                            flatLook = flatLook.Unit
-                        else
-                            flatLook = Vector3.new(0, 0, -1)
-                        end
-                        
-                        local currentPos = hrp.Position
-                        local speed = 1.5
-                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
-                        hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
-                        
-                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    if not lockedY then
+                        lockedY = hrp.Position.Y
+                    end
+                    
+                    local look = camera.CFrame.LookVector
+                    local flatLook = Vector3.new(look.X, 0, look.Z)
+                    if flatLook.Magnitude > 0 then
+                        flatLook = flatLook.Unit
                     else
-                        lockedY = nil
+                        flatLook = Vector3.new(0, 0, -1)
                     end
+                    
+                    local currentPos = hrp.Position
+                    local targetPos = Vector3.new(currentPos.X + (flatLook.X * 1.5), lockedY, currentPos.Z + (flatLook.Z * 1.5))
+                    
+                    hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 end
-            end)
-        end
+            end
+        end)
         
-        -- Stop / Pause phase: Controlled pause to maintain the 1.5 studs per second target rate
-        local pauseStart = tick()
-        local pauseDuration = 0.4
-        while tick() - pauseStart < pauseDuration and not getgenv().XvlamerStop_VClipSpam do
-            RunService.Heartbeat:Wait()
+        local elapsed = 0
+        local targetInterval = getgenv().VClipSpam and 0.1 or 1
+        while elapsed < targetInterval do
+            local dt = RunService.Heartbeat:Wait()
+            elapsed = elapsed + dt
             pcall(function()
-                local char = P.Character
-                if char then
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                local character = player.Character
+                if character then
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    local humanoid = character:FindFirstChildOfClass("Humanoid")
                     if hrp and humanoid then
-                        if humanoid.WalkSpeed ~= 0 then
-                            humanoid.WalkSpeed = 0
-                        end
-                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                        humanoid.WalkSpeed = 0
                         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                     end
                 end
             end)
         end
-    end
-    
-    -- Restore original walkspeed on stop
-    pcall(function()
-        local char = P.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = originalWalkSpeed
-            end
-        end
-    end)
-
-    -- Clean up connections on stop
-    for _, conn in ipairs(connections) do
-        pcall(function() conn:Disconnect() end)
     end
 end)
+
+getgenv().StopVClip = function()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+    end
+    if vclipTask then
+        task.cancel(vclipTask)
+    end
+    pcall(function()
+        local character = player.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = 16
+                humanoid.JumpPower = 50
+            end
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end)
+    getgenv().StopVClip = nil
+    getgenv().VClipSpam = nil
+end
