@@ -21,30 +21,27 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local oldSpeed = hum.WalkSpeed
 local oldJump = hum.JumpPower
 local oldHeight = hum.JumpHeight
-local oldAnchored = hrp.Anchored
 
 -- Lock down default movement
 hum.WalkSpeed = 0
 hum.JumpPower = 0
 hum.JumpHeight = 0
-hrp.Anchored = true
 
 local conns = {}
 local runningState = Enum.HumanoidStateType.Running
 local vec0 = Vector3.zero
 
--- 1. Constant Noclip & State Enforcement (Stepped runs before physics)
+-- 1. Constant Noclip & Anti-Cheat Spoofing
 table.insert(conns, RS.Stepped:Connect(function()
     if getgenv().XvlamerStop_VClip then return end
     if not char or not char.Parent or not hrp or not hum or hum.Health <= 0 then return end
 
-    -- Enforce lockdown every frame in case the game tries to update it
+    -- Enforce lockdown every frame
     hum.WalkSpeed = 0
     hum.JumpPower = 0
     hum.JumpHeight = 0
-    hrp.Anchored = true
     
-    -- Trick the game into thinking you are constantly running on the ground
+    -- Trick the game into thinking you are constantly running on the ground normally
     pcall(function() hum:ChangeState(runningState) end)
     
     -- Absolute noclip
@@ -57,7 +54,7 @@ table.insert(conns, RS.Stepped:Connect(function()
     end
 end))
 
--- 2. CFrame Movement (RenderStepped ensures it looks perfectly smooth locally)
+-- 2. CFrame Movement & Gravity Kill (Unanchored)
 table.insert(conns, RS.RenderStepped:Connect(function(dt)
     if getgenv().XvlamerStop_VClip or not hrp or not hrp.Parent then return end
     
@@ -70,10 +67,10 @@ table.insert(conns, RS.RenderStepped:Connect(function(dt)
         flatForward = flatForward.Unit
     end
     
-    -- Move exactly 2 studs per second on a constant flow
-    hrp.CFrame = hrp.CFrame + (flatForward * 2 * dt)
+    -- Move exactly 1.5 studs per second on a constant flow
+    hrp.CFrame = hrp.CFrame + (flatForward * 1.5 * dt)
     
-    -- Kill any residual velocity
+    -- Neutralize physics to stop gravity/falling while unanchored
     hrp.AssemblyLinearVelocity = vec0
     hrp.AssemblyAngularVelocity = vec0
 end))
@@ -86,7 +83,7 @@ table.insert(conns, RS.Heartbeat:Connect(function()
         end
         pcall(function()
             if hrp and hrp.Parent then 
-                hrp.Anchored = oldAnchored
+                -- Kill any leftover velocity when turning it off
                 hrp.AssemblyLinearVelocity = vec0 
             end
             if hum and hum.Parent then
