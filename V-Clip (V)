@@ -9,6 +9,7 @@ task.wait(0.1)
 getgenv().XvlamerStop_VClip = false
 
 local connections = {}
+local originalWalkSpeed = 16
 
 -- Aggressive per-frame noclip to completely strip collisions every frame
 table.insert(connections, RunService.Stepped:Connect(function()
@@ -23,12 +24,33 @@ table.insert(connections, RunService.Stepped:Connect(function()
     end
 end))
 
--- Smooth movement loop synchronized with Heartbeat (Fixed for flat ground & no flying)
+-- Save and disable normal walking (WalkSpeed = 0)
+pcall(function()
+    local char = P.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            originalWalkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+            humanoid.WalkSpeed = 0
+        end
+    end
+end)
+
+-- Smooth movement loop synchronized with Heartbeat (Fixed for flat ground, no flying, and disabled walking)
 table.insert(connections, RunService.Heartbeat:Connect(function(dt)
     if getgenv().XvlamerStop_VClip then
         for _, conn in ipairs(connections) do
             pcall(function() conn:Disconnect() end)
         end
+        pcall(function()
+            local char = P.Character
+            if char then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = originalWalkSpeed
+                end
+            end
+        end)
         return
     end
     
@@ -41,6 +63,10 @@ table.insert(connections, RunService.Heartbeat:Connect(function(dt)
         local cam = Workspace.CurrentCamera
         
         if hrp and cam and humanoid then
+            if humanoid.WalkSpeed ~= 0 then
+                humanoid.WalkSpeed = 0
+            end
+            
             humanoid:ChangeState(Enum.HumanoidStateType.Running)
             
             -- Flatten camera look vector to XZ plane to completely prevent flying when looking up/down
