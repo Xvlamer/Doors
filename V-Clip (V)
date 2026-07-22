@@ -33,6 +33,43 @@ local physState = Enum.HumanoidStateType.Physics
 local getUpState = Enum.HumanoidStateType.GettingUp
 local lockedY = hrp.Position.Y
 
+local cleanedUp = false
+local function cleanup()
+    if cleanedUp then return end
+    cleanedUp = true
+    
+    for i = 1, #conns do
+        pcall(function() conns[i]:Disconnect() end)
+    end
+    
+    pcall(function()
+        if char and char.Parent then
+            local descendants = char:GetDescendants()
+            for i = 1, #descendants do
+                local part = descendants[i]
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                    part.Massless = false
+                end
+            end
+        end
+        if hrp and hrp.Parent then 
+            hrp.AssemblyLinearVelocity = vec0 
+            hrp.AssemblyAngularVelocity = vec0
+        end
+        if hum and hum.Parent then
+            hum.WalkSpeed = oldSpeed or 16
+            hum.JumpPower = oldJump or 50
+            hum.JumpHeight = oldHeight or 7.2
+            hum.PlatformStand = oldPlatformStand or false
+            hum.AutoRotate = oldAutoRotate or true
+            hum:ChangeState(getUpState)
+        end
+    end)
+    
+    getgenv().Xvlamer_VClipRunning = false
+end
+
 pcall(function()
     lockedY = hrp.Position.Y
     hum.PlatformStand = true
@@ -49,8 +86,14 @@ pcall(function()
 end)
 
 table.insert(conns, RS.Stepped:Connect(function()
-    if getgenv().XvlamerStop_VClip then return end
-    if not char or not char.Parent or not hrp or not hum or hum.Health <= 0 then return end
+    if getgenv().XvlamerStop_VClip then
+        cleanup()
+        return
+    end
+    if not char or not char.Parent or not hrp or not hum or hum.Health <= 0 then
+        cleanup()
+        return
+    end
 
     hum.WalkSpeed = 0
     hum.JumpPower = 0
@@ -70,7 +113,11 @@ table.insert(conns, RS.Stepped:Connect(function()
 end))
 
 table.insert(conns, RS.RenderStepped:Connect(function(dt)
-    if getgenv().XvlamerStop_VClip or not hrp or not hrp.Parent then return end
+    if getgenv().XvlamerStop_VClip then
+        cleanup()
+        return
+    end
+    if not hrp or not hrp.Parent then return end
     
     local lookDir = hrp.CFrame.LookVector
     local flatForward = Vector3.new(lookDir.X, 0, lookDir.Z)
@@ -88,34 +135,6 @@ end))
 
 table.insert(conns, RS.Heartbeat:Connect(function()
     if getgenv().XvlamerStop_VClip then
-        for i = 1, #conns do
-            pcall(function() conn:Disconnect() end)
-            pcall(function() conns[i]:Disconnect() end)
-        end
-        pcall(function()
-            if char and char.Parent then
-                local descendants = char:GetDescendants()
-                for i = 1, #descendants do
-                    local part = descendants[i]
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
-                        part.Massless = false
-                    end
-                end
-            end
-            if hrp and hrp.Parent then 
-                hrp.AssemblyLinearVelocity = vec0 
-                hrp.AssemblyAngularVelocity = vec0
-            end
-            if hum and hum.Parent then
-                hum.WalkSpeed = oldSpeed or 16
-                hum.JumpPower = oldJump or 50
-                hum.JumpHeight = oldHeight or 7.2
-                hum.PlatformStand = oldPlatformStand or false
-                hum.AutoRotate = oldAutoRotate or true
-                hum:ChangeState(getUpState)
-            end
-        end)
-        getgenv().Xvlamer_VClipRunning = false
+        cleanup()
     end
 end))
