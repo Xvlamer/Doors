@@ -27,8 +27,10 @@ hum.JumpHeight = 0
 local conns = {}
 local runningState = Enum.HumanoidStateType.Running
 local vec0 = Vector3.zero
+local lockedY = hrp.Position.Y
 
 pcall(function()
+    lockedY = hrp.Position.Y
     hum:ChangeState(runningState)
     local descendants = char:GetDescendants()
     for i = 1, #descendants do
@@ -67,7 +69,10 @@ table.insert(conns, RS.RenderStepped:Connect(function(dt)
         flatForward = flatForward.Unit
     end
     
-    hrp.CFrame = hrp.CFrame + (flatForward * 1.5 * dt)
+    local currentPos = hrp.Position
+    local nextPos = currentPos + (flatForward * 1.5 * dt)
+    
+    hrp.CFrame = CFrame.new(nextPos.X, lockedY, nextPos.Z) * CFrame.Angles(hrp.CFrame:ToEulerAnglesXYZ())
     hrp.AssemblyLinearVelocity = vec0
     hrp.AssemblyAngularVelocity = vec0
 end))
