@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 local P = Players.LocalPlayer
 
 -- Stop any previous running instance of this script
@@ -8,7 +9,28 @@ task.wait(0.1)
 getgenv().XvlamerStop_VClipSpam = false
 
 local lockedY = nil
+local noclipConnection
 
+-- Robust per-frame noclip using Stepped to prevent physics re-enabling collisions
+noclipConnection = RunService.Stepped:Connect(function()
+    if getgenv().XvlamerStop_VClipSpam then
+        if noclipConnection then
+            noclipConnection:Disconnect()
+        end
+        return
+    end
+    
+    local char = P.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- VClip movement loop
 task.spawn(function()
     while not getgenv().XvlamerStop_VClipSpam do
         pcall(function()
@@ -42,16 +64,13 @@ task.spawn(function()
                     humanoid:ChangeState(Enum.HumanoidStateType.Running)
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                     hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                    
-                    -- Noclip all parts
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
-                    end
                 end
             end
         end)
         task.wait(0.05) -- Spams roughly 20 times a second
+    end
+    
+    if noclipConnection then
+        noclipConnection:Disconnect()
     end
 end)
