@@ -1,68 +1,66 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
-local player = Players.LocalPlayer
-
-getgenv().XvlamerStop_VClipSpam = false
-
-local noclipConnection
-noclipConnection = RunService.Stepped:Connect(function()
-    if getgenv().XvlamerStop_VClipSpam then
-        if noclipConnection then noclipConnection:Disconnect() end
-        local character = player.Character
-        if character then
-            for _, part in ipairs(character:GetChildren()) do
-                if part:IsA("BasePart") then
-                    if part.Name ~= "HumanoidRootPart" then
-                        part.CanCollide = true
+local function executeRawScript(key)
+        if key == "V-Clip" or key == "VClip" then
+            getgenv().XvlamerStop_VClip = false
+            while not getgenv().XvlamerStop_VClip do
+                pcall(function()
+                    local char = P.Character
+                    if char then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        local cam = Workspace.CurrentCamera
+                        if hrp and cam then
+                            hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * 1.5)
+                        end
                     end
+                end)
+                RS.Heartbeat:Wait()
+            end
+            return
+        elseif key == "VClipSpam" or key == "V-Clip Spam" then
+            getgenv().XvlamerStop_VClipSpam = false
+            while not getgenv().XvlamerStop_VClipSpam do
+                pcall(function()
+                    local char = P.Character
+                    if char then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        local cam = Workspace.CurrentCamera
+                        if hrp and cam then
+                            hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * 2.5)
+                        end
+                    end
+                end)
+                RS.Heartbeat:Wait()
+            end
+            return
+        end
+
+        local url = ""
+        if key == "Knob Farm" then
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Autofarm%20Knobs"
+        elseif key == "Death Farm" then
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Autofarm%20Deaths"
+        elseif key == "Stardust Farm" then
+            url = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Autofarm%20Stardust"
+        end
+        
+        if url ~= "" then
+            local success, res = pcall(function()
+                return game:HttpGet(url)
+            end)
+            if success and res then
+                local fn, compileErr = loadstring(res)
+                if fn then
+                    local runSuccess, runErr = pcall(fn)
+                    if not runSuccess then
+                        warn("[Xvlamers Hub] Runtime error in " .. key .. ": " .. tostring(runErr))
+                        pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = key .. " crashed: " .. tostring(runErr), Duration = 5}) end)
+                    end
+                else
+                    warn("[Xvlamers Hub] Compile error in " .. key .. ": " .. tostring(compileErr))
+                    pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = key .. " failed to compile.", Duration = 5}) end)
                 end
-            end
-        end
-        return
-    end
-
-    local character = player.Character
-    if character then
-        for _, part in ipairs(character:GetChildren()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
+            else
+                warn("[Xvlamers Hub] HTTP error fetching " .. key)
+                pcall(function() StarterGui:SetCore("SendNotification", {Title = "Xvlamers Hub", Text = "Failed to fetch " .. key .. " from GitHub.", Duration = 5}) end)
             end
         end
     end
-end)
-
-task.spawn(function()
-    while not getgenv().XvlamerStop_VClipSpam do
-        local character = player.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-
-        if character and humanoid and rootPart and humanoid.Health > 0 then
-            local oldWalkSpeed = humanoid.WalkSpeed
-            local oldJumpPower = humanoid.JumpPower
-            
-            humanoid.WalkSpeed = 0
-            humanoid.JumpPower = 0
-
-            local startCFrame = rootPart.CFrame
-            local targetCFrame = startCFrame + (startCFrame.LookVector * 0.2)
-            
-            local duration = 0.1
-            local elapsed = 0
-            while elapsed < duration and not getgenv().XvlamerStop_VClipSpam do
-                local dt = RunService.Heartbeat:Wait()
-                elapsed = elapsed + dt
-                local alpha = math.clamp(elapsed / duration, 0, 1)
-                rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-                rootPart.AssemblyLinearVelocity = Vector3.zero
-                rootPart.AssemblyAngularVelocity = Vector3.zero
-            end
-
-            humanoid.WalkSpeed = oldWalkSpeed
-            humanoid.JumpPower = oldJumpPower
-        end
-
-        task.wait(0.2)
-    end
-end)
