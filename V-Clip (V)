@@ -6,7 +6,7 @@ local lp = P.LocalPlayer
 
 if getgenv().Xvlamer_VClipRunning then
     getgenv().XvlamerStop_VClip = true
-    task.wait(0.05)
+    task.wait()
 end
 
 getgenv().XvlamerStop_VClip = false
@@ -89,9 +89,20 @@ end))
 table.insert(conns, RS.Heartbeat:Connect(function()
     if getgenv().XvlamerStop_VClip then
         for i = 1, #conns do
+            pcall(function() conn:Disconnect() end)
             pcall(function() conns[i]:Disconnect() end)
         end
         pcall(function()
+            if char and char.Parent then
+                local descendants = char:GetDescendants()
+                for i = 1, #descendants do
+                    local part = descendants[i]
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                        part.Massless = false
+                    end
+                end
+            end
             if hrp and hrp.Parent then 
                 hrp.AssemblyLinearVelocity = vec0 
                 hrp.AssemblyAngularVelocity = vec0
@@ -103,16 +114,6 @@ table.insert(conns, RS.Heartbeat:Connect(function()
                 hum.PlatformStand = oldPlatformStand or false
                 hum.AutoRotate = oldAutoRotate or true
                 hum:ChangeState(getUpState)
-            end
-            if char and char.Parent then
-                local descendants = char:GetDescendants()
-                for i = 1, #descendants do
-                    local part = descendants[i]
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
-                        part.Massless = false
-                    end
-                end
             end
         end)
         getgenv().Xvlamer_VClipRunning = false
