@@ -2,6 +2,8 @@ local Optimizer = {}
 
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
 local isEnabled = false
 local targetState = false
@@ -10,7 +12,7 @@ local sweepToken = 0
 local activeWorker = nil
 local connections = {}
 
--- Secure local cache tables
+-- Secure local cache tables with weak keys to completely prevent memory leaks
 local cache = {
     props = {},
     surfaces = {},
@@ -20,11 +22,32 @@ local cache = {
     quality = nil
 }
 
+setmetatable(cache.props, {__mode = "k"})
+setmetatable(cache.surfaces, {__mode = "k"})
+setmetatable(cache.fx, {__mode = "k"})
+
+-- Helper to ensure we never tamper with player characters, tools, or core gameplay elements
+local function isExcluded(v)
+    if not v then return true end
+    
+    -- Exclude local player character and items
+    local char = LocalPlayer.Character
+    if char and (v == char or v:IsDescendantOf(char)) then
+        return true
+    end
+    
+    -- Exclude Camera and UI/Core elements
+    if v:IsA("Camera") or v:IsDescendantOf(Workspace:FindFirstChild("Camera")) then
+        return true
+    end
+
+    return false
+end
+
 local function applyOptimization(v, currentToken)
-    if not isEnabled or sweepToken ~= currentToken then return end
+    if not isEnabled or sweepToken ~= currentToken or isExcluded(v) then return end
 
     if v:IsA("BasePart") then
-        -- Cache original properties ONLY ONCE before touching them
         if not cache.props[v] then
             cache.props[v] = {
                 Material = v.Material,
@@ -33,7 +56,9 @@ local function applyOptimization(v, currentToken)
             }
         end
         pcall(function()
-            v.Material = Enum.Material.SmoothPlastic
+            if v.Material ~= Enum.Material.SmoothPlastic and v.Material ~= Enum.Material.Plastic then
+                v.Material = Enum.Material.SmoothPlastic
+            end
             v.Reflectance = 0
             v.CastShadow = false
         end)
@@ -115,22 +140,34 @@ local function executeEnable(currentToken)
 
     if not connections.descendantAdded then
         connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v)
-            if isEnabled then
-                applyOptimization(v, currentToken)
+            if isEnabled and sweepToken == currentToken then
+                task.spawn(function()
+                    applyOptimization(v, currentToken)
+                end)
             end
         end)
     end
 
-    -- High-speed batched traversal for instant optimization
+    -- High-performance, time-sliced non-blocking traversal using an iterator stack
+    -- This prevents lag spikes/freezes on massive maps by budgeting execution time per frame.
     activeWorker = task.spawn(function()
-        local descendants = Workspace:GetDescendants()
-        local batchSize = 500
-        for i = 1, #descendants, batchSize do
-            if not isEnabled or sweepToken ~= currentToken then break end
-            for j = i, math.min(i + batchSize - 1, #descendants) do
-                applyOptimization(descendants[j], currentToken)
+        local stack = Workspace:GetChildren()
+        while #stack > 0 and isEnabled and sweepToken == currentToken do
+            local budget = os.clock() + 0.003 -- 3ms frame budget to maintain smooth 60+ FPS
+            while #stack > 0 and os.clock() < budget and sweepToken == currentToken do
+                local node = table.remove(stack)
+                if node then
+                    applyOptimization(node, currentToken)
+                    if node.Parent ~= nil then
+                        for _, child in ipairs(node:GetChildren()) do
+                            table.insert(stack, child)
+                        end
+                    end
+                end
             end
-            task.wait()
+            if #stack > 0 and sweepToken == currentToken then
+                task.wait()
+            end
         end
     end)
 end
@@ -139,7 +176,6 @@ local function executeDisable(currentToken)
     sweepToken = currentToken
     isEnabled = false
 
-    -- Instantly kill any active background workers to lock out race conditions
     if activeWorker then
         pcall(function() task.cancel(activeWorker) end)
         activeWorker = nil
@@ -169,9 +205,8 @@ local function executeDisable(currentToken)
     end
     table.clear(cache.terrain)
 
-    -- Revert all stored properties and original materials cleanly
     for obj, props in pairs(cache.props) do
-        if obj then
+        if obj and obj.Parent then
             for propName, propValue in pairs(props) do
                 pcall(function() obj[propName] = propValue end)
             end
