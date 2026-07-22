@@ -1,96 +1,52 @@
+-- V-Clip Loadstring Script
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
 
-local LevitateModule = {}
-local isEnabled = false
-local connection = nil
-local originalCFrame = nil
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 
-function LevitateModule.Toggle(state)
-    local newState = state and true or false
-    if isEnabled == newState then return end
-    isEnabled = newState
-
-    local character = LocalPlayer.Character
-    if not character then return end
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-    if isEnabled then
-        if rootPart then
-            originalCFrame = rootPart.CFrame
-        end
-
-        -- Lock humanoid control entirely to prevent walking, jumping, or physics interference
-        if humanoid then
-            humanoid.PlatformStanding = true
-            humanoid.AutoRotate = false
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-        end
-
-        -- High-frequency loop running on Stepped for anti-cheat bypass and precise movement control
-        connection = RunService.Stepped:Connect(function(_, deltaTime)
-            if not isEnabled or not character or not rootPart or not humanoid then return end
-
-            -- Enforce continuous noclip on all character parts
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-
-            -- Neutralize velocity forces to bypass server/client anti-cheat position rollbacks
-            rootPart.AssemblyLinearVelocity = Vector3.zero
-            rootPart.AssemblyAngularVelocity = Vector3.zero
-
-            -- Smoothly levitate upwards at exactly 2 studs per second while preserving orientation
-            rootPart.CFrame = rootPart.CFrame + Vector3.new(0, 2 * deltaTime, 0)
-        end)
-    else
-        -- Terminate the execution loop cleanly
-        if connection then
-            connection:Disconnect()
-            connection = nil
-        end
-
-        -- Restore original Humanoid state properties
-        if humanoid then
-            humanoid.PlatformStanding = false
-            humanoid.AutoRotate = true
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-        end
-
-        -- Return the player directly back to their original starting position
-        if rootPart and originalCFrame then
-            rootPart.CFrame = originalCFrame
-            rootPart.AssemblyLinearVelocity = Vector3.zero
-            rootPart.AssemblyAngularVelocity = Vector3.zero
-        end
-
-        -- Restore collision settings on character parts
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
-            end
-        end
-
-        originalCFrame = nil
+local function executeVClip()
+    if not character or not humanoid or not rootPart or humanoid.Health <= 0 then 
+        return 
     end
+
+    -- Save current states and lock movement
+    local oldWalkSpeed = humanoid.WalkSpeed
+    local oldJumpPower = humanoid.JumpPower
+    
+    humanoid.WalkSpeed = 0
+    humanoid.JumpPower = 0
+    humanoid.PlatformStand = true
+
+    -- Calculate target position (2 studs forward based on facing direction)
+    local startCFrame = rootPart.CFrame
+    local forwardVector = startCFrame.LookVector
+    local targetCFrame = startCFrame + (forwardVector * 2)
+
+    local duration = 0.25 -- Duration of the smooth glide in seconds
+    local elapsed = 0
+    local connection
+
+    connection = RunService.RenderStepped:Connect(function(dt)
+        elapsed = elapsed + dt
+        local alpha = math.clamp(elapsed / duration, 0, 1)
+
+        -- Smoothly interpolate position and zero out physics velocity
+        rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+        rootPart.AssemblyAngularVelocity = Vector3.zero
+
+        if alpha >= 1 then
+            connection:Disconnect()
+            
+            -- Restore original movement parameters
+            humanoid.PlatformStand = false
+            humanoid.WalkSpeed = oldWalkSpeed
+            humanoid.JumpPower = oldJumpPower
+        end
+    end)
 end
 
-function LevitateModule.Enable()
-    LevitateModule.Toggle(true)
-end
-
-function LevitateModule.Disable()
-    LevitateModule.Toggle(false)
-end
-
-return LevitateModule
+executeVClip()
