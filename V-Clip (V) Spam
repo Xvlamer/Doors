@@ -1,6 +1,21 @@
 local function executeRawScript(key)
     if key == "V-Clip" or key == "VClip" then
         getgenv().XvlamerStop_VClip = false
+        
+        -- Dedicated per-frame noclip connection to prevent collisions from re-enabling
+        local noclipConn = RS.Stepped:Connect(function()
+            pcall(function()
+                local char = P.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end)
+
         while not getgenv().XvlamerStop_VClip do
             local dt = RS.Heartbeat:Wait()
             pcall(function()
@@ -9,8 +24,23 @@ local function executeRawScript(key)
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     local cam = Workspace.CurrentCamera
                     if hrp and cam then
-                        hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (1.5 * dt))
+                        hrp.CFrame = hrp.CFrame + (cam.CFrame.LookVector * (12 * dt))
                     end
+                end
+            end)
+        end
+        
+        if noclipConn then noclipConn:Disconnect() end
+        return
+    elseif key == "VClipSpam" or key == "V-Clip Spam" then
+        getgenv().XvlamerStop_VClipSpam = false
+        local lockedY = nil
+        
+        -- Dedicated per-frame noclip connection for Y-locked vclip mode
+        local noclipConn = RS.Stepped:Connect(function()
+            pcall(function()
+                local char = P.Character
+                if char then
                     for _, part in ipairs(char:GetDescendants()) do
                         if part:IsA("BasePart") then
                             part.CanCollide = false
@@ -18,12 +48,10 @@ local function executeRawScript(key)
                     end
                 end
             end)
-        end
-        return
-    elseif key == "VClipSpam" or key == "V-Clip Spam" then
-        getgenv().XvlamerStop_VClipSpam = false
-        local lockedY = nil
+        end)
+
         while not getgenv().XvlamerStop_VClipSpam do
+            local dt = RS.Heartbeat:Wait()
             pcall(function()
                 local char = P.Character
                 if char then
@@ -46,29 +74,25 @@ local function executeRawScript(key)
                             flatLook = Vector3.new(0, 0, -1)
                         end
                         
-                        -- Move forward horizontally while forcing the locked Y height
+                        -- Use delta-time (dt) scaling instead of choppy fixed-delay task.wait() 
+                        -- to eliminate stuttering/stopping, tuned to a smooth, balanced speed.
                         local currentPos = hrp.Position
-                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * 3), lockedY, currentPos.Z + (flatLook.Z * 3))
+                        local speed = 14
+                        local targetPos = Vector3.new(currentPos.X + (flatLook.X * speed * dt), lockedY, currentPos.Z + (flatLook.Z * speed * dt))
                         hrp.CFrame = CFrame.new(targetPos, targetPos + flatLook)
                         
                         -- Anti-cheat bypass: Force state to Running to trick the game into thinking you are grounded
                         humanoid:ChangeState(Enum.HumanoidStateType.Running)
                         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                        
-                        -- Keep noclip active across all descendants
-                        for _, part in ipairs(char:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.CanCollide = false
-                            end
-                        end
                     end
                 else
                     lockedY = nil
                 end
             end)
-            task.wait(0.05) -- Spams roughly 20 times a second
         end
+        
+        if noclipConn then noclipConn:Disconnect() end
         return
     end
 
