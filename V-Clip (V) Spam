@@ -5,6 +5,33 @@ local player = Players.LocalPlayer
 
 getgenv().XvlamerStop_VClipSpam = false
 
+local noclipConnection
+noclipConnection = RunService.Stepped:Connect(function()
+    if getgenv().XvlamerStop_VClipSpam then
+        if noclipConnection then noclipConnection:Disconnect() end
+        local character = player.Character
+        if character then
+            for _, part in ipairs(character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    if part.Name ~= "HumanoidRootPart" then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end
+        return
+    end
+
+    local character = player.Character
+    if character then
+        for _, part in ipairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
 task.spawn(function()
     while not getgenv().XvlamerStop_VClipSpam do
         local character = player.Character
@@ -18,28 +45,18 @@ task.spawn(function()
             humanoid.WalkSpeed = 0
             humanoid.JumpPower = 0
 
-            for _, part in ipairs(character:GetChildren()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-
-            rootPart.CFrame = rootPart.CFrame + (rootPart.CFrame.LookVector * 0.2)
-            rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-
+            local startCFrame = rootPart.CFrame
+            local targetCFrame = startCFrame + (startCFrame.LookVector * 0.2)
+            
+            local duration = 0.1
             local elapsed = 0
-            while elapsed < 0.2 and not getgenv().XvlamerStop_VClipSpam do
+            while elapsed < duration and not getgenv().XvlamerStop_VClipSpam do
                 local dt = RunService.Heartbeat:Wait()
                 elapsed = elapsed + dt
-                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                
-                for _, part in ipairs(character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
+                local alpha = math.clamp(elapsed / duration, 0, 1)
+                rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+                rootPart.AssemblyLinearVelocity = Vector3.zero
+                rootPart.AssemblyAngularVelocity = Vector3.zero
             end
 
             humanoid.WalkSpeed = oldWalkSpeed
@@ -47,16 +64,5 @@ task.spawn(function()
         end
 
         task.wait(0.2)
-    end
-
-    local character = player.Character
-    if character then
-        for _, part in ipairs(character:GetChildren()) do
-            if part:IsA("BasePart") then
-                if part.Name ~= "HumanoidRootPart" then
-                    part.CanCollide = true
-                end
-            end
-        end
     end
 end)
