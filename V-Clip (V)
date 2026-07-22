@@ -45,6 +45,11 @@ local function onStepped(dt)
     humanoid.JumpPower = 0
     humanoid.JumpHeight = 0
 
+    -- Trick the game and anti-cheat into thinking the player is running/grounded
+    pcall(function()
+        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+    end)
+
     -- Enable wall noclip across all character parts
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
