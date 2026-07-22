@@ -23,9 +23,13 @@ connection = RunService.Stepped:Connect(function(_, dt)
         
         local currentCharacter = player.Character
         if currentCharacter then
-            for _, part in ipairs(currentCharacter:GetDescendants()) do
+            for _, part in ipairs(currentCharacter:GetChildren()) do
                 if part:IsA("BasePart") then
-                    part.CanCollide = true
+                    if part.Name == "HumanoidRootPart" then
+                        part.CanCollide = false
+                    else
+                        part.CanCollide = true
+                    end
                 end
             end
             local currentHumanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
@@ -45,7 +49,7 @@ connection = RunService.Stepped:Connect(function(_, dt)
         currentHumanoid.WalkSpeed = 0
         currentHumanoid.JumpPower = 0
 
-        for _, part in ipairs(currentCharacter:GetDescendants()) do
+        for _, part in ipairs(currentCharacter:GetChildren()) do
             if part:IsA("BasePart") then
                 part.CanCollide = false
             end
