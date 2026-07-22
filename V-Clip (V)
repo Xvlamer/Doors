@@ -1,87 +1,73 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
+local G = game
+local RS = G:GetService("RunService")
+local P = G:GetService("Players")
+local W = G:GetService("Workspace")
 
-local player = Players.LocalPlayer
-local camera = Workspace.CurrentCamera
+local lp = P.LocalPlayer
+local cam = W.CurrentCamera
 
--- Handle toggling state cleanly
 if getgenv().Xvlamer_VClipRunning then
     getgenv().XvlamerStop_VClip = true
-    task.wait(0.1)
+    task.wait(0.05)
 end
 
 getgenv().XvlamerStop_VClip = false
 getgenv().Xvlamer_VClipRunning = true
 
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local char = lp.Character or lp.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart")
 
--- Store original stats for restoration upon turning off
-local originalWalkSpeed = humanoid.WalkSpeed
-local originalJumpPower = humanoid.JumpPower
-local originalJumpHeight = humanoid.JumpHeight
+local oldSpeed = hum.WalkSpeed
+local oldJump = hum.JumpPower
+local oldHeight = hum.JumpHeight
 
--- Strip walk and jump movement completely
-humanoid.WalkSpeed = 0
-humanoid.JumpPower = 0
-humanoid.JumpHeight = 0
+hum.WalkSpeed = 0
+hum.JumpPower = 0
+hum.JumpHeight = 0
 
-local connections = {}
+local conns = {}
+local runningState = Enum.HumanoidStateType.Running
+local vec0 = Vector3.zero
 
--- Maintain anti-cheat grounding and wall noclip every frame
-table.insert(connections, RunService.Stepped:Connect(function()
+table.insert(conns, RS.Stepped:Connect(function()
     if getgenv().XvlamerStop_VClip then return end
+    if not char or not char.Parent or not hrp or not hum or hum.Health <= 0 then return end
+
+    hum.WalkSpeed = 0
+    hum.JumpPower = 0
+    hum.JumpHeight = 0
     
-    if not character or not character.Parent or not rootPart or not humanoid or humanoid.Health <= 0 then
-        return
-    end
-
-    humanoid.WalkSpeed = 0
-    humanoid.JumpPower = 0
-    humanoid.JumpHeight = 0
-
-    pcall(function()
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-    end)
-
-    for _, part in ipairs(character:GetDescendants()) do
+    pcall(function() hum:ChangeState(runningState) end)
+    
+    local descendants = char:GetDescendants()
+    for i = 1, #descendants do
+        local part = descendants[i]
         if part:IsA("BasePart") then
             part.CanCollide = false
         end
     end
 end))
 
--- Use physics velocity for a perfectly smooth, constant forward flow without teleporting or stuttering
-table.insert(connections, RunService.RenderStepped:Connect(function()
-    if getgenv().XvlamerStop_VClip then return end
-    
-    if not rootPart or not rootPart.Parent then return end
-
-    local lookVec = camera.CFrame.LookVector
-    rootPart.AssemblyLinearVelocity = lookVec * 1.5
-    rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+table.insert(conns, RS.RenderStepped:Connect(function()
+    if getgenv().XvlamerStop_VClip or not hrp or not hrp.Parent then return end
+    hrp.AssemblyLinearVelocity = cam.CFrame.LookVector * 1.5
+    hrp.AssemblyAngularVelocity = vec0
 end))
 
--- Monitor stop flag and clean up
-table.insert(connections, RunService.Heartbeat:Connect(function()
+table.insert(conns, RS.Heartbeat:Connect(function()
     if getgenv().XvlamerStop_VClip then
-        for _, conn in ipairs(connections) do
-            pcall(function() conn:Disconnect() end)
+        for i = 1, #conns do
+            pcall(function() conns[i]:Disconnect() end)
         end
-        
         pcall(function()
-            if rootPart and rootPart.Parent then
-                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end
-            if humanoid and humanoid.Parent then
-                humanoid.WalkSpeed = originalWalkSpeed or 16
-                humanoid.JumpPower = originalJumpPower or 50
-                humanoid.JumpHeight = originalJumpHeight or 7.2
+            if hrp and hrp.Parent then hrp.AssemblyLinearVelocity = vec0 end
+            if hum and hum.Parent then
+                hum.WalkSpeed = oldSpeed or 16
+                hum.JumpPower = oldJump or 50
+                hum.JumpHeight = oldHeight or 7.2
             end
         end)
-        
         getgenv().Xvlamer_VClipRunning = false
     end
 end))
