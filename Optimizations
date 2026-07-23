@@ -21,6 +21,7 @@ local cache = {
     quality = nil
 }
 
+-- Use weak keys to prevent memory leaks over long sessions
 setmetatable(cache.props, {__mode = "k"})
 setmetatable(cache.surfaces, {__mode = "k"})
 setmetatable(cache.fx, {__mode = "k"})
@@ -158,10 +159,12 @@ local function executeEnable(currentToken)
         end)
     end
 
+    -- Increased budget and minimized yields for near-instant execution while avoiding thread exhaustion
     activeWorker = task.spawn(function()
         local stack = Workspace:GetChildren()
+        local batchCount = 0
         while #stack > 0 and isEnabled and sweepToken == currentToken do
-            local budget = os.clock() + 0.003
+            local budget = os.clock() + 0.015
             while #stack > 0 and os.clock() < budget and sweepToken == currentToken do
                 local node = table.remove(stack)
                 if node and not isExcluded(node) then
@@ -175,8 +178,9 @@ local function executeEnable(currentToken)
                     end
                 end
             end
-            if #stack > 0 and sweepToken == currentToken then
-                task.wait()
+            batchCount = batchCount + 1
+            if batchCount % 4 == 0 then
+                task.defer(task.wait)
             end
         end
     end)
@@ -214,15 +218,16 @@ local function executeDisable(currentToken)
     end
     table.clear(cache.terrain)
 
+    -- Instantly restore cached item parent paths and properties completely
     for obj, props in pairs(cache.props) do
         if obj then
+            if props.Parent and not obj.Parent then
+                pcall(function() obj.Parent = props.Parent end)
+            end
             for propName, propValue in pairs(props) do
                 if propName ~= "Parent" then
                     pcall(function() obj[propName] = propValue end)
                 end
-            end
-            if props.Parent and not obj.Parent then
-                pcall(function() obj.Parent = props.Parent end)
             end
         end
     end
@@ -262,7 +267,7 @@ local function processQueue()
         else
             executeDisable(currentToken)
         end
-        task.wait(0.02)
+        task.wait()
     end
 
     isProcessing = false
