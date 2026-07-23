@@ -1,87 +1,25 @@
-local P = game:GetService("Players")
-local RS = game:GetService("ReplicatedStorage")
-local WS = game:GetService("Workspace")
-local SG = game:GetService("StarterGui")
-local bot = P.LocalPlayer
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
 
-if not game:IsLoaded() then 
-    game.Loaded:Wait() 
-end
+local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 5)
+local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 5)
 
-pcall(function()
-    SG:SetCore("SendNotification", {
-        Title = "<b>Xvlamer Hub</b>",
-        Text = "u must be in doors\nxvlamer hub",
-        Duration = 5
-    })
-end)
-
-local function executeLootAndDeathSequence()
-    local char = bot.Character or bot.CharacterAdded:Wait()
-    local root = char:WaitForChild("HumanoidRootPart", 5)
-    local hum = char:WaitForChild("Humanoid", 5)
-    
-    if not root or not hum or hum.Health <= 0 then 
-        return 
-    end
-    
-    local rooms = WS:WaitForChild("CurrentRooms", 10)
-    if not rooms then 
-        return 
-    end
-    
-    local room0 = rooms:WaitForChild("0", 10)
-    if room0 then
-        for _, obj in pairs(room0:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") then
-                pcall(function()
-                    if obj.Parent and obj.Parent:IsA("BasePart") then
-                        root.CFrame = obj.Parent.CFrame
-                    elseif obj.Parent and obj.Parent:IsA("Model") and obj.Parent.PrimaryPart then
-                        root.CFrame = obj.Parent.PrimaryPart.CFrame
-                    end
-                    task.wait(0.15)
-                    fireproximityprompt(obj, 1, true)
-                end)
-            end
-        end
-    end
-    
-    task.wait(0.75)
-    
-    pcall(function()
-        local entityInfo = RS:FindFirstChild("EntityInfo")
-        if entityInfo then
-            local damage = entityInfo:FindFirstChild("Damage")
-            if damage then
-                damage:FireServer(100, "Rush")
-            end
-            local deathHint = entityInfo:FindFirstChild("DeathHint")
-            if deathHint then
-                deathHint:FireServer({"Rush", "CAUSE OF DEATH:", "RUSH KILLED YOU."})
-            end
-        end
-    end)
-    
-    pcall(function()
-        local bricks = RS:FindFirstChild("Bricks")
-        if bricks then
-            local death = bricks:FindFirstChild("Death")
-            if death then
-                death:FireServer()
-            end
-        end
-    end)
-    
-    pcall(function()
-        hum.Health = 0
-        char:BreakJoints()
-    end)
-end
+getgenv().XvlamerStop_KnobFarm = false
 
 task.spawn(function()
     while not getgenv().XvlamerStop_KnobFarm do
-        pcall(executeLootAndDeathSequence)
-        task.wait(2.5)
+        pcall(function()
+            local gold = LocalPlayer:FindFirstChild("Gold")
+            if gold and gold.Value and gold.Value > 0 then
+                if statisticsRemote then
+                    statisticsRemote:FireServer()
+                end
+                if typeof(replicatesignal) == "function" then
+                    replicatesignal(LocalPlayer.Kill)
+                end
+            end
+        end)
+        task.wait(0.05)
     end
 end)
