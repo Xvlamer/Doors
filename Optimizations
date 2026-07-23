@@ -14,17 +14,21 @@ local connections = {}
 
 local cache = {
     props = {},
-    surfaces = {},
-    fx = {},
     lighting = {},
     terrain = {},
     quality = nil
 }
 
--- Use weak keys to prevent memory leaks over long sessions
+-- Strong reference cache for unparented instances (Textures, Decals, SurfaceAppearances, Sky) 
+-- to prevent Roblox's garbage collector from destroying them while optimized.
+local unparentedCache = {
+    props = {},
+    surfaces = {},
+    fx = {}
+}
+
+-- Use weak keys only for BaseParts that remain parented in the Workspace
 setmetatable(cache.props, {__mode = "k"})
-setmetatable(cache.surfaces, {__mode = "k"})
-setmetatable(cache.fx, {__mode = "k"})
 
 local function isExcluded(v)
     if not v then return true end
@@ -67,14 +71,14 @@ local function applyOptimization(v, currentToken)
         end)
 
     elseif v:IsA("SurfaceAppearance") then
-        if not cache.surfaces[v] then
-            cache.surfaces[v] = v.Parent
+        if not unparentedCache.surfaces[v] then
+            unparentedCache.surfaces[v] = v.Parent
         end
         pcall(function() v.Parent = nil end)
 
     elseif v:IsA("Decal") or v:IsA("Texture") then
-        if not cache.props[v] then
-            cache.props[v] = { Transparency = v.Transparency, Parent = v.Parent }
+        if not unparentedCache.props[v] then
+            unparentedCache.props[v] = { Transparency = v.Transparency, Parent = v.Parent }
         end
         pcall(function() 
             v.Transparency = 1 
@@ -82,12 +86,12 @@ local function applyOptimization(v, currentToken)
         end)
         
     elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Sky") then
-        if cache.fx[v] == nil then
+        if unparentedCache.fx[v] == nil then
             if v:IsA("Sky") then
-                cache.fx[v] = v.Parent
+                unparentedCache.fx[v] = v.Parent
                 pcall(function() v.Parent = nil end)
             else
-                cache.fx[v] = v.Enabled
+                unparentedCache.fx[v] = v.Enabled
                 pcall(function() v.Enabled = false end)
             end
         end
@@ -159,7 +163,6 @@ local function executeEnable(currentToken)
         end)
     end
 
-    -- Increased budget and minimized yields for near-instant execution while avoiding thread exhaustion
     activeWorker = task.spawn(function()
         local stack = Workspace:GetChildren()
         local batchCount = 0
@@ -218,8 +221,18 @@ local function executeDisable(currentToken)
     end
     table.clear(cache.terrain)
 
-    -- Instantly restore cached item parent paths and properties completely
+    -- Restore BaseParts
     for obj, props in pairs(cache.props) do
+        if obj then
+            for propName, propValue in pairs(props) do
+                pcall(function() obj[propName] = propValue end)
+            end
+        end
+    end
+    table.clear(cache.props)
+
+    -- Restore unparented Decals and Textures safely
+    for obj, props in pairs(unparentedCache.props) do
         if obj then
             if props.Parent and not obj.Parent then
                 pcall(function() obj.Parent = props.Parent end)
@@ -231,16 +244,18 @@ local function executeDisable(currentToken)
             end
         end
     end
-    table.clear(cache.props)
+    table.clear(unparentedCache.props)
 
-    for obj, oldParent in pairs(cache.surfaces) do
+    -- Restore SurfaceAppearances
+    for obj, oldParent in pairs(unparentedCache.surfaces) do
         if obj and oldParent then
             pcall(function() obj.Parent = oldParent end)
         end
     end
-    table.clear(cache.surfaces)
+    table.clear(unparentedCache.surfaces)
 
-    for obj, oldState in pairs(cache.fx) do
+    -- Restore Effects and Skies
+    for obj, oldState in pairs(unparentedCache.fx) do
         if obj then
             pcall(function() 
                 if type(oldState) == "boolean" then
@@ -251,7 +266,7 @@ local function executeDisable(currentToken)
             end)
         end
     end
-    table.clear(cache.fx)
+    table.clear(unparentedCache.fx)
 end
 
 local function processQueue()
