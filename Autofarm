@@ -44,7 +44,6 @@ end
 local HubConnections = {}
 local activeThreads = {}
 local radioToggles = {}
-local vclipToggles = {}
 local toggleHandlers = {}
 
 local function trackConnection(conn)
@@ -315,17 +314,41 @@ pcall(function()
     end
 end)
 
+local fpsConn = nil
 local function setUnlockFPS(enabled)
     state.UnlockFps = enabled
     pcall(function() if type(saveState) == "function" then saveState() end end)
     if enabled then
-        pcall(function() if typeof(setfpscap) == "function" then setfpscap(9999) end end)
+        pcall(function()
+            if typeof(setfpscap) == "function" then setfpscap(9999)
+            elseif typeof(set_fps_cap) == "function" then set_fps_cap(9999)
+            elseif typeof(setfps) == "function" then setfps(9999) end
+        end)
         pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = 9999 end)
         pcall(function() settings().Rendering.FramerateLimit = 9999 end)
+
+        if not fpsConn then
+            fpsConn = trackConnection(RS.RenderStepped:Connect(function()
+                if state.UnlockFps then
+                    pcall(function()
+                        if typeof(setfpscap) == "function" then setfpscap(9999) end
+                        settings().Rendering.FramerateLimit = 9999
+                    end)
+                end
+            end))
+        end
     else
-        pcall(function() if typeof(setfpscap) == "function" then setfpscap(originalFps) end end)
+        pcall(function()
+            if typeof(setfpscap) == "function" then setfpscap(originalFps)
+            elseif typeof(set_fps_cap) == "function" then set_fps_cap(originalFps)
+            elseif typeof(setfps) == "function" then setfps(originalFps) end
+        end)
         pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = originalFps end)
         pcall(function() settings().Rendering.FramerateLimit = originalFps end)
+        if fpsConn then
+            pcall(function() fpsConn:Disconnect() end)
+            fpsConn = nil
+        end
     end
 end
 
@@ -359,9 +382,7 @@ purge = function()
     getgenv().XvlamerStop_DeathFarm = true
     getgenv().XvlamerStop_StardustFarm = true
     getgenv().XvlamerStop_VClip = true
-    getgenv().XvlamerStop_VClipSpam = true
     getgenv().Xvlamer_VClipActive = false
-    getgenv().Xvlamer_VClipSpamActive = false
     
     for _, thread in pairs(activeThreads) do
         if thread then pcall(function() task.cancel(thread) end) end
@@ -375,7 +396,6 @@ purge = function()
     table.clear(HubConnections)
     table.clear(toggleHandlers)
     table.clear(radioToggles)
-    table.clear(vclipToggles)
 
     mainRef = nil
     modalUnlockBtn = nil
@@ -463,8 +483,8 @@ local function initializeMainHub()
         Parent = sg
     })
 
-    local targetWidth = isMobile and 310 or 380
-    local targetHeight = isMobile and 240 or 260
+    local targetWidth = isMobile and 280 or 340
+    local targetHeight = isMobile and 210 or 230
 
     local main = create("Frame", {
         Size=UDim2.new(0, targetWidth, 0, targetHeight), 
@@ -517,7 +537,7 @@ local function initializeMainHub()
         mGui = create("ScreenGui", {Name="XvlamersMobileToggle", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999999, Parent=safeUI})
         pcall(function() if syn and syn.protect_gui then syn.protect_gui(mGui) end end)
 
-        local mBtn = create("TextButton", {Size=UDim2.new(0,54,0,54), Position=UDim2.new(0.5,-27,0,16), BackgroundColor3=Color3.fromRGB(13,13,17), Text="XV", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBlack, TextSize=16, Parent=mGui})
+        local mBtn = create("TextButton", {Size=UDim2.new(0,48,0,48), Position=UDim2.new(0.5,-24,0.5,-(targetHeight/2)-58), BackgroundColor3=Color3.fromRGB(13,13,17), Text="XV", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBlack, TextSize=15, Parent=mGui})
         create("UICorner", {CornerRadius=UDim.new(1,0), Parent=mBtn})
         create("UIStroke", {Color=THEME_PURPLE, Transparency=0.2, Thickness=2, Parent=mBtn})
 
@@ -538,22 +558,22 @@ local function initializeMainHub()
         mBtn.MouseButton1Click:Connect(function() setMainGuiVisible(not main.Visible) end)
     end
 
-    local top = create("Frame", {Size=UDim2.new(1,0,0,46), BackgroundColor3=Color3.fromRGB(16, 16, 22), BorderSizePixel=0, Parent=main})
+    local top = create("Frame", {Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(16, 16, 22), BorderSizePixel=0, Parent=main})
     create("UICorner", {CornerRadius=UDim.new(0,14), Parent=top})
     
-    create("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.new(0,16,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamBlack, Text="Xvlamer's Hub", TextColor3=Color3.fromRGB(255,255,255), TextSize=14, TextXAlignment=Enum.TextXAlignment.Left, Parent=top})
+    create("TextLabel", {Size=UDim2.new(1,-90,1,0), Position=UDim2.new(0,14,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamBlack, Text="Xvlamer's Hub", TextColor3=Color3.fromRGB(255,255,255), TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, Parent=top})
     
-    local minBtn = create("TextButton", {Size=UDim2.new(0,30,0,30), Position=UDim2.new(1,-76,0.5,-15), BackgroundColor3=Color3.fromRGB(25, 25, 33), Font=Enum.Font.GothamBold, Text="-", TextColor3=Color3.fromRGB(255,255,255), TextSize=14, Parent=top}); create("UICorner", {CornerRadius=UDim.new(0,8), Parent=minBtn})
-    local closeBtn = create("TextButton", {Size=UDim2.new(0,30,0,30), Position=UDim2.new(1,-38,0.5,-15), BackgroundColor3=THEME_PURPLE, Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(255,255,255), TextSize=12, Parent=top}); create("UICorner", {CornerRadius=UDim.new(0,8), Parent=closeBtn})
+    local minBtn = create("TextButton", {Size=UDim2.new(0,26,0,26), Position=UDim2.new(1,-68,0.5,-13), BackgroundColor3=Color3.fromRGB(25, 25, 33), Font=Enum.Font.GothamBold, Text="-", TextColor3=Color3.fromRGB(255,255,255), TextSize=13, Parent=top}); create("UICorner", {CornerRadius=UDim.new(0,7), Parent=minBtn})
+    local closeBtn = create("TextButton", {Size=UDim2.new(0,26,0,26), Position=UDim2.new(1,-34,0.5,-13), BackgroundColor3=THEME_PURPLE, Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(255,255,255), TextSize=11, Parent=top}); create("UICorner", {CornerRadius=UDim.new(0,7), Parent=closeBtn})
 
-    local tabRow = create("Frame", {Size=UDim2.new(1,0,0,38), Position=UDim2.new(0,0,0,46), BackgroundColor3=Color3.fromRGB(10, 10, 14), BorderSizePixel=0, Parent=main})
-    local tabContent = create("Frame", {Size=UDim2.new(1,0,1,-84), Position=UDim2.new(0,0,0,84), BackgroundTransparency=1, Parent=main})
+    local tabRow = create("Frame", {Size=UDim2.new(1,0,0,34), Position=UDim2.new(0,0,0,40), BackgroundColor3=Color3.fromRGB(10, 10, 14), BorderSizePixel=0, Parent=main})
+    local tabContent = create("Frame", {Size=UDim2.new(1,0,1,-74), Position=UDim2.new(0,0,0,74), BackgroundTransparency=1, Parent=main})
 
     local tabs, pages = {}, {}
     local function addTab(name, id)
-        local btn = create("TextButton", {Size=UDim2.new(0.333,0,1,0), Position=UDim2.new((id-1)*0.333,0,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text=name, TextColor3=Color3.fromRGB(130, 130, 150), TextSize=12, Parent=tabRow})
-        local page = create("ScrollingFrame", {Size=UDim2.new(1,-32,1,-16), Position=UDim2.new(0,16,0,8), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, ScrollBarThickness=2, ScrollBarImageColor3=Color3.fromRGB(70, 70, 95), Visible=false, Parent=tabContent})
-        create("UIListLayout", {Padding=UDim.new(0,8), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
+        local btn = create("TextButton", {Size=UDim2.new(0.333,0,1,0), Position=UDim2.new((id-1)*0.333,0,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text=name, TextColor3=Color3.fromRGB(130, 130, 150), TextSize=11, Parent=tabRow})
+        local page = create("ScrollingFrame", {Size=UDim2.new(1,-24,1,-12), Position=UDim2.new(0,12,0,6), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, ScrollBarThickness=2, ScrollBarImageColor3=Color3.fromRGB(70, 70, 95), Visible=false, Parent=tabContent})
+        create("UIListLayout", {Padding=UDim.new(0,6), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
         tabs[id] = btn; pages[id] = page
         btn.MouseButton1Click:Connect(function() 
             pcall(function()
@@ -565,7 +585,7 @@ local function initializeMainHub()
     addTab("Info", 1); addTab("AutoFarm", 2); addTab("Player", 3)
     tabs[1].TextColor3 = Color3.fromRGB(255,255,255); pages[1].Visible = true
 
-    create("TextLabel", {Size=UDim2.new(1,0,0,120), BackgroundTransparency=1, TextWrapped=true, Font=Enum.Font.GothamMedium, Text="Welcome to Xvlamer's Hub.\n\nHigh-performance automation engineered for execution.\n\nSelect the AutoFarm tab to begin.", TextColor3=Color3.fromRGB(180, 180, 195), TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, TextYAlignment=Enum.TextYAlignment.Top, Parent=pages[1]})
+    create("TextLabel", {Size=UDim2.new(1,0,0,100), BackgroundTransparency=1, TextWrapped=true, Font=Enum.Font.GothamMedium, Text="Welcome to Xvlamer's Hub.\n\nHigh-performance automation engineered for execution.\n\nSelect the AutoFarm tab to begin.", TextColor3=Color3.fromRGB(180, 180, 195), TextSize=12, TextXAlignment=Enum.TextXAlignment.Left, TextYAlignment=Enum.TextYAlignment.Top, Parent=pages[1]})
 
     local isMin = false
     minBtn.MouseButton1Click:Connect(function() 
@@ -573,7 +593,7 @@ local function initializeMainHub()
             isMin = not isMin; 
             tabRow.Visible = not isMin; 
             tabContent.Visible = not isMin; 
-            TS:Create(main, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Size = isMin and UDim2.new(0,targetWidth,0,46) or UDim2.new(0,targetWidth,0,targetHeight)}):Play()
+            TS:Create(main, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Size = isMin and UDim2.new(0,targetWidth,0,40) or UDim2.new(0,targetWidth,0,targetHeight)}):Play()
             minBtn.Text = isMin and "+" or "-" 
         end)
     end)
@@ -589,9 +609,6 @@ local function initializeMainHub()
             elseif key == "V-Clip" then 
                 getgenv().XvlamerStop_VClip = true
                 getgenv().Xvlamer_VClipActive = false
-            elseif key == "V-Clip Spam" then 
-                getgenv().XvlamerStop_VClipSpam = true
-                getgenv().Xvlamer_VClipSpamActive = false
             end
             
             if activeThreads[key] then
@@ -616,7 +633,7 @@ local function initializeMainHub()
             warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 1000000; warnGui.Parent = safeUI
 
             local frame = Instance.new("Frame")
-            frame.Size = UDim2.new(0, 380, 0, 200); 
+            frame.Size = UDim2.new(0, 340, 0, 180); 
             frame.Position = UDim2.new(0.5, 0, 0.5, 0); 
             frame.AnchorPoint = Vector2.new(0.5, 0.5)
             frame.BackgroundColor3 = Color3.fromRGB(13, 13, 17); 
@@ -626,15 +643,15 @@ local function initializeMainHub()
             Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
             local warnStroke = Instance.new("UIStroke", frame); warnStroke.Color = THEME_PURPLE; warnStroke.Transparency = 0.3; warnStroke.Thickness = 1.5
 
-            local titleLbl = Instance.new("TextLabel", frame); titleLbl.Size = UDim2.new(1, -36, 0, 35); titleLbl.Position = UDim2.new(0, 18, 0, 18); titleLbl.BackgroundTransparency = 1; titleLbl.Font = Enum.Font.GothamBold; titleLbl.Text = titleText; titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255); titleLbl.TextSize = 16
-            local msgLbl = Instance.new("TextLabel", frame); msgLbl.Size = UDim2.new(1, -36, 0, 75); msgLbl.Position = UDim2.new(0, 18, 0, 56); msgLbl.BackgroundTransparency = 1; msgLbl.Font = Enum.Font.GothamMedium; msgLbl.Text = messageText; msgLbl.TextColor3 = Color3.fromRGB(200, 200, 215); msgLbl.TextSize = 13; msgLbl.TextWrapped = true
+            local titleLbl = Instance.new("TextLabel", frame); titleLbl.Size = UDim2.new(1, -30, 0, 30); titleLbl.Position = UDim2.new(0, 15, 0, 15); titleLbl.BackgroundTransparency = 1; titleLbl.Font = Enum.Font.GothamBold; titleLbl.Text = titleText; titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255); titleLbl.TextSize = 15
+            local msgLbl = Instance.new("TextLabel", frame); msgLbl.Size = UDim2.new(1, -30, 0, 65); msgLbl.Position = UDim2.new(0, 15, 0, 48); msgLbl.BackgroundTransparency = 1; msgLbl.Font = Enum.Font.GothamMedium; msgLbl.Text = messageText; msgLbl.TextColor3 = Color3.fromRGB(200, 200, 215); msgLbl.TextSize = 12; msgLbl.TextWrapped = true
 
             local cBtn, cfBtn
             if cancelText ~= "" then
-                cBtn = Instance.new("TextButton", frame); cBtn.Size = UDim2.new(0.46, -6, 0, 42); cBtn.Position = UDim2.new(0, 18, 1, -58); cBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 33); cBtn.Font = Enum.Font.GothamBold; cBtn.Text = cancelText; cBtn.TextColor3 = Color3.fromRGB(200, 200, 215); cBtn.TextSize = 13; Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 10)
-                cfBtn = Instance.new("TextButton", frame); cfBtn.Size = UDim2.new(0.46, -6, 0, 42); cfBtn.Position = UDim2.new(0.54, -6, 1, -58); cfBtn.BackgroundColor3 = THEME_PURPLE; cfBtn.Font = Enum.Font.GothamBold; cfBtn.Text = confirmText or "Confirm"; cfBtn.TextColor3 = Color3.fromRGB(255, 255, 255); cfBtn.TextSize = 13; Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 10)
+                cBtn = Instance.new("TextButton", frame); cBtn.Size = UDim2.new(0.46, -5, 0, 38); cBtn.Position = UDim2.new(0, 15, 1, -50); cBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 33); cBtn.Font = Enum.Font.GothamBold; cBtn.Text = cancelText; cBtn.TextColor3 = Color3.fromRGB(200, 200, 215); cBtn.TextSize = 12; Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 9)
+                cfBtn = Instance.new("TextButton", frame); cfBtn.Size = UDim2.new(0.46, -5, 0, 38); cfBtn.Position = UDim2.new(0.54, -5, 1, -50); cfBtn.BackgroundColor3 = THEME_PURPLE; cfBtn.Font = Enum.Font.GothamBold; cfBtn.Text = confirmText or "Confirm"; cfBtn.TextColor3 = Color3.fromRGB(255, 255, 255); cfBtn.TextSize = 12; Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 9)
             else
-                cfBtn = Instance.new("TextButton", frame); cfBtn.Size = UDim2.new(1, -36, 0, 42); cfBtn.Position = UDim2.new(0, 18, 1, -58); cfBtn.BackgroundColor3 = THEME_PURPLE; cfBtn.Font = Enum.Font.GothamBold; cfBtn.Text = confirmText or "OK"; cfBtn.TextColor3 = Color3.fromRGB(255, 255, 255); cfBtn.TextSize = 13; Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 10)
+                cfBtn = Instance.new("TextButton", frame); cfBtn.Size = UDim2.new(1, -30, 0, 38); cfBtn.Position = UDim2.new(0, 15, 1, -50); cfBtn.BackgroundColor3 = THEME_PURPLE; cfBtn.Font = Enum.Font.GothamBold; cfBtn.Text = confirmText or "OK"; cfBtn.TextColor3 = Color3.fromRGB(255, 255, 255); cfBtn.TextSize = 12; Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 9)
             end
 
             local function closeModalAndRun(callback)
@@ -677,14 +694,12 @@ local function initializeMainHub()
         )
     end)
 
-    -- Fully embedded inline logic for farms and V-Clip features to eliminate external fetch issues
     local function executeEmbeddedFeature(key)
         task.spawn(function()
             if key == "Knob Farm" then
                 getgenv().XvlamerStop_KnobFarm = false
                 while not getgenv().XvlamerStop_KnobFarm do
                     pcall(function()
-                        -- Inline Knob Farm loop logic
                         task.wait(1)
                     end)
                     task.wait(0.5)
@@ -693,7 +708,6 @@ local function initializeMainHub()
                 getgenv().XvlamerStop_DeathFarm = false
                 while not getgenv().XvlamerStop_DeathFarm do
                     pcall(function()
-                        -- Inline Death Farm loop logic
                         task.wait(1)
                     end)
                     task.wait(0.5)
@@ -702,7 +716,6 @@ local function initializeMainHub()
                 getgenv().XvlamerStop_StardustFarm = false
                 while not getgenv().XvlamerStop_StardustFarm do
                     pcall(function()
-                        -- Inline Stardust Farm loop logic
                         task.wait(1)
                     end)
                     task.wait(0.5)
@@ -730,21 +743,6 @@ local function initializeMainHub()
                     end)
                     RS.Heartbeat:Wait()
                 end
-            elseif key == "V-Clip Spam" then
-                getgenv().XvlamerStop_VClipSpam = false
-                getgenv().Xvlamer_VClipSpamActive = true
-                while getgenv().Xvlamer_VClipSpamActive and not getgenv().XvlamerStop_VClipSpam do
-                    pcall(function()
-                        local char = P.Character
-                        if char then
-                            local hrp = char:FindFirstChild("HumanoidRootPart")
-                            if hrp then
-                                hrp.CFrame = hrp.CFrame + (hrp.CFrame.LookVector * 2)
-                            end
-                        end
-                    end)
-                    task.wait(0.1)
-                end
             end
         end)
     end
@@ -761,32 +759,31 @@ local function initializeMainHub()
     end
 
     local function createToggle(name, parentPage, isRadio, stateKey, order)
-        local box = create("TextButton", {Size=UDim2.new(1,0,0,46), BackgroundColor3=Color3.fromRGB(18, 18, 24), Text="", AutoButtonColor=false, LayoutOrder=order, Parent=parentPage})
-        create("UICorner", {CornerRadius=UDim.new(0,10), Parent=box}); create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=box})
-        create("TextLabel", {Size=UDim2.new(1,-85,1,0), Position=UDim2.new(0,16,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, Text=name, TextColor3=Color3.fromRGB(245, 245, 255), TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, Parent=box})
+        local box = create("TextButton", {Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(18, 18, 24), Text="", AutoButtonColor=false, LayoutOrder=order, Parent=parentPage})
+        create("UICorner", {CornerRadius=UDim.new(0,9), Parent=box}); create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=box})
+        create("TextLabel", {Size=UDim2.new(1,-75,1,0), Position=UDim2.new(0,14,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, Text=name, TextColor3=Color3.fromRGB(245, 245, 255), TextSize=12, TextXAlignment=Enum.TextXAlignment.Left, Parent=box})
         
-        local tBg = create("Frame", {Size=UDim2.new(0,44,0,22), Position=UDim2.new(1,-60,0.5,-11), BackgroundColor3=Color3.fromRGB(35, 35, 46), Parent=box})
+        local tBg = create("Frame", {Size=UDim2.new(0,40,0,20), Position=UDim2.new(1,-54,0.5,-10), BackgroundColor3=Color3.fromRGB(35, 35, 46), Parent=box})
         create("UICorner", {CornerRadius=UDim.new(1,0), Parent=tBg})
-        local tCirc = create("Frame", {Size=UDim2.new(0,16,0,16), Position=UDim2.new(0,3,0.5,-8), BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0, Parent=tBg})
+        local tCirc = create("Frame", {Size=UDim2.new(0,14,0,14), Position=UDim2.new(0,3,0.5,-7), BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0, Parent=tBg})
         create("UICorner", {CornerRadius=UDim.new(1,0), Parent=tCirc})
         
         local on = false
         local function setVisual(onState)
             pcall(function()
                 TS:Create(tBg, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = onState and THEME_PURPLE or Color3.fromRGB(35, 35, 46)}):Play()
-                TS:Create(tCirc, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = onState and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)}):Play()
+                TS:Create(tCirc, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = onState and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7)}):Play()
             end)
         end
 
-        local isVClipPair = (name == "V-Clip" or name == "V-Clip Spam")
+        local isVClip = (name == "V-Clip")
         local toggleObj = {name = name, set = setVisual, get = function() return on end, setOff = function(v) on = v; setVisual(v) end}
-        if isRadio then table.insert(radioToggles, toggleObj) end
-        if isVClipPair then table.insert(vclipToggles, toggleObj) end
+        if isRadio then table.include = table.insert(radioToggles, toggleObj) end
 
         local function updateState(newState, skipWarning)
             on = newState
             setVisual(on)
-            if isRadio or isVClipPair then
+            if isRadio or isVClip then
                 if on then
                     if name == "Death Farm" and not skipWarning then
                         setVisual(false)
@@ -853,17 +850,12 @@ local function initializeMainHub()
                         end
                     end
 
-                    local targetList = isRadio and radioToggles or vclipToggles
-                    for _, r in ipairs(targetList) do 
-                        if r.name ~= name and r.get() then 
-                            r.setOff(false) 
-                            if isVClipPair then
-                                stopThread(r.name)
-                            end
-                        end 
-                    end
-
                     if isRadio then
+                        for _, r in ipairs(radioToggles) do 
+                            if r.name ~= name and r.get() then 
+                                r.setOff(false) 
+                            end 
+                        end
                         state.ActiveFarm = name
                         pcall(saveState)
                     end
@@ -890,14 +882,14 @@ local function initializeMainHub()
         if stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
 
         box.MouseButton1Click:Connect(function()
-            if isRadio or isVClipPair then
+            if isRadio or isVClip then
                 if on then updateState(false) else updateState(true) end
             else
                 if stateKey == "Optimizations" then if not on then updateState(true) end else updateState(not on) end
             end
         end)
         
-        if not isRadio and not isVClipPair and state[stateKey] == true and stateKey ~= "Optimizations" then
+        if not isRadio and not isVClip and state[stateKey] == true and stateKey ~= "Optimizations" then
             on = true; setVisual(true)
             if stateKey == "AntiAFK" then 
                 setAntiAFK(true) 
@@ -914,10 +906,9 @@ local function initializeMainHub()
     createToggle("Stardust Farm", pages[2], true, nil, 3)
 
     createToggle("V-Clip", pages[3], false, "VClip", 1)
-    createToggle("V-Clip Spam", pages[3], false, "VClipSpam", 2)
-    createToggle("Optimizations", pages[3], false, "Optimizations", 3)
-    createToggle("Unlock fps", pages[3], false, "UnlockFps", 4)
-    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5)
+    createToggle("Optimizations", pages[3], false, "Optimizations", 2)
+    createToggle("Unlock fps", pages[3], false, "UnlockFps", 3)
+    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 4)
 
     if state.AntiAFK then setAntiAFK(true); if toggleHandlers["AntiAFK"] then toggleHandlers["AntiAFK"].update(true) end end
     if state.UnlockFps then setUnlockFPS(true); if toggleHandlers["UnlockFps"] then toggleHandlers["UnlockFps"].update(true) end end
@@ -943,7 +934,7 @@ local function startKeySystem()
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(keyGui) end end)
 
     local keyFrame = create("Frame", {
-        Size=UDim2.new(0, 380, 0, 158), 
+        Size=UDim2.new(0, 340, 0, 150), 
         Position=UDim2.new(0.5, 0, 0.5, 0), 
         AnchorPoint=Vector2.new(0.5, 0.5), 
         BackgroundColor3=Color3.fromRGB(11, 11, 15), 
@@ -957,8 +948,8 @@ local function startKeySystem()
 
     makeUniversalDraggable(keyFrame)
 
-    local closeKeyBtn = create("TextButton", {Size=UDim2.new(0, 28, 0, 28), Position=UDim2.new(1, -38, 0, 14), BackgroundColor3=Color3.fromRGB(20, 20, 28), Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(180, 180, 200), TextSize=11, Parent=keyFrame})
-    create("UICorner", {CornerRadius=UDim.new(0, 8), Parent=closeKeyBtn})
+    local closeKeyBtn = create("TextButton", {Size=UDim2.new(0, 26, 0, 26), Position=UDim2.new(1, -34, 0, 12), BackgroundColor3=Color3.fromRGB(20, 20, 28), Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(180, 180, 200), TextSize=11, Parent=keyFrame})
+    create("UICorner", {CornerRadius=UDim.new(0, 7), Parent=closeKeyBtn})
 
     closeKeyBtn.MouseButton1Click:Connect(function()
         pcall(function()
@@ -967,19 +958,19 @@ local function startKeySystem()
         end)
     end)
 
-    create("TextLabel", {Size=UDim2.new(1, -50, 0, 12), Position=UDim2.new(0, 18, 0, 14), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="AUTHENTICATION", TextColor3=THEME_PURPLE, TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
-    create("TextLabel", {Size=UDim2.new(1, -50, 0, 16), Position=UDim2.new(0, 18, 0, 26), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="You must get the key from the script owner.", TextColor3=Color3.fromRGB(245, 245, 255), TextSize=12, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
+    create("TextLabel", {Size=UDim2.new(1, -45, 0, 12), Position=UDim2.new(0, 15, 0, 12), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="AUTHENTICATION", TextColor3=THEME_PURPLE, TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
+    create("TextLabel", {Size=UDim2.new(1, -45, 0, 16), Position=UDim2.new(0, 15, 0, 24), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="You must get the key from the script owner.", TextColor3=Color3.fromRGB(245, 245, 255), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
 
-    local errorLbl = create("TextLabel", {Size=UDim2.new(1, -36, 0, 14), Position=UDim2.new(0, 18, 0, 46), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, Text="", TextColor3=Color3.fromRGB(255, 85, 85), TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
+    local errorLbl = create("TextLabel", {Size=UDim2.new(1, -30, 0, 14), Position=UDim2.new(0, 15, 0, 42), BackgroundTransparency=1, Font=Enum.Font.GothamSemibold, Text="", TextColor3=Color3.fromRGB(255, 85, 85), TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
 
-    local textBoxBg = create("Frame", {Size=UDim2.new(1, -36, 0, 36), Position=UDim2.new(0, 18, 0, 70), BackgroundColor3=Color3.fromRGB(15, 15, 22), Parent=keyFrame})
-    create("UICorner", {CornerRadius=UDim.new(0, 10), Parent=textBoxBg})
+    local textBoxBg = create("Frame", {Size=UDim2.new(1, -30, 0, 34), Position=UDim2.new(0, 15, 0, 64), BackgroundColor3=Color3.fromRGB(15, 15, 22), Parent=keyFrame})
+    create("UICorner", {CornerRadius=UDim.new(0, 9), Parent=textBoxBg})
     create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=textBoxBg})
 
-    local keyInput = create("TextBox", {Size=UDim2.new(1, -20, 1, 0), Position=UDim2.new(0, 10, 0, 0), BackgroundTransparency=1, Font=Enum.Font.GothamMedium, PlaceholderText="Enter key here...", Text="", TextColor3=Color3.fromRGB(255, 255, 255), PlaceholderColor3=Color3.fromRGB(110, 110, 135), TextSize=12, ClearTextOnFocus=false, Parent=textBoxBg})
+    local keyInput = create("TextBox", {Size=UDim2.new(1, -18, 1, 0), Position=UDim2.new(0, 9, 0, 0), BackgroundTransparency=1, Font=Enum.Font.GothamMedium, PlaceholderText="Enter key here...", Text="", TextColor3=Color3.fromRGB(255, 255, 255), PlaceholderColor3=Color3.fromRGB(110, 110, 135), TextSize=11, ClearTextOnFocus=false, Parent=textBoxBg})
 
-    local confirmBtn = create("TextButton", {Size=UDim2.new(1, -36, 0, 36), Position=UDim2.new(0, 18, 0, 112), BackgroundColor3=THEME_PURPLE, Font=Enum.Font.GothamBold, Text="Confirm", TextColor3=Color3.fromRGB(255, 255, 255), TextSize=12, AutoButtonColor=false, Parent=keyFrame})
-    create("UICorner", {CornerRadius=UDim.new(0, 10), Parent=confirmBtn})
+    local confirmBtn = create("TextButton", {Size=UDim2.new(1, -30, 0, 34), Position=UDim2.new(0, 15, 0, 106), BackgroundColor3=THEME_PURPLE, Font=Enum.Font.GothamBold, Text="Confirm", TextColor3=Color3.fromRGB(255, 255, 255), TextSize=11, AutoButtonColor=false, Parent=keyFrame})
+    create("UICorner", {CornerRadius=UDim.new(0, 9), Parent=confirmBtn})
 
     confirmBtn.MouseButton1Click:Connect(function()
         if keyInput.Text == CORRECT_KEY then
