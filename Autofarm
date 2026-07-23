@@ -95,13 +95,26 @@ task.spawn(function()
     end
 end)
 
-state = { ActiveFarm = nil, Optimizations = false, UnlockFps = false, AntiAFK = false, VClip = false, VClipSpam = false, KeyExpiry = 0 }
+-- Robust dual-layer state persistence restricted specifically to the 5 designated buttons (Knob Farm, Death Farm, Stardust Farm, Unlock Fps, Anti-AFK)
+getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
+    ActiveFarm = nil, 
+    UnlockFps = false, 
+    AntiAFK = false, 
+    KeyExpiry = 0
+}
+state = getgenv().XvlamerHub_SavedState
 
 local stateFile = "XvlamersSaveState.json"
 
 local function saveState()
     pcall(function() 
-        local encoded = Http:JSONEncode(state)
+        local saveData = {
+            ActiveFarm = state.ActiveFarm,
+            UnlockFps = state.UnlockFps,
+            AntiAFK = state.AntiAFK,
+            KeyExpiry = state.KeyExpiry
+        }
+        local encoded = Http:JSONEncode(saveData)
         writefile(stateFile, encoded)
     end)
 end
@@ -115,9 +128,10 @@ end)
 if readSuccess and readData and readData ~= "" then
     local decodeSuccess, decoded = pcall(function() return Http:JSONDecode(readData) end)
     if decodeSuccess and type(decoded) == "table" then 
-        for k, v in pairs(decoded) do
-            if state[k] ~= nil then state[k] = v end
-        end
+        if decoded.ActiveFarm ~= nil then state.ActiveFarm = decoded.ActiveFarm end
+        if decoded.UnlockFps ~= nil then state.UnlockFps = decoded.UnlockFps end
+        if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
+        if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
     end
 end
 
@@ -291,22 +305,18 @@ do
 
     function Optimizer.Toggle(stateVal) 
         targetState = stateVal and true or false
-        state.Optimizations = targetState
-        pcall(saveState)
         task.spawn(processQueue) 
     end
     function Optimizer.Disable() 
         targetState = false
-        state.Optimizations = false
-        pcall(saveState)
         task.spawn(processQueue) 
     end
 end
 
 local antiAfkConn = nil
-local function setAntiAFK(enabled)
+local function setAntiAFK(enabled, dontSave)
     state.AntiAFK = enabled
-    pcall(saveState)
+    if not dontSave then pcall(saveState) end
     
     if enabled then
         pcall(function()
@@ -353,9 +363,9 @@ pcall(function()
     end
 end)
 
-local function setUnlockFPS(enabled)
+local function setUnlockFPS(enabled, dontSave)
     state.UnlockFps = enabled
-    pcall(saveState)
+    if not dontSave then pcall(saveState) end
     if enabled then
         pcall(function()
             if typeof(setfpscap) == "function" then setfpscap(9999)
@@ -396,16 +406,12 @@ local function executeLoadstringUrl(url)
 end
 
 local function setVClip(enabled)
-    state.VClip = enabled
-    pcall(saveState)
     if enabled then
         executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/main/V-Clip.lua")
     end
 end
 
 local function setVClipSpam(enabled)
-    state.VClipSpam = enabled
-    pcall(saveState)
     if enabled then
         executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)%20Spam")
     end
@@ -414,8 +420,27 @@ end
 local purge = function() end
 purge = function()
     getgenv().XvlamerStop_PhantomPurge = true
-    setAntiAFK(false)
-    setUnlockFPS(false)
+    
+    -- Cleanup Anti-AFK engine hooks without mutating saved state
+    pcall(function()
+        if getconnections then
+            for _, conn in pairs(getconnections(P.Idled)) do conn:Enable() end
+        end
+    end)
+    if antiAfkConn then 
+        pcall(function() antiAfkConn:Disconnect() end)
+        antiAfkConn = nil 
+    end
+
+    -- Cleanup FPS cap engine limits without mutating saved state
+    pcall(function()
+        if typeof(setfpscap) == "function" then setfpscap(originalFps)
+        elseif typeof(set_fps_cap) == "function" then setfpscap(originalFps)
+        elseif typeof(setfps) == "function" then setfpscap(originalFps) end
+    end)
+    pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = originalFps end)
+    pcall(function() settings().Rendering.FramerateLimit = originalFps end)
+
     setVClip(false)
     setVClipSpam(false)
     if Optimizer and type(Optimizer.Disable) == "function" then pcall(function() Optimizer.Disable() end) end
@@ -586,11 +611,13 @@ local function initializeMainHub()
         local page
         if useScrolling == false then
             page = create("Frame", {Size=UDim2.new(1,-20,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Visible=false, Parent=tabContent})
+            create("UIListLayout", {Padding=UDim.new(0,4), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
+            create("UIPadding", {PaddingTop = UDim.new(0,2), PaddingBottom = UDim.new(0,2), Parent=page})
         else
             page = create("ScrollingFrame", {Size=UDim2.new(1,-20,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, ScrollBarThickness=2, ScrollBarImageColor3=Color3.fromRGB(70, 70, 95), Visible=false, Parent=tabContent})
+            create("UIListLayout", {Padding=UDim.new(0,4), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
+            create("UIPadding", {PaddingTop = UDim.new(0,2), PaddingBottom = UDim.new(0,2), Parent=page})
         end
-        create("UIListLayout", {Padding=UDim.new(0,4), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
-        create("UIPadding", {PaddingTop = UDim.new(0,2), PaddingBottom = UDim.new(0,2), Parent=page})
         tabs[id] = btn; pages[id] = page
         
         local function selectTab()
@@ -607,6 +634,7 @@ local function initializeMainHub()
         trackConnection(btn.MouseButton1Click:Connect(selectTab))
     end
     addTab("Info", 1, true); addTab("AutoFarm", 2, false); addTab("Player", 3, true)
+    pages[3].Size = UDim2.new(1, -20, 1, -8)
     tabs[1].TextColor3 = Color3.fromRGB(255,255,255)
     pages[1].Visible = true
 
@@ -727,7 +755,7 @@ local function initializeMainHub()
     end
 
     local function createToggle(name, parentPage, isRadio, isVClipRadio, stateKey, order, customHeight)
-        local toggleHeight = customHeight or 38
+        local toggleHeight = customHeight or 36
         local box = create("TextButton", {Size=UDim2.new(1,0,0,toggleHeight), BackgroundColor3=Color3.fromRGB(18, 18, 24), Text="", AutoButtonColor=false, Active=true, LayoutOrder=order, Parent=parentPage})
         create("UICorner", {CornerRadius=UDim.new(0,9), Parent=box}); create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=box})
         
@@ -746,7 +774,26 @@ local function initializeMainHub()
             end)
         end
 
-        local toggleObj = {name = name, set = setVisual, get = function() return on end, setOff = function(v) on = v; setVisual(v) end}
+        local toggleObj = {
+            name = name, 
+            set = setVisual, 
+            get = function() return on end, 
+            setOff = function(v) 
+                on = v
+                setVisual(v)
+                if isRadio then
+                    if state.ActiveFarm == name then
+                        state.ActiveFarm = nil
+                        pcall(saveState)
+                    end
+                elseif not isVClipRadio and stateKey then
+                    if state[stateKey] then
+                        state[stateKey] = false
+                        pcall(saveState)
+                    end
+                end
+            end
+        }
         if isRadio then table.insert(radioToggles, toggleObj) end
         if isVClipRadio then table.insert(vclipRadioToggles, toggleObj) end
 
@@ -817,20 +864,16 @@ local function initializeMainHub()
                             r.setOff(false)
                         end
                     end
-                    if stateKey then
-                        state[stateKey] = true
-                        if stateKey == "VClip" then state["VClipSpam"] = false else state["VClip"] = false end
-                        pcall(saveState)
-                    end
                     runThread(name)
                 else
-                    if stateKey then
-                        state[stateKey] = false
-                        pcall(saveState)
-                    end
                     stopThread(name)
                 end
             else
+                if stateKey then
+                    state[stateKey] = on
+                    pcall(saveState)
+                end
+                
                 if stateKey == "Optimizations" then
                     Optimizer.Toggle(on)
                 elseif stateKey == "AntiAFK" then
@@ -862,13 +905,9 @@ local function initializeMainHub()
             if stateKey == "Optimizations" then
                 Optimizer.Toggle(true)
             elseif stateKey == "AntiAFK" then
-                setAntiAFK(true)
+                setAntiAFK(true, true)
             elseif stateKey == "UnlockFps" then
-                setUnlockFPS(true)
-            elseif stateKey == "VClip" then
-                setVClip(true)
-            elseif stateKey == "VClipSpam" then
-                setVClipSpam(true)
+                setUnlockFPS(true, true)
             end
         end
     end
@@ -877,11 +916,11 @@ local function initializeMainHub()
     createToggle("Death Farm", pages[2], true, false, nil, 2, 36)
     createToggle("Stardust Farm", pages[2], true, false, nil, 3, 36)
 
-    createToggle("V-Clip", pages[3], false, true, "VClip", 1, 38)
-    createToggle("V-Clip Spam", pages[3], false, true, "VClipSpam", 2, 38)
-    createToggle("Optimizations", pages[3], false, false, "Optimizations", 3, 38)
-    createToggle("Unlock fps", pages[3], false, false, "UnlockFps", 4, 38)
-    createToggle("Anti-AFK", pages[3], false, false, "AntiAFK", 5, 38)
+    createToggle("V-Clip", pages[3], false, true, nil, 1, 36)
+    createToggle("V-Clip Spam", pages[3], false, true, nil, 2, 36)
+    createToggle("Optimizations", pages[3], false, false, "Optimizations", 3, 36)
+    createToggle("Unlock fps", pages[3], false, false, "UnlockFps", 4, 36)
+    createToggle("Anti-AFK", pages[3], false, false, "AntiAFK", 5, 36)
 end
 
 local function startKeySystem()
