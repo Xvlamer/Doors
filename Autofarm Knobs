@@ -1,88 +1,87 @@
--- Xvlamer Hub: Fast Knob Farm Bot Logic (Standalone Module)
--- Note: Do not shorten this or add it to the main GUI script. Execute via its own loadstring.
+local P = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local WS = game:GetService("Workspace")
+local SG = game:GetService("StarterGui")
+local bot = P.LocalPlayer
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
-local StarterGui = game:GetService("StarterGui")
+if not game:IsLoaded() then 
+    game.Loaded:Wait() 
+end
 
-local bot = Players.LocalPlayer
-
--- Xvlamer Hub Load Notification
 pcall(function()
-    StarterGui:SetCore("SendNotification", {
+    SG:SetCore("SendNotification", {
         Title = "<b>Xvlamer Hub</b>",
-        Text = "u must be in doors",
+        Text = "u must be in doors\nxvlamer hub",
         Duration = 5
     })
 end)
 
-local char = bot.Character or bot.CharacterAdded:Wait()
-
--- Helper to safely fire proximity prompts
-local function firePrompt(prompt)
-    if prompt and prompt:IsA("ProximityPrompt") then
-        fireproximityprompt(prompt, 1, true)
-    end
-end
-
--- Phase 1: Loot Room 0 (Spawn Room)
-local function executeLooting()
-    local roomZero = Workspace.CurrentRooms:FindFirstChild("0")
-    if not roomZero then return end
+local function executeLootAndDeathSequence()
+    local char = bot.Character or bot.CharacterAdded:Wait()
+    local root = char:WaitForChild("HumanoidRootPart", 5)
+    local hum = char:WaitForChild("Humanoid", 5)
     
-    -- Scan for all gold piles and drawers in the first room
-    for _, obj in ipairs(roomZero:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            local parentName = obj.Parent and obj.Parent.Name or ""
-            if parentName == "GoldPile" or parentName == "DrawerContainer" or obj.ActionText == "Loot" or obj.ActionText == "Open" then
-                firePrompt(obj)
-                task.wait(0.05) -- Slight delay to ensure the server registers the bot's collection without dropping packets
+    if not root or not hum or hum.Health <= 0 then 
+        return 
+    end
+    
+    local rooms = WS:WaitForChild("CurrentRooms", 10)
+    if not rooms then 
+        return 
+    end
+    
+    local room0 = rooms:WaitForChild("0", 10)
+    if room0 then
+        for _, obj in pairs(room0:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") then
+                pcall(function()
+                    if obj.Parent and obj.Parent:IsA("BasePart") then
+                        root.CFrame = obj.Parent.CFrame
+                    elseif obj.Parent and obj.Parent:IsA("Model") and obj.Parent.PrimaryPart then
+                        root.CFrame = obj.Parent.PrimaryPart.CFrame
+                    end
+                    task.wait(0.15)
+                    fireproximityprompt(obj, 1, true)
+                end)
             end
         end
     end
-end
-
--- Phase 2: Spoof Entity Death & Cash Out
-local function executeDeathBypass()
-    local currentGold = bot:GetAttribute("Gold") or 0
     
-    -- Flagging the 0 gold warning in the console (the main GUI handles the visual menu warning).
-    if currentGold == 0 then
-        warn("[Xvlamer Hub] Warning: Bot has 0 gold. Run will yield minimal knobs!")
-    end
-
-    local entityInfo = ReplicatedStorage:FindFirstChild("EntityInfo")
+    task.wait(0.75)
     
-    -- Bypass the normal reset by feeding the server fake entity data
-    if entityInfo then
-        -- 1. Spoof taking fatal damage from an entity to validate the death
-        local damageRemote = entityInfo:FindFirstChild("Damage")
-        if damageRemote then
-            pcall(function()
-                damageRemote:FireServer(100, "Rush")
-            end)
-        end
-        
-        -- 2. Trigger the DeathHint to forcefully call the summary screen
-        local deathHint = entityInfo:FindFirstChild("DeathHint")
-        if deathHint then
-            pcall(function()
+    pcall(function()
+        local entityInfo = RS:FindFirstChild("EntityInfo")
+        if entityInfo then
+            local damage = entityInfo:FindFirstChild("Damage")
+            if damage then
+                damage:FireServer(100, "Rush")
+            end
+            local deathHint = entityInfo:FindFirstChild("DeathHint")
+            if deathHint then
                 deathHint:FireServer({"Rush", "CAUSE OF DEATH:", "RUSH KILLED YOU."})
-            end)
+            end
         end
-    end
-
-    -- 3. Zero out the bot's health to finalize the sequence
-    if char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.Health = 0
+    end)
+    
+    pcall(function()
+        local bricks = RS:FindFirstChild("Bricks")
+        if bricks then
+            local death = bricks:FindFirstChild("Death")
+            if death then
+                death:FireServer()
+            end
+        end
+    end)
+    
+    pcall(function()
+        hum.Health = 0
         char:BreakJoints()
-    end
+    end)
 end
 
--- Main Bot Execution Sequence
 task.spawn(function()
-    executeLooting()
-    task.wait(0.5) -- Give the server half a second to update the bot's gold stats before triggering the kill
-    executeDeathBypass()
+    while not getgenv().XvlamerStop_KnobFarm do
+        pcall(executeLootAndDeathSequence)
+        task.wait(2.5)
+    end
 end)
