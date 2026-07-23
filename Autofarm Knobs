@@ -2,24 +2,53 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
-local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 5)
-local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 5)
-
-getgenv().XvlamerStop_KnobFarm = false
+if getgenv().XvlamerStop_KnobFarm == nil then
+    getgenv().XvlamerStop_KnobFarm = false
+end
 
 task.spawn(function()
     while not getgenv().XvlamerStop_KnobFarm do
         pcall(function()
-            local gold = LocalPlayer:FindFirstChild("Gold")
-            if gold and gold.Value and gold.Value > 0 then
+            local goldValue = 0
+            local directGold = LocalPlayer:FindFirstChild("Gold") or LocalPlayer:FindFirstChild("Knobs")
+            if directGold then 
+                goldValue = tonumber(directGold.Value) or 0 
+            else
+                local ls = LocalPlayer:FindFirstChild("leaderstats")
+                if ls then
+                    local g = ls:FindFirstChild("Gold") or ls:FindFirstChild("Knobs")
+                    if g then goldValue = tonumber(g.Value) or 0 end
+                elseif LocalPlayer:GetAttribute("Gold") then
+                    goldValue = tonumber(LocalPlayer:GetAttribute("Gold")) or 0
+                end
+            end
+
+            if goldValue > 0 then
+                local remotesFolder = ReplicatedStorage:FindFirstChild("RemotesFolder")
+                local statisticsRemote = remotesFolder and remotesFolder:FindFirstChild("Statistics")
+                
                 if statisticsRemote then
                     statisticsRemote:FireServer()
                 end
+                
                 if typeof(replicatesignal) == "function" then
-                    replicatesignal(LocalPlayer.Kill)
+                    pcall(function()
+                        replicatesignal(LocalPlayer.Kill)
+                    end)
+                else
+                    local char = LocalPlayer.Character
+                    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        humanoid.Health = 0
+                    end
                 end
             end
         end)
-        task.wait(0.05)
+
+        local elapsed = 0
+        while elapsed < 0.02 do
+            if getgenv().XvlamerStop_KnobFarm then break end
+            elapsed = elapsed + task.wait()
+        end
     end
 end)
