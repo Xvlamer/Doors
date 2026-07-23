@@ -9,26 +9,20 @@ local isEnabled = false
 local targetState = false
 local isProcessing = false
 local sweepToken = 0
-local activeWorker = nil
 local connections = {}
 
 local cache = {
     props = {},
+    surfaces = {},
+    fx = {},
     lighting = {},
     terrain = {},
     quality = nil
 }
 
--- Strong reference cache for unparented instances (Textures, Decals, SurfaceAppearances, Sky) 
--- to prevent Roblox's garbage collector from destroying them while optimized.
-local unparentedCache = {
-    props = {},
-    surfaces = {},
-    fx = {}
-}
-
--- Use weak keys only for BaseParts that remain parented in the Workspace
 setmetatable(cache.props, {__mode = "k"})
+setmetatable(cache.surfaces, {__mode = "k"})
+setmetatable(cache.fx, {__mode = "k"})
 
 local function isExcluded(v)
     if not v then return true end
@@ -49,8 +43,8 @@ local function isExcluded(v)
     return false
 end
 
-local function applyOptimization(v, currentToken)
-    if not isEnabled or sweepToken ~= currentToken or isExcluded(v) then return end
+local function applyOptimization(v)
+    if isExcluded(v) then return end
 
     if v:IsA("BasePart") then
         if not cache.props[v] then
@@ -63,37 +57,30 @@ local function applyOptimization(v, currentToken)
             }
         end
         pcall(function()
-            if v.Material ~= Enum.Material.SmoothPlastic then
-                v.Material = Enum.Material.SmoothPlastic
-            end
+            v.Material = Enum.Material.SmoothPlastic
             v.Reflectance = 0
             v.CastShadow = false
         end)
 
     elseif v:IsA("SurfaceAppearance") then
-        if not unparentedCache.surfaces[v] then
-            unparentedCache.surfaces[v] = v.Parent
+        if not cache.surfaces[v] then
+            cache.surfaces[v] = v.Parent
         end
         pcall(function() v.Parent = nil end)
 
     elseif v:IsA("Decal") or v:IsA("Texture") then
-        if not unparentedCache.props[v] then
-            unparentedCache.props[v] = { Transparency = v.Transparency, Parent = v.Parent }
+        if not cache.props[v] then
+            cache.props[v] = { Transparency = v.Transparency, Parent = v.Parent }
         end
         pcall(function() 
             v.Transparency = 1 
             v.Parent = nil
         end)
         
-    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Sky") then
-        if unparentedCache.fx[v] == nil then
-            if v:IsA("Sky") then
-                unparentedCache.fx[v] = v.Parent
-                pcall(function() v.Parent = nil end)
-            else
-                unparentedCache.fx[v] = v.Enabled
-                pcall(function() v.Enabled = false end)
-            end
+    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") then
+        if cache.fx[v] == nil then
+            cache.fx[v] = v.Enabled
+            pcall(function() v.Enabled = false end)
         end
     end
 end
@@ -124,13 +111,15 @@ local function executeEnable(currentToken)
         Lighting.GlobalShadows = false
         Lighting.EnvironmentSpecularScale = 0
         Lighting.EnvironmentDiffuseScale = 0
-        Lighting.Brightness = 1
+        Lighting.Brightness = 2
         Lighting.FogEnd = 999999
         Lighting.FogStart = 999999
     end)
 
     for _, v in pairs(Lighting:GetChildren()) do
-        applyOptimization(v, currentToken)
+        if not v:IsA("Sky") then
+            applyOptimization(v)
+        end
     end
 
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
@@ -151,51 +140,26 @@ local function executeEnable(currentToken)
         end)
     end
 
+    -- Instantaneous full workspace sweep for maximum speed
+    local descendants = Workspace:GetDescendants()
+    for i = 1, #descendants do
+        if not isEnabled or sweepToken ~= currentToken then break end
+        applyOptimization(descendants[i])
+    end
+
     if not connections.descendantAdded then
         connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v)
             if isEnabled and sweepToken == currentToken then
                 if not isExcluded(v) then
-                    task.spawn(function()
-                        applyOptimization(v, currentToken)
-                    end)
+                    applyOptimization(v)
                 end
             end
         end)
     end
-
-    activeWorker = task.spawn(function()
-        local stack = Workspace:GetChildren()
-        local batchCount = 0
-        while #stack > 0 and isEnabled and sweepToken == currentToken do
-            local budget = os.clock() + 0.015
-            while #stack > 0 and os.clock() < budget and sweepToken == currentToken do
-                local node = table.remove(stack)
-                if node and not isExcluded(node) then
-                    applyOptimization(node, currentToken)
-                    if node.Parent ~= nil then
-                        for _, child in ipairs(node:GetChildren()) do
-                            if not isExcluded(child) then
-                                table.insert(stack, child)
-                            end
-                        end
-                    end
-                end
-            end
-            batchCount = batchCount + 1
-            if batchCount % 4 == 0 then
-                task.defer(task.wait)
-            end
-        end
-    end)
 end
 
 local function executeDisable(currentToken)
     isEnabled = false
-
-    if activeWorker then
-        pcall(function() task.cancel(activeWorker) end)
-        activeWorker = nil
-    end
 
     if connections.descendantAdded then
         pcall(function() connections.descendantAdded:Disconnect() end)
@@ -221,18 +185,7 @@ local function executeDisable(currentToken)
     end
     table.clear(cache.terrain)
 
-    -- Restore BaseParts
     for obj, props in pairs(cache.props) do
-        if obj then
-            for propName, propValue in pairs(props) do
-                pcall(function() obj[propName] = propValue end)
-            end
-        end
-    end
-    table.clear(cache.props)
-
-    -- Restore unparented Decals and Textures safely
-    for obj, props in pairs(unparentedCache.props) do
         if obj then
             if props.Parent and not obj.Parent then
                 pcall(function() obj.Parent = props.Parent end)
@@ -244,29 +197,21 @@ local function executeDisable(currentToken)
             end
         end
     end
-    table.clear(unparentedCache.props)
+    table.clear(cache.props)
 
-    -- Restore SurfaceAppearances
-    for obj, oldParent in pairs(unparentedCache.surfaces) do
+    for obj, oldParent in pairs(cache.surfaces) do
         if obj and oldParent then
             pcall(function() obj.Parent = oldParent end)
         end
     end
-    table.clear(unparentedCache.surfaces)
+    table.clear(cache.surfaces)
 
-    -- Restore Effects and Skies
-    for obj, oldState in pairs(unparentedCache.fx) do
+    for obj, oldState in pairs(cache.fx) do
         if obj then
-            pcall(function() 
-                if type(oldState) == "boolean" then
-                    obj.Enabled = oldState
-                else
-                    obj.Parent = oldState 
-                end
-            end)
+            pcall(function() obj.Enabled = oldState end)
         end
     end
-    table.clear(unparentedCache.fx)
+    table.clear(cache.fx)
 end
 
 local function processQueue()
@@ -282,7 +227,6 @@ local function processQueue()
         else
             executeDisable(currentToken)
         end
-        task.wait()
     end
 
     isProcessing = false
