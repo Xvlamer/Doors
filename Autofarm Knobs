@@ -1,1 +1,88 @@
+-- Xvlamer Hub: Fast Knob Farm Bot Logic (Standalone Module)
+-- Note: Do not shorten this or add it to the main GUI script. Execute via its own loadstring.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local StarterGui = game:GetService("StarterGui")
+
+local bot = Players.LocalPlayer
+
+-- Xvlamer Hub Load Notification
+pcall(function()
+    StarterGui:SetCore("SendNotification", {
+        Title = "<b>Xvlamer Hub</b>",
+        Text = "u must be in doors",
+        Duration = 5
+    })
+end)
+
+local char = bot.Character or bot.CharacterAdded:Wait()
+
+-- Helper to safely fire proximity prompts
+local function firePrompt(prompt)
+    if prompt and prompt:IsA("ProximityPrompt") then
+        fireproximityprompt(prompt, 1, true)
+    end
+end
+
+-- Phase 1: Loot Room 0 (Spawn Room)
+local function executeLooting()
+    local roomZero = Workspace.CurrentRooms:FindFirstChild("0")
+    if not roomZero then return end
+    
+    -- Scan for all gold piles and drawers in the first room
+    for _, obj in ipairs(roomZero:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local parentName = obj.Parent and obj.Parent.Name or ""
+            if parentName == "GoldPile" or parentName == "DrawerContainer" or obj.ActionText == "Loot" or obj.ActionText == "Open" then
+                firePrompt(obj)
+                task.wait(0.05) -- Slight delay to ensure the server registers the bot's collection without dropping packets
+            end
+        end
+    end
+end
+
+-- Phase 2: Spoof Entity Death & Cash Out
+local function executeDeathBypass()
+    local currentGold = bot:GetAttribute("Gold") or 0
+    
+    -- Flagging the 0 gold warning in the console (the main GUI handles the visual menu warning).
+    if currentGold == 0 then
+        warn("[Xvlamer Hub] Warning: Bot has 0 gold. Run will yield minimal knobs!")
+    end
+
+    local entityInfo = ReplicatedStorage:FindFirstChild("EntityInfo")
+    
+    -- Bypass the normal reset by feeding the server fake entity data
+    if entityInfo then
+        -- 1. Spoof taking fatal damage from an entity to validate the death
+        local damageRemote = entityInfo:FindFirstChild("Damage")
+        if damageRemote then
+            pcall(function()
+                damageRemote:FireServer(100, "Rush")
+            end)
+        end
+        
+        -- 2. Trigger the DeathHint to forcefully call the summary screen
+        local deathHint = entityInfo:FindFirstChild("DeathHint")
+        if deathHint then
+            pcall(function()
+                deathHint:FireServer({"Rush", "CAUSE OF DEATH:", "RUSH KILLED YOU."})
+            end)
+        end
+    end
+
+    -- 3. Zero out the bot's health to finalize the sequence
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.Health = 0
+        char:BreakJoints()
+    end
+end
+
+-- Main Bot Execution Sequence
+task.spawn(function()
+    executeLooting()
+    task.wait(0.5) -- Give the server half a second to update the bot's gold stats before triggering the kill
+    executeDeathBypass()
+end)
