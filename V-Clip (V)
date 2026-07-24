@@ -1,1 +1,71 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
+-- Toggle state mechanism (run once to turn on, run again to turn off)
+getgenv().Xvlamer_CustomClipRunning = not getgenv().Xvlamer_CustomClipRunning
+
+if not getgenv().Xvlamer_CustomClipRunning then
+    if getgenv().Xvlamer_CustomClipConn then
+        getgenv().Xvlamer_CustomClipConn:Disconnect()
+        getgenv().Xvlamer_CustomClipConn = nil
+    end
+    -- Restore collision when turned off
+    local char = LocalPlayer.Character
+    if char then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = true
+            end
+        end
+    end
+    return
+end
+
+if getgenv().Xvlamer_CustomClipConn then
+    getgenv().Xvlamer_CustomClipConn:Disconnect()
+end
+
+local camera = workspace.CurrentCamera
+
+getgenv().Xvlamer_CustomClipConn = RunService.Stepped:Connect(function(dt)
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local rootPart = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not rootPart or not humanoid then return end
+
+    -- 1. Noclip: Keep all character parts non-collidable the entire time
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CanCollide = false
+        end
+    end
+
+    -- 2. Get camera direction for straight forward movement (flattened on XZ plane)
+    local camLook = camera.CFrame.LookVector
+    local flatLook = Vector3.new(camLook.X, 0, camLook.Z)
+    if flatLook.Magnitude > 0 then
+        flatLook = flatLook.Unit
+    else
+        flatLook = Vector3.new(0, 0, -1)
+    end
+
+    -- 3. Constant 1.5 studs per second smooth forward flow without stopping
+    local moveStep = flatLook * (1.5 * dt)
+    local currentPos = rootPart.Position
+    local targetPos = currentPos + moveStep
+
+    -- Preserve the player's current orientation/rotation while overriding position and blocking manual WASD movement
+    local currentRotation = rootPart.CFrame - rootPart.Position
+    rootPart.CFrame = CFrame.new(targetPos) * currentRotation
+
+    -- Zero out velocities completely to block physics pushing and manual walking inputs
+    rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    
+    if humanoid then
+        humanoid.PlatformStand = true
+    end
+end)
