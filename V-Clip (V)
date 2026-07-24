@@ -1,64 +1,77 @@
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- Initialize or toggle state
-if getgenv().Xvlamer_WalkclipRunning == nil then
-    getgenv().Xvlamer_WalkclipRunning = false
+if getgenv().Xvlamer_VClipRunning == nil then
+    getgenv().Xvlamer_VClipRunning = false
 end
 
-getgenv().Xvlamer_WalkclipRunning = not getgenv().Xvlamer_WalkclipRunning
+local function toggleVClip()
+    getgenv().Xvlamer_VClipRunning = not getgenv().Xvlamer_VClipRunning
 
--- If turned OFF: clean up connection, restore original collisions, and restore saved WalkSpeed
-if not getgenv().Xvlamer_WalkclipRunning then
-    if getgenv().Xvlamer_WalkclipConn then
-        getgenv().Xvlamer_WalkclipConn:Disconnect()
-        getgenv().Xvlamer_WalkclipConn = nil
+    if not getgenv().Xvlamer_VClipRunning then
+        if getgenv().Xvlamer_VClipConn then
+            getgenv().Xvlamer_VClipConn:Disconnect()
+            getgenv().Xvlamer_VClipConn = nil
+        end
+
+        local char = LocalPlayer.Character
+        if char then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = true
+                end
+            end
+
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = getgenv().Xvlamer_SavedWalkSpeed or 16
+            end
+        end
+        return
     end
 
     local char = LocalPlayer.Character
     if char then
-        for _, v in ipairs(char:GetDescendants()) do
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 5 and humanoid.WalkSpeed or 16
+        end
+    end
+
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+    end
+
+    getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
+        local currentCar = LocalPlayer.Character
+        if not currentCar then return end
+
+        local humanoid = currentCar:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+
+        for _, v in ipairs(currentCar:GetDescendants()) do
             if v:IsA("BasePart") then
-                v.CanCollide = true
+                v.CanCollide = false
             end
         end
 
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.WalkSpeed = getgenv().Xvlamer_SavedWalkSpeed or 16
-        end
-    end
-    return
+        humanoid.WalkSpeed = 5
+    end)
 end
 
--- Clear out any existing loop
-if getgenv().Xvlamer_WalkclipConn then
-    getgenv().Xvlamer_WalkclipConn:Disconnect()
+-- Setup V keybind listener
+if getgenv().Xvlamer_VKeyConn then
+    getgenv().Xvlamer_VKeyConn:Disconnect()
 end
 
--- Save the original WalkSpeed before modifying it
-local initialChar = LocalPlayer.Character
-if initialChar then
-    local humanoid = initialChar:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 5 and humanoid.WalkSpeed or 16
+getgenv().Xvlamer_VKeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.V then
+        toggleVClip()
     end
-end
-
--- If turned ON: strictly apply Noclip and lock WalkSpeed to 5 with zero extra physics or floating
-getgenv().Xvlamer_WalkclipConn = RunService.RenderStepped:Connect(function()
-    local char = LocalPlayer.Character
-    if not char then return end
-
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-
-    for _, v in ipairs(char:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v.CanCollide = false
-        end
-    end
-
-    humanoid.WalkSpeed = 5
 end)
+
+-- Toggle on execution
+toggleVClip()
