@@ -83,7 +83,7 @@ end
 local HubConnections = {}
 local activeThreads = {}
 local radioToggles = {}
-local vclipRadioToggles = {}
+local noclipRadioToggles = {}
 local toggleHandlers = {}
 
 local function trackConnection(conn)
@@ -384,20 +384,53 @@ local function setUnlockFPS(enabled, dontSave)
     end
 end
 
-local function setVClip(enabled) 
-    if enabled then 
+local function setNoclip(enabled)
+    if not enabled then
+        if getgenv().Xvlamer_NoclipConn then
+            getgenv().Xvlamer_NoclipConn:Disconnect()
+            getgenv().Xvlamer_NoclipConn = nil
+        end
         pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)"))() 
+            local char = P.Character
+            if char then
+                for _, v in ipairs(char:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.CanCollide = true
+                    end
+                end
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = getgenv().Xvlamer_SavedWalkSpeed or 16
+                end
+            end
         end)
-    end 
-end
-
-local function setVClipSpam(enabled) 
-    if enabled then 
+    else
         pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)%20Spam"))() 
+            local char = P.Character
+            if char then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 5 and humanoid.WalkSpeed or 16
+                end
+            end
         end)
-    end 
+        if getgenv().Xvlamer_NoclipConn then
+            getgenv().Xvlamer_NoclipConn:Disconnect()
+            getgenv().Xvlamer_NoclipConn = nil
+        end
+        getgenv().Xvlamer_NoclipConn = RS.RenderStepped:Connect(function()
+            local char = P.Character
+            if not char then return end
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if not humanoid then return end
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = false
+                end
+            end
+            humanoid.WalkSpeed = 5
+        end)
+    end
 end
 
 local purge = function() end
@@ -412,8 +445,7 @@ purge = function()
     pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = originalFps end)
     pcall(function() settings().Rendering.FramerateLimit = originalFps end)
 
-    setVClip(false)
-    setVClipSpam(false)
+    setNoclip(false)
     if Optimizer and type(Optimizer.Disable) == "function" then pcall(function() Optimizer.Disable() end) end
     getgenv().XvlamerStop_KnobFarm = true
     getgenv().XvlamerStop_DeathFarm = true
@@ -429,7 +461,7 @@ purge = function()
     table.clear(HubConnections)
     table.clear(toggleHandlers)
     table.clear(radioToggles)
-    table.clear(vclipRadioToggles)
+    table.clear(noclipRadioToggles)
 
     mainRef = nil
 
@@ -628,16 +660,9 @@ local function initializeMainHub()
         if gameProcessed then return end
         if input.KeyCode == Enum.KeyCode.V then
             if not isModalOpen() and not (UIS:GetFocusedTextBox()) then
-                local vClipToggle = toggleHandlers["V-Clip"]
-                if vClipToggle and type(vClipToggle.update) == "function" then
-                    vClipToggle.update(not vClipToggle.get())
-                end
-            end
-        elseif input.KeyCode == Enum.KeyCode.B then
-            if not isModalOpen() and not (UIS:GetFocusedTextBox()) then
-                local vClipSpamToggle = toggleHandlers["V-Clip Spam"]
-                if vClipSpamToggle and type(vClipSpamToggle.update) == "function" then
-                    vClipSpamToggle.update(not vClipSpamToggle.get())
+                local noclipToggle = toggleHandlers["Noclip"]
+                if noclipToggle and type(noclipToggle.update) == "function" then
+                    noclipToggle.update(not noclipToggle.get())
                 end
             end
         end
@@ -733,8 +758,7 @@ local function initializeMainHub()
             if key == "Knob Farm" then getgenv().XvlamerStop_KnobFarm = true
             elseif key == "Death Farm" then getgenv().XvlamerStop_DeathFarm = true
             elseif key == "Stardust Farm" then getgenv().XvlamerStop_StardustFarm = true
-            elseif key == "V-Clip" then setVClip(false)
-            elseif key == "V-Clip Spam" then setVClipSpam(false) end
+            elseif key == "Noclip" then setNoclip(false) end
             
             if activeThreads[key] then
                 pcall(function() task.cancel(activeThreads[key]) end)
@@ -832,7 +856,6 @@ local function initializeMainHub()
                     return res
                 end
 
-                -- Step 1: Spam Play Button until CreateElevator is visible
                 while not getgenv().XvlamerStop_StardustFarm and not isCreateElevatorVisible() do
                     local playBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.BottomButtons.MainPlayButton end, "MainPlayButton")
                     if playBtn then clickBtn(playBtn) end
@@ -846,7 +869,6 @@ local function initializeMainHub()
 
                 if getgenv().XvlamerStop_StardustFarm then return end
 
-                -- Step 2 & 3: CreateElevator is visible. Spam Rooms then Confirm until it goes away.
                 while not getgenv().XvlamerStop_StardustFarm and isCreateElevatorVisible() do
                     local roomsBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.SidePanel.Frames.Floors.List.Rooms end, "Rooms")
                     if roomsBtn then clickBtn(roomsBtn) end
@@ -864,19 +886,16 @@ local function initializeMainHub()
 
                 if getgenv().XvlamerStop_StardustFarm then return end
 
-                -- Execute the Stardust Farm loadstring once successfully through the menus
                 pcall(function()
                     loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
                 end)
             end)
-        elseif key == "V-Clip" then
-            setVClip(true)
-        elseif key == "V-Clip Spam" then
-            setVClipSpam(true)
+        elseif key == "Noclip" then
+            setNoclip(true)
         end
     end
 
-    local function createToggle(name, parentPage, isRadio, isVClipRadio, stateKey, order, customHeight)
+    local function createToggle(name, parentPage, isRadio, isNoclipRadio, stateKey, order, customHeight)
         local toggleHeight = customHeight or 36
         local box = create("TextButton", {Size=UDim2.new(1,0,0,toggleHeight), BackgroundColor3=Color3.fromRGB(18, 18, 24), Text="", AutoButtonColor=false, Active=true, LayoutOrder=order, Parent=parentPage})
         create("UICorner", {CornerRadius=UDim.new(0,9), Parent=box}); create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=box})
@@ -908,7 +927,7 @@ local function initializeMainHub()
                         state.ActiveFarm = nil
                         pcall(saveState)
                     end
-                elseif not isVClipRadio and stateKey then
+                elseif not isNoclipRadio and stateKey then
                     if state[stateKey] then
                         state[stateKey] = false
                         pcall(saveState)
@@ -917,7 +936,7 @@ local function initializeMainHub()
             end
         }
         if isRadio then table.insert(radioToggles, toggleObj) end
-        if isVClipRadio then table.insert(vclipRadioToggles, toggleObj) end
+        if isNoclipRadio then table.insert(noclipRadioToggles, toggleObj) end
 
         local function updateState(newState, skipWarning)
             on = newState
@@ -1044,9 +1063,9 @@ local function initializeMainHub()
                     if state.ActiveFarm == name then state.ActiveFarm = nil; pcall(saveState) end
                     stopThread(name)
                 end
-            elseif isVClipRadio then
+            elseif isNoclipRadio then
                 if on then
-                    for _, r in ipairs(vclipRadioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
+                    for _, r in ipairs(noclipRadioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
                     runThread(name)
                 else
                     stopThread(name)
@@ -1061,7 +1080,7 @@ local function initializeMainHub()
         end
 
         toggleObj.update = updateState
-        if isRadio then toggleHandlers[name] = toggleObj elseif isVClipRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
+        if isRadio then toggleHandlers[name] = toggleObj elseif isNoclipRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
 
         trackConnection(box.MouseButton1Click:Connect(function() updateState(not on) end))
 
@@ -1078,11 +1097,10 @@ local function initializeMainHub()
     createToggle("Death Farm", pages[2], true, false, nil, 2, 36)
     createToggle("Stardust Farm", pages[2], true, false, nil, 3, 36)
 
-    createToggle("V-Clip", pages[3], false, true, nil, 1, 36)
-    createToggle("V-Clip Spam", pages[3], false, true, nil, 2, 36)
-    createToggle("Optimizations", pages[3], false, false, "Optimizations", 3, 36)
-    createToggle("Unlock fps", pages[3], false, false, "UnlockFps", 4, 36)
-    createToggle("Anti-AFK", pages[3], false, false, "AntiAFK", 5, 36)
+    createToggle("Noclip", pages[3], false, true, nil, 1, 36)
+    createToggle("Optimizations", pages[3], false, false, "Optimizations", 2, 36)
+    createToggle("Unlock fps", pages[3], false, false, "UnlockFps", 3, 36)
+    createToggle("Anti-AFK", pages[3], false, false, "AntiAFK", 4, 36)
 end
 
 local function showStartupAutofarmPrompt(onComplete)
@@ -1095,7 +1113,6 @@ local function showStartupAutofarmPrompt(onComplete)
             return
         end
         
-        -- 5 seconds in the lobby for loading, 3 seconds when in-game
         local countdown = (savedStartupFarm == "Stardust Farm") and (isInLobby() and 5 or 3) or nil
         
         showPopupModal(
