@@ -1,3 +1,4 @@
+--[cite: 7]
 local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
 local readfile = readfile or function() return "" end
 local writefile = writefile or function() end
@@ -6,6 +7,7 @@ local isfolder = isfolder or function() return true end
 local getgenv = getgenv or function() return _G end
 local gethui = gethui or function() return nil end
 local getconnections = getconnections
+local firesignal = firesignal
 
 local safeUI
 local s, h = pcall(function() return gethui() end)
@@ -130,7 +132,7 @@ end
 task.spawn(function()
     while not getgenv().XvlamerStop_PhantomPurge do
         pcall(purgePhantomGUIs)
-        task.wait(5.0)
+        task.wait(3.0)
     end
 end)
 
@@ -386,7 +388,7 @@ end
 local function setVClip(enabled) 
     if enabled then 
         pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/main/V-Clip.lua"))() 
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)"))() 
         end)
     end 
 end
@@ -627,9 +629,16 @@ local function initializeMainHub()
         if gameProcessed then return end
         if input.KeyCode == Enum.KeyCode.V then
             if not isModalOpen() and not (UIS:GetFocusedTextBox()) then
-                local vClipToggle = toggleHandlers["VClip"]
+                local vClipToggle = toggleHandlers["V-Clip"]
                 if vClipToggle and type(vClipToggle.update) == "function" then
                     vClipToggle.update(not vClipToggle.get())
+                end
+            end
+        elseif input.KeyCode == Enum.KeyCode.B then
+            if not isModalOpen() and not (UIS:GetFocusedTextBox()) then
+                local vClipSpamToggle = toggleHandlers["V-Clip Spam"]
+                if vClipSpamToggle and type(vClipSpamToggle.update) == "function" then
+                    vClipSpamToggle.update(not vClipSpamToggle.get())
                 end
             end
         end
@@ -769,9 +778,87 @@ local function initializeMainHub()
         elseif key == "Stardust Farm" then
             getgenv().XvlamerStop_StardustFarm = false
             activeThreads[key] = task.spawn(function()
-                pcall(function()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
-                end)
+                local function clickBtn(btn)
+                    if btn then
+                        pcall(function()
+                            if typeof(btn.Activate) == "function" then
+                                btn:Activate()
+                            end
+                        end)
+                        pcall(function()
+                            if firesignal then
+                                firesignal(btn.MouseButton1Click)
+                                firesignal(btn.Activated)
+                            end
+                        end)
+                        pcall(function()
+                            if getconnections then
+                                for _, conn in pairs(getconnections(btn.MouseButton1Click)) do
+                                    conn:Fire()
+                                end
+                                for _, conn in pairs(getconnections(btn.Activated)) do
+                                    conn:Fire()
+                                end
+                            end
+                        end)
+                        pcall(function()
+                            local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+                            if pos.X > 0 and pos.Y > 0 then
+                                VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+                                task.wait(0.01)
+                                VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+                            end
+                        end)
+                    end
+                end
+
+                local function getBtn(pathFn)
+                    local found = nil
+                    pcall(function() found = pathFn() end)
+                    if not found then
+                        for i = 1, 15 do
+                            pcall(function() found = pathFn() end)
+                            if found then break end
+                            task.wait(0.01)
+                        end
+                    end
+                    return found
+                end
+
+                local playBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.BottomButtons.MainPlayButton end)
+                if not playBtn then
+                    playBtn = getBtn(function()
+                        for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
+                            if desc.Name == "MainPlayButton" then return desc end
+                        end
+                    end)
+                end
+                clickBtn(playBtn)
+                task.wait(0.05)
+
+                local roomsBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.SidePanel.Frames.Floors.List.Rooms end)
+                if not roomsBtn then
+                    roomsBtn = getBtn(function()
+                        for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
+                            if desc.Name == "Rooms" then return desc end
+                        end
+                    end)
+                end
+                clickBtn(roomsBtn)
+                task.wait(0.05)
+
+                local confirmBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.List.Confirm end)
+                if not confirmBtn then
+                    confirmBtn = getBtn(function()
+                        for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
+                            if desc.Name == "Confirm" then return desc end
+                        end
+                    end)
+                end
+                clickBtn(confirmBtn)
+                task.wait(0.05)
+
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
             end)
         elseif key == "V-Clip" then
             setVClip(true)
@@ -939,7 +1026,7 @@ local function initializeMainHub()
         end
 
         toggleObj.update = updateState
-        if isRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
+        if isRadio then toggleHandlers[name] = toggleObj elseif isVClipRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
 
         trackConnection(box.MouseButton1Click:Connect(function() updateState(not on) end))
 
@@ -973,7 +1060,7 @@ local function showStartupAutofarmPrompt(onComplete)
             return
         end
         
-        local countdown = (savedStartupFarm == "Stardust Farm") and 5 or nil
+        local countdown = (savedStartupFarm == "Stardust Farm") and 3 or nil
         
         showPopupModal(
             "XvlamersStartupAutofarmPrompt",
