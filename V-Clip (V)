@@ -1,1 +1,64 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
+-- Initialize or toggle state
+if getgenv().Xvlamer_WalkclipRunning == nil then
+    getgenv().Xvlamer_WalkclipRunning = false
+end
+
+getgenv().Xvlamer_WalkclipRunning = not getgenv().Xvlamer_WalkclipRunning
+
+-- If turned OFF: clean up connection, restore original collisions, and restore saved WalkSpeed
+if not getgenv().Xvlamer_WalkclipRunning then
+    if getgenv().Xvlamer_WalkclipConn then
+        getgenv().Xvlamer_WalkclipConn:Disconnect()
+        getgenv().Xvlamer_WalkclipConn = nil
+    end
+
+    local char = LocalPlayer.Character
+    if char then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = true
+            end
+        end
+
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = getgenv().Xvlamer_SavedWalkSpeed or 16
+        end
+    end
+    return
+end
+
+-- Clear out any existing loop
+if getgenv().Xvlamer_WalkclipConn then
+    getgenv().Xvlamer_WalkclipConn:Disconnect()
+end
+
+-- Save the original WalkSpeed before modifying it
+local initialChar = LocalPlayer.Character
+if initialChar then
+    local humanoid = initialChar:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 5 and humanoid.WalkSpeed or 16
+    end
+end
+
+-- If turned ON: strictly apply Noclip and lock WalkSpeed to 5 with zero extra physics or floating
+getgenv().Xvlamer_WalkclipConn = RunService.RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CanCollide = false
+        end
+    end
+
+    humanoid.WalkSpeed = 5
+end)
