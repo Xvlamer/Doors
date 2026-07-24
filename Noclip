@@ -1,1 +1,83 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
+if getgenv().Xvlamer_VClipActive == nil then
+    getgenv().Xvlamer_VClipActive = false
+end
+
+local function toggleVClip()
+    getgenv().Xvlamer_VClipActive = not getgenv().Xvlamer_VClipActive
+
+    if not getgenv().Xvlamer_VClipActive then
+        if getgenv().Xvlamer_VClipConn then
+            getgenv().Xvlamer_VClipConn:Disconnect()
+            getgenv().Xvlamer_VClipConn = nil
+        end
+
+        local char = LocalPlayer.Character
+        if char then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = true
+                end
+            end
+
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
+            end
+        end
+        return
+    end
+
+    local char = LocalPlayer.Character
+    if not char then
+        getgenv().Xvlamer_VClipActive = false
+        return
+    end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        if humanoid.WalkSpeed ~= 1.5 then
+            getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
+        end
+        if not getgenv().Xvlamer_SavedSpeed or getgenv().Xvlamer_SavedSpeed == 1.5 then
+            getgenv().Xvlamer_SavedSpeed = 16
+        end
+    end
+
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+    end
+
+    getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
+
+        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = 1.5
+        end
+
+        for _, v in ipairs(currentCharacter:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = false
+            end
+        end
+    end)
+end
+
+if getgenv().Xvlamer_KeyConn then
+    getgenv().Xvlamer_KeyConn:Disconnect()
+end
+
+getgenv().Xvlamer_KeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.V then
+        toggleVClip()
+    end
+end)
+
+toggleVClip()
