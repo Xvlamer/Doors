@@ -36,7 +36,22 @@ end
 local function applyOptimization(v, char)
     if isExcluded(v, char) then return end
     
-    if v:IsA("BasePart") then
+    -- MeshPart inherits from BasePart, so it MUST be checked first to clear its TextureID
+    if v:IsA("MeshPart") then
+        if not cache.props[v] then
+            cache.props[v] = {
+                Material = v.Material,
+                Reflectance = v.Reflectance,
+                CastShadow = v.CastShadow,
+                TextureID = v.TextureID
+            }
+        end
+        v.TextureID = ""
+        v.Material = targetMaterial
+        v.Reflectance = 0
+        v.CastShadow = false
+
+    elseif v:IsA("BasePart") then
         if not cache.props[v] then
             cache.props[v] = {
                 Material = v.Material,
@@ -48,33 +63,20 @@ local function applyOptimization(v, char)
         v.Reflectance = 0
         v.CastShadow = false
 
-    elseif v:IsA("Decal") or v:IsA("Texture") or v:IsA("SurfaceAppearance") or v:IsA("MeshPart") then
-        if v:IsA("MeshPart") then
-            -- Clear texture IDs on MeshParts to completely remove wrapped textures
-            if not cache.props[v] then
-                cache.props[v] = {
-                    Material = v.Material,
-                    Reflectance = v.Reflectance,
-                    CastShadow = v.CastShadow,
-                    TextureID = v.TextureID
-                }
-            end
-            v.TextureID = ""
-            v.Material = targetMaterial
-            v.Reflectance = 0
-            v.CastShadow = false
-        else
-            if not cache.parents[v] then 
-                cache.parents[v] = v.Parent 
-            end
-            v.Parent = nil
+    elseif v:IsA("Decal") or v:IsA("Texture") or v:IsA("SurfaceAppearance") then
+        if not cache.parents[v] then 
+            cache.parents[v] = v.Parent 
         end
+        v.Parent = nil
 
-    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
+    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Atmosphere") then
         if cache.fx[v] == nil then
             cache.fx[v] = v.Enabled
         end
         v.Enabled = false
+        if v:IsA("Atmosphere") then
+            v:Destroy()
+        end
     end
 end
 
@@ -100,18 +102,22 @@ local function executeEnable(currentToken)
         }
     end
 
-    -- Full bright, high ambient brightness, zero fog configuration
+    -- Fullbright, pure white ambient light, zero shadows, infinite fog distance
     Lighting.GlobalShadows = false
     Lighting.EnvironmentSpecularScale = 1
     Lighting.EnvironmentDiffuseScale = 1
-    Lighting.Brightness = 3
-    Lighting.OutdoorAmbient = Color3.fromRGB(220, 220, 220)
-    Lighting.Ambient = Color3.fromRGB(220, 220, 220)
+    Lighting.Brightness = 5
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
     Lighting.FogEnd = 9e9
     Lighting.FogStart = 9e9
 
     for _, v in ipairs(Lighting:GetChildren()) do
-        applyOptimization(v, nil)
+        if v:IsA("Atmosphere") then
+            v:Destroy()
+        else
+            applyOptimization(v, nil)
+        end
     end
 
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
@@ -126,7 +132,7 @@ local function executeEnable(currentToken)
         terrain.WaterWaveSize = 0
         terrain.WaterWaveSpeed = 0
         terrain.WaterReflectance = 0
-        terrain.WaterTransparency = 0
+        terrain.WaterTransparency = 1
         terrain.Decoration = false
     end
 
@@ -154,6 +160,18 @@ local function executeEnable(currentToken)
             end
         end)
     end
+
+    if not connections.lightingAdded then
+        connections.lightingAdded = Lighting.ChildAdded:Connect(function(v)
+            if isEnabled and sweepToken == currentToken then
+                if v:IsA("Atmosphere") then
+                    v:Destroy()
+                else
+                    applyOptimization(v, nil)
+                end
+            end
+        end)
+    end
 end
 
 local function executeDisable(currentToken)
@@ -162,6 +180,11 @@ local function executeDisable(currentToken)
     if connections.descendantAdded then
         connections.descendantAdded:Disconnect()
         connections.descendantAdded = nil
+    end
+
+    if connections.lightingAdded then
+        connections.lightingAdded:Disconnect()
+        connections.lightingAdded = nil
     end
 
     if cache.quality then
@@ -198,7 +221,7 @@ local function executeDisable(currentToken)
     table.clear(cache.parents)
 
     for obj, oldState in pairs(cache.fx) do
-        if obj then
+        if obj and obj.Parent then
             obj.Enabled = oldState
         end
     end
