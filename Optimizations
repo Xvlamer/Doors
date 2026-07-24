@@ -22,7 +22,7 @@ local cache = {
     quality = nil
 }
 
-local targetMaterial = Enum.Material.Plastic
+local targetMaterial = Enum.Material.SmoothPlastic
 local camera = Workspace.CurrentCamera
 
 local function isExcluded(v, char)
@@ -48,13 +48,29 @@ local function applyOptimization(v, char)
         v.Reflectance = 0
         v.CastShadow = false
 
-    elseif v:IsA("Decal") or v:IsA("Texture") or v:IsA("SurfaceAppearance") then
-        if not cache.parents[v] then 
-            cache.parents[v] = v.Parent 
+    elseif v:IsA("Decal") or v:IsA("Texture") or v:IsA("SurfaceAppearance") or v:IsA("MeshPart") then
+        if v:IsA("MeshPart") then
+            -- Clear texture IDs on MeshParts to completely remove wrapped textures
+            if not cache.props[v] then
+                cache.props[v] = {
+                    Material = v.Material,
+                    Reflectance = v.Reflectance,
+                    CastShadow = v.CastShadow,
+                    TextureID = v.TextureID
+                }
+            end
+            v.TextureID = ""
+            v.Material = targetMaterial
+            v.Reflectance = 0
+            v.CastShadow = false
+        else
+            if not cache.parents[v] then 
+                cache.parents[v] = v.Parent 
+            end
+            v.Parent = nil
         end
-        v.Parent = nil
 
-    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") then
+    elseif v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
         if cache.fx[v] == nil then
             cache.fx[v] = v.Enabled
         end
@@ -78,22 +94,24 @@ local function executeEnable(currentToken)
             EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
             Brightness = Lighting.Brightness,
             OutdoorAmbient = Lighting.OutdoorAmbient,
+            Ambient = Lighting.Ambient,
             FogEnd = Lighting.FogEnd,
             FogStart = Lighting.FogStart
         }
     end
 
+    -- Full bright, high ambient brightness, zero fog configuration
     Lighting.GlobalShadows = false
-    Lighting.EnvironmentSpecularScale = 0
-    Lighting.EnvironmentDiffuseScale = 0
-    Lighting.Brightness = 2
+    Lighting.EnvironmentSpecularScale = 1
+    Lighting.EnvironmentDiffuseScale = 1
+    Lighting.Brightness = 3
+    Lighting.OutdoorAmbient = Color3.fromRGB(220, 220, 220)
+    Lighting.Ambient = Color3.fromRGB(220, 220, 220)
     Lighting.FogEnd = 9e9
     Lighting.FogStart = 9e9
 
     for _, v in ipairs(Lighting:GetChildren()) do
-        if not v:IsA("Sky") then
-            applyOptimization(v, nil)
-        end
+        applyOptimization(v, nil)
     end
 
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
