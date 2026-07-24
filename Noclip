@@ -33,10 +33,20 @@ local function toggleVClip()
     end
 
     local char = LocalPlayer.Character
-    if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 3 and humanoid.WalkSpeed or 16
+    if not char then
+        getgenv().Xvlamer_VClipRunning = false
+        return
+    end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 1.5 and humanoid.WalkSpeed or 16
+    end
+
+    local cachedParts = {}
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("BasePart") then
+            table.insert(cachedParts, v)
         end
     end
 
@@ -45,23 +55,23 @@ local function toggleVClip()
     end
 
     getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
-        local currentCar = LocalPlayer.Character
-        if not currentCar then return end
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
 
-        local humanoid = currentCar:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
-
-        for _, v in ipairs(currentCar:GetDescendants()) do
-            if v:IsA("BasePart") then
-                v.CanCollide = false
-            end
+        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = 1.5
         end
 
-        humanoid.WalkSpeed = 3
+        for i = 1, #cachedParts do
+            local part = cachedParts[i]
+            if part and part.Parent then
+                part.CanCollide = false
+            end
+        end
     end)
 end
 
--- Setup V keybind listener
 if getgenv().Xvlamer_VKeyConn then
     getgenv().Xvlamer_VKeyConn:Disconnect()
 end
@@ -73,5 +83,4 @@ getgenv().Xvlamer_VKeyConn = UserInputService.InputBegan:Connect(function(input,
     end
 end)
 
--- Toggle on execution
 toggleVClip()
