@@ -1,4 +1,3 @@
---[cite: 7]
 local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
 local readfile = readfile or function() return "" end
 local writefile = writefile or function() end
@@ -812,53 +811,63 @@ local function initializeMainHub()
                     end
                 end
 
-                local function getBtn(pathFn)
+                local function getBtn(pathFn, fallbackName)
                     local found = nil
                     pcall(function() found = pathFn() end)
-                    if not found then
-                        for i = 1, 15 do
-                            pcall(function() found = pathFn() end)
-                            if found then break end
-                            task.wait(0.01)
-                        end
+                    if not found and fallbackName then
+                        pcall(function()
+                            for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
+                                if desc.Name == fallbackName then found = desc; break end
+                            end
+                        end)
                     end
                     return found
                 end
 
-                local playBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.BottomButtons.MainPlayButton end)
-                if not playBtn then
-                    playBtn = getBtn(function()
-                        for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
-                            if desc.Name == "MainPlayButton" then return desc end
-                        end
+                local function isCreateElevatorVisible()
+                    local res = false
+                    pcall(function()
+                        res = P.PlayerGui.MainUI.LobbyFrame.CreateElevator.Visible
                     end)
+                    return res
                 end
-                clickBtn(playBtn)
-                task.wait(0.05)
 
-                local roomsBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.SidePanel.Frames.Floors.List.Rooms end)
-                if not roomsBtn then
-                    roomsBtn = getBtn(function()
-                        for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
-                            if desc.Name == "Rooms" then return desc end
-                        end
-                    end)
+                -- Step 1: Spam Play Button until CreateElevator is visible
+                while not getgenv().XvlamerStop_StardustFarm and not isCreateElevatorVisible() do
+                    local playBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.BottomButtons.MainPlayButton end, "MainPlayButton")
+                    if playBtn then clickBtn(playBtn) end
+                    
+                    local waited = 0
+                    while waited < 1.5 and not isCreateElevatorVisible() and not getgenv().XvlamerStop_StardustFarm do
+                        task.wait(0.1)
+                        waited = waited + 0.1
+                    end
                 end
-                clickBtn(roomsBtn)
-                task.wait(0.05)
 
-                local confirmBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.List.Confirm end)
-                if not confirmBtn then
-                    confirmBtn = getBtn(function()
-                        for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
-                            if desc.Name == "Confirm" then return desc end
-                        end
-                    end)
+                if getgenv().XvlamerStop_StardustFarm then return end
+
+                -- Step 2 & 3: CreateElevator is visible. Spam Rooms then Confirm until it goes away.
+                while not getgenv().XvlamerStop_StardustFarm and isCreateElevatorVisible() do
+                    local roomsBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.SidePanel.Frames.Floors.List.Rooms end, "Rooms")
+                    if roomsBtn then clickBtn(roomsBtn) end
+                    task.wait(0.2)
+                    
+                    local confirmBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.List.Confirm end, "Confirm")
+                    if confirmBtn then clickBtn(confirmBtn) end
+                    
+                    local waited = 0
+                    while waited < 2.0 and isCreateElevatorVisible() and not getgenv().XvlamerStop_StardustFarm do
+                        task.wait(0.1)
+                        waited = waited + 0.1
+                    end
                 end
-                clickBtn(confirmBtn)
-                task.wait(0.05)
 
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
+                if getgenv().XvlamerStop_StardustFarm then return end
+
+                -- Execute the Stardust Farm loadstring once successfully through the menus
+                pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
+                end)
             end)
         elseif key == "V-Clip" then
             setVClip(true)
@@ -997,6 +1006,32 @@ local function initializeMainHub()
                                 runThread(name)
                             end
                         )
+                    elseif name == "Stardust Farm" and not skipWarning then
+                        setVisual(false)
+                        on = false
+                        showPopupModal(
+                            "XvlamersStardustFarmWarning",
+                            "⚠️ STARDUST FARM",
+                            "Would you like to start the Stardust Farm? Do not touch your device while it is in action.",
+                            "Cancel",
+                            "Proceed",
+                            function()
+                                setVisual(false)
+                                on = false
+                                if state.ActiveFarm == name then
+                                    state.ActiveFarm = nil
+                                    pcall(saveState)
+                                end
+                            end,
+                            function()
+                                for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
+                                setVisual(true)
+                                on = true
+                                state.ActiveFarm = name
+                                pcall(saveState)
+                                runThread(name)
+                            end
+                        )
                     else
                         for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
                         if name ~= "Knob Farm" then
@@ -1060,7 +1095,8 @@ local function showStartupAutofarmPrompt(onComplete)
             return
         end
         
-        local countdown = (savedStartupFarm == "Stardust Farm") and 3 or nil
+        -- 5 seconds in the lobby for loading, 3 seconds when in-game
+        local countdown = (savedStartupFarm == "Stardust Farm") and (isInLobby() and 5 or 3) or nil
         
         showPopupModal(
             "XvlamersStartupAutofarmPrompt",
