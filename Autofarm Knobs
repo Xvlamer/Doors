@@ -1,25 +1,17 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
-if getgenv().Xvlamer_KnobFarm then
-    getgenv().Xvlamer_KnobFarm:Disconnect()
-end
+getgenv().XvlamerStop_KnobFarm = false
 
 local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 9e9)
 local statisticsRemote = remotesFolder:WaitForChild("Statistics", 9e9)
 
-local fireStatistics = statisticsRemote.FireServer
-
-local executeKill
-if typeof(replicatesignal) == "function" then
-    executeKill = function()
+local function executeKill()
+    if typeof(replicatesignal) == "function" then
         pcall(replicatesignal, LocalPlayer.Kill)
-    end
-else
-    executeKill = function()
+    else
         local char = LocalPlayer.Character
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
@@ -30,7 +22,12 @@ else
     end
 end
 
-getgenv().Xvlamer_KnobFarm = RunService.Heartbeat:Connect(function()
-    fireStatistics(statisticsRemote)
-    executeKill()
+task.spawn(function()
+    while not getgenv().XvlamerStop_KnobFarm do
+        pcall(function()
+            executeKill()
+            statisticsRemote:FireServer()
+        end)
+        task.wait(0.25 + math.random(0.01, 0.05))
+    end
 end)
