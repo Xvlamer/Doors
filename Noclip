@@ -40,7 +40,11 @@ local function toggleVClip()
 
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 1.5 and humanoid.WalkSpeed or 16
+        if humanoid.WalkSpeed ~= 1.5 then
+            getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed
+        elseif not getgenv().Xvlamer_SavedWalkSpeed or getgenv().Xvlamer_SavedWalkSpeed == 1.5 then
+            getgenv().Xvlamer_SavedWalkSpeed = 16
+        end
     end
 
     local cachedParts = {}
