@@ -2,9 +2,17 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
-if getgenv().Xvlamer_CustomClipConn then
-    getgenv().Xvlamer_CustomClipConn:Disconnect()
-    getgenv().Xvlamer_CustomClipConn = nil
+if getgenv().Xvlamer_CustomClipRunning == nil then
+    getgenv().Xvlamer_CustomClipRunning = false
+end
+
+getgenv().Xvlamer_CustomClipRunning = not getgenv().Xvlamer_CustomClipRunning
+
+if not getgenv().Xvlamer_CustomClipRunning then
+    if getgenv().Xvlamer_CustomClipConn then
+        getgenv().Xvlamer_CustomClipConn:Disconnect()
+        getgenv().Xvlamer_CustomClipConn = nil
+    end
 
     local char = LocalPlayer.Character
     if char then
@@ -14,29 +22,32 @@ if getgenv().Xvlamer_CustomClipConn then
             end
         end
 
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end
-
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            humanoid.PlatformStand = false
+            humanoid.WalkSpeed = getgenv().Xvlamer_SavedWalkSpeed or 16
         end
     end
     return
 end
 
-local camera = workspace.CurrentCamera
+if getgenv().Xvlamer_CustomClipConn then
+    getgenv().Xvlamer_CustomClipConn:Disconnect()
+end
 
-getgenv().Xvlamer_CustomClipConn = RunService.RenderStepped:Connect(function(dt)
+local initialChar = LocalPlayer.Character
+if initialChar then
+    local humanoid = initialChar:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 5 and humanoid.WalkSpeed or 16
+    end
+end
+
+getgenv().Xvlamer_CustomClipConn = RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
 
-    local root = char:FindFirstChild("HumanoidRootPart")
     local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not root or not humanoid then return end
+    if not humanoid then return end
 
     for _, v in ipairs(char:GetDescendants()) do
         if v:IsA("BasePart") then
@@ -44,17 +55,5 @@ getgenv().Xvlamer_CustomClipConn = RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    humanoid.PlatformStand = true
-
-    local camLook = camera.CFrame.LookVector
-    local flatLook = Vector3.new(camLook.X, 0, camLook.Z)
-    if flatLook.Magnitude > 0 then
-        flatLook = flatLook.Unit
-    else
-        flatLook = Vector3.new(0, 0, -1)
-    end
-
-    local targetVel = flatLook * 1.5
-    root.AssemblyLinearVelocity = Vector3.new(targetVel.X, 0, targetVel.Z)
-    root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    humanoid.WalkSpeed = 5
 end)
