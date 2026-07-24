@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- Toggle state mechanism (runs on/off cleanly)
 getgenv().Xvlamer_CustomClipRunning = not getgenv().Xvlamer_CustomClipRunning
 
 local char = LocalPlayer.Character
@@ -15,7 +14,6 @@ if not getgenv().Xvlamer_CustomClipRunning then
         getgenv().Xvlamer_CustomClipConn = nil
     end
     
-    -- Completely revert everything back to normal when turned off
     if char then
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
@@ -25,7 +23,7 @@ if not getgenv().Xvlamer_CustomClipRunning then
     end
     
     if humanoid then
-        humanoid.PlatformStand = false
+        humanoid.WalkSpeed = getgenv().Xvlamer_OriginalWalkSpeed or 16
     end
     
     if rootPart then
@@ -39,6 +37,11 @@ if getgenv().Xvlamer_CustomClipConn then
     getgenv().Xvlamer_CustomClipConn:Disconnect()
 end
 
+if humanoid then
+    getgenv().Xvlamer_OriginalWalkSpeed = humanoid.WalkSpeed
+    humanoid.WalkSpeed = 0
+end
+
 local camera = workspace.CurrentCamera
 
 getgenv().Xvlamer_CustomClipConn = RunService.Stepped:Connect(function(dt)
@@ -49,17 +52,14 @@ getgenv().Xvlamer_CustomClipConn = RunService.Stepped:Connect(function(dt)
     local currentHumanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
     if not currentRoot or not currentHumanoid then return end
 
-    -- 1. Noclip: Keep all character parts non-collidable
+    currentHumanoid.WalkSpeed = 0
+
     for _, v in ipairs(currentCharacter:GetDescendants()) do
         if v:IsA("BasePart") then
             v.CanCollide = false
         end
     end
 
-    -- 2. Prevent manual walking/movement inputs
-    currentHumanoid.PlatformStand = true
-
-    -- 3. Get camera look direction (flattened on XZ plane)
     local camLook = camera.CFrame.LookVector
     local flatLook = Vector3.new(camLook.X, 0, camLook.Z)
     if flatLook.Magnitude > 0 then
@@ -68,7 +68,6 @@ getgenv().Xvlamer_CustomClipConn = RunService.Stepped:Connect(function(dt)
         flatLook = Vector3.new(0, 0, -1)
     end
 
-    -- 4. Use smooth physics velocity (1.5 studs/sec forward) instead of CFrame teleporting to eliminate rubberbanding/lag-back
     currentRoot.AssemblyLinearVelocity = Vector3.new(flatLook.X * 1.5, 0, flatLook.Z * 1.5)
     currentRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 end)
