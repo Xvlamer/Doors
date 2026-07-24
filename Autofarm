@@ -30,6 +30,8 @@ local Workspace = game:GetService("Workspace")
 local VU = game:GetService("VirtualUser")
 local VIM = game:GetService("VirtualInputManager")
 
+local mainRef = nil
+
 local guiName = "XvlamersHub"
 local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local CORRECT_KEY = "x7K9mP2vL4qW8zR1tY3b"
@@ -37,18 +39,40 @@ local THEME_PURPLE = Color3.fromRGB(108, 92, 231)
 
 local function isInGame()
     local success, result = pcall(function()
-        local leaderstats = P:FindFirstChild("leaderstats")
-        if leaderstats and leaderstats:FindFirstChild("Gold") then
-            return true
-        end
-        return false
+        return game:IsLoaded() and P
     end)
-    if success then return result end
-    return false
+    return success and result
 end
 
 local function isInLobby()
-    return not isInGame()
+    local success, result = pcall(function()
+        return game.PlaceId == 6516141723 or (Workspace:FindFirstChild("Lobby") ~= nil)
+    end)
+    return success and result
+end
+
+local function getGoldValue()
+    local goldVal = 0
+    pcall(function()
+        if P then
+            local g = P:FindFirstChild("Gold")
+            if not g and P:FindFirstChild("leaderstats") then
+                g = P.leaderstats:FindFirstChild("Gold")
+            end
+            if not g then
+                for _, desc in pairs(P:GetDescendants()) do
+                    if desc.Name == "Gold" and (desc:IsA("IntValue") or desc:IsA("NumberValue")) then
+                        g = desc
+                        break
+                    end
+                end
+            end
+            if g and (g:IsA("IntValue") or g:IsA("NumberValue")) then
+                goldVal = g.Value
+            end
+        end
+    end)
+    return goldVal
 end
 
 if getgenv().XvlamerHub_RunningInstance then
@@ -60,7 +84,6 @@ local activeThreads = {}
 local radioToggles = {}
 local vclipRadioToggles = {}
 local toggleHandlers = {}
-local scriptCache = {}
 
 local function trackConnection(conn)
     if conn then table.insert(HubConnections, conn) end
@@ -69,30 +92,12 @@ end
 
 local function isModalOpen()
     for _, v in pairs(safeUI:GetChildren()) do
-        if v:IsA("ScreenGui") and v.Name ~= guiName and v.Name ~= "XvlamersMobileToggle" then
+        if v:IsA("ScreenGui") and (v.Name == "XvlamersExitWarning" or v.Name == "XvlamersStartupAutofarmPrompt" or v.Name == "XvlamersDeathFarmWarning" or v.Name == "XvlamersModifiersPrompt" or v.Name == "XvlamersZeroGoldWarning" or v.Name == "XvlamersStardustFarmWarning") then
             return true
         end
     end
     return false
 end
-
-local mainRef = nil
-
-local function updateMouseState()
-    pcall(function()
-        local menuOpen = (mainRef and mainRef.Visible) or isModalOpen() or not isInGame()
-        if menuOpen then
-            UIS.MouseBehavior = Enum.MouseBehavior.Default
-            UIS.MouseIconEnabled = true
-        else
-            UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
-        end
-    end)
-end
-
-trackConnection(RS.RenderStepped:Connect(function()
-    updateMouseState()
-end))
 
 local function purgePhantomGUIs()
     pcall(function()
@@ -137,16 +142,16 @@ getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
 }
 state = getgenv().XvlamerHub_SavedState
 
-if isInLobby() then
-    state.ActiveFarm = nil
-end
-
 local stateFile = "XvlamersSaveState.json"
 
 local function saveState()
     pcall(function() 
+        local farmToSave = state.ActiveFarm
+        if farmToSave == "Knob Farm" then
+            farmToSave = nil
+        end
         local saveData = {
-            ActiveFarm = isInLobby() and nil or state.ActiveFarm,
+            ActiveFarm = farmToSave,
             UnlockFps = state.UnlockFps,
             AntiAFK = state.AntiAFK,
             KeyExpiry = state.KeyExpiry
@@ -166,15 +171,11 @@ local pendingStartupFarm = nil
 if readSuccess and readData and readData ~= "" then
     local decodeSuccess, decoded = pcall(function() return Http:JSONDecode(readData) end)
     if decodeSuccess and type(decoded) == "table" then 
-        if decoded.ActiveFarm ~= nil and isInLobby() then pendingStartupFarm = decoded.ActiveFarm end
+        if decoded.ActiveFarm ~= nil and decoded.ActiveFarm ~= "Knob Farm" then pendingStartupFarm = decoded.ActiveFarm end
         if decoded.UnlockFps ~= nil then state.UnlockFps = decoded.UnlockFps end
         if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
         if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
     end
-end
-if isInLobby() then
-    state.ActiveFarm = nil
-    pendingStartupFarm = nil
 end
 
 local Optimizer = {}
@@ -382,22 +383,21 @@ local function setUnlockFPS(enabled, dontSave)
     end
 end
 
-local function executeLoadstringUrl(url)
-    if scriptCache[url] then
-        task.spawn(scriptCache[url])
-        return
-    end
-    task.spawn(function()
-        local success, res = pcall(function() return game:HttpGet(url) end)
-        if success and res then
-            local fn, err = loadstring(res)
-            if fn then scriptCache[url] = fn; pcall(fn) end
-        end
-    end)
+local function setVClip(enabled) 
+    if enabled then 
+        pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/main/V-Clip.lua"))() 
+        end)
+    end 
 end
 
-local function setVClip(enabled) if enabled then executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/main/V-Clip.lua") end end
-local function setVClipSpam(enabled) if enabled then executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)%20Spam") end end
+local function setVClipSpam(enabled) 
+    if enabled then 
+        pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/V-Clip%20(V)%20Spam"))() 
+        end)
+    end 
+end
 
 local purge = function() end
 purge = function()
@@ -431,7 +431,6 @@ purge = function()
     table.clear(vclipRadioToggles)
 
     mainRef = nil
-    updateMouseState()
 
     local function checkAndDestroy(parent)
         if parent then for _, v in pairs(parent:GetChildren()) do if v.Name == guiName or v.Name == "XvlamersMobileToggle" or v.Name:match("Xvlamers") then pcall(function() v:Destroy() end) end end end
@@ -479,97 +478,6 @@ local function makeUniversalDraggable(guiFrame)
     trackConnection(UIS.InputChanged:Connect(function(input) if input == dragInput and dragging then local delta = input.Position - dragStart; guiFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end))
 end
 
-local function fireButtonFast(btn)
-    if not btn or not isInLobby() then return end
-    pcall(function()
-        local absPos = btn.AbsolutePosition
-        local absSize = btn.AbsoluteSize
-        local targetX = absPos.X + (absSize.X / 2)
-        local targetY = absPos.Y + (absSize.Y / 2)
-        
-        if VIM then
-            VIM:SendMouseButtonEvent(targetX, targetY, 0, true, game, 0)
-            task.wait(0.05)
-            VIM:SendMouseButtonEvent(targetX, targetY, 0, false, game, 0)
-        end
-    end)
-    
-    pcall(function()
-        if typeof(firesignal) == "function" then
-            firesignal(btn.MouseButton1Down)
-            firesignal(btn.MouseButton1Up)
-            firesignal(btn.MouseButton1Click)
-            firesignal(btn.Activated)
-        elseif typeof(fireclickdetector) == "function" and btn:IsA("ClickDetector") then
-            fireclickdetector(btn)
-        end
-    end)
-
-    pcall(function()
-        local events = {"MouseButton1Down", "MouseButton1Up", "MouseButton1Click", "Activated"}
-        for _, evName in ipairs(events) do
-            pcall(function()
-                for _, conn in pairs(getconnections(btn[evName])) do
-                    pcall(function() conn:Fire() end)
-                end
-            end)
-        end
-    end)
-end
-
-local function executeLobbyAutomationSequence()
-    if not isInLobby() then return end
-    task.spawn(function()
-        pcall(function()
-            local pg = P:FindFirstChild("PlayerGui")
-            if not pg then return end
-            local mainUI = pg:FindFirstChild("MainUI")
-            if not mainUI then return end
-            local lobbyFrame = mainUI:FindFirstChild("LobbyFrame")
-            if not lobbyFrame then return end
-
-            local attempts = 0
-            while not lobbyFrame.Visible and attempts < 20 and isInLobby() do
-                task.wait(0.1)
-                attempts = attempts + 1
-            end
-
-            if not lobbyFrame.Visible or not isInLobby() then return end
-            task.wait(0.2)
-
-            local lobbyMainButtons = lobbyFrame:FindFirstChild("LobbyMainButtons")
-            if lobbyMainButtons then
-                local mainPlayButton = lobbyMainButtons:FindFirstChild("MainPlayButton")
-                if mainPlayButton then
-                    fireButtonFast(mainPlayButton)
-                end
-            end
-
-            task.wait(0.3)
-
-            local createElevator = lobbyFrame:FindFirstChild("CreateElevator")
-            if createElevator then
-                local sidePanel = createElevator:FindFirstChild("SidePanel")
-                if sidePanel then
-                    local framesFolder = sidePanel:FindFirstChild("Frames")
-                    if framesFolder then
-                        local floors = framesFolder:FindFirstChild("Floors")
-                        if floors then
-                            local list = floors:FindFirstChild("list")
-                            if list then
-                                local mines = list:FindFirstChild("Mines")
-                                if mines then
-                                    fireButtonFast(mines)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-    end)
-end
-
 local function showPopupModal(modalName, titleText, messageText, cancelText, confirmText, onCancel, onConfirm, countdownSeconds)
     pcall(function()
         purgePhantomGUIs()
@@ -577,8 +485,9 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
         if mainRef then mainRef.Visible = false end
         local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
         if mGuiRef then mGuiRef.Enabled = false end
-
-        updateMouseState()
+        pcall(function()
+            UIS.MouseBehavior = Enum.MouseBehavior.Default
+        end)
 
         local warnGui = Instance.new("ScreenGui")
         warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 1000000; warnGui.Parent = safeUI
@@ -628,7 +537,11 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
                 if mainRef then mainRef.Visible = wasMainVisible end
                 local mGuiCheck = safeUI:FindFirstChild("XvlamersMobileToggle")
                 if mGuiCheck then mGuiCheck.Enabled = true end
-                updateMouseState()
+                if mainRef and mainRef.Visible then
+                    UIS.MouseBehavior = Enum.MouseBehavior.Default
+                else
+                    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+                end
                 if callback then callback() end
             end)
         end
@@ -651,7 +564,7 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
     end)
 end
 
-local function initializeMainHub(resumedFarm)
+local function initializeMainHub()
     local mGui = nil
     local setMainGuiVisible = function(visible) end
 
@@ -680,16 +593,31 @@ local function initializeMainHub(resumedFarm)
 
     setMainGuiVisible = function(visible) 
         pcall(function() 
-            main.Visible = visible 
-            updateMouseState()
+            if visible and isModalOpen() then return end
+            main.Visible = visible
+            if visible then
+                pcall(function()
+                    UIS.MouseBehavior = Enum.MouseBehavior.Default
+                end)
+            else
+                pcall(function()
+                    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+                end)
+            end
         end) 
     end
 
-    updateMouseState()
+    pcall(function()
+        if main.Visible then
+            UIS.MouseBehavior = Enum.MouseBehavior.Default
+        else
+            UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+        end
+    end)
 
     trackConnection(UIS.InputBegan:Connect(function(input) 
         if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then 
-            if not isModalOpen() and not isInLobby() then 
+            if not isModalOpen() then 
                 setMainGuiVisible(not main.Visible) 
             end
         end 
@@ -730,9 +658,7 @@ local function initializeMainHub(resumedFarm)
         trackConnection(UIS.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - mDragStart; mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) end end))
 
         trackConnection(mBtn.MouseButton1Click:Connect(function() 
-            if not isInLobby() then
-                setMainGuiVisible(not main.Visible) 
-            end
+            setMainGuiVisible(not main.Visible) 
         end))
     end
 
@@ -780,7 +706,7 @@ local function initializeMainHub(resumedFarm)
     tabs[1].TextColor3 = Color3.fromRGB(255,255,255)
     pages[1].Visible = true
 
-    create("TextLabel", {Size=UDim2.new(1,0,0,110), BackgroundTransparency=1, TextWrapped=true, Font=Enum.Font.Gotham, Text="Welcome to Xvlamer's Hub.\n\nThis control panel operates local automation routines safely and efficiently.\n\n• Navigate to AutoFarm to execute tasks.\n• Adjust player parameters under the Player tab.\n• Use LeftAlt or the toggle button to open or hide this menu.", TextColor3=Color3.fromRGB(180, 180, 195), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, TextYAlignment=Enum.TextYAlignment.Top, Parent=pages[1]})
+    create("TextLabel", {Size=UDim2.new(1,0,0,110), BackgroundTransparency=1, TextWrapped=true, Font=Enum.Font.Gotham, Text="Welcome to Xvlamer's Hub.\n\nThis control panel operates local automation routines safely and efficiently.\n\n• Navigate to AutoFarm to execute tasks.\n• Adjust player parameters under the Player tab.\n• Use LeftAlt or RightAlt (or the mobile toggle button) to open or hide this menu.", TextColor3=Color3.fromRGB(180, 180, 195), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, TextYAlignment=Enum.TextYAlignment.Top, Parent=pages[1]})
 
     local isMin = false
     local function toggleMinimize()
@@ -812,9 +738,9 @@ local function initializeMainHub(resumedFarm)
     local function handleExitClick()
         showPopupModal(
             "XvlamersExitWarning",
-            "⚠️ EXIT HUB",
-            "Are you sure you want to close Xvlamer's Hub and stop all active automations?",
-            "Disable",
+            "⚠️ EXIT",
+            "Close Hub and stop all active automations?",
+            "Cancel",
             "Exit",
             function() end,
             function() pcall(function() purge() end) end
@@ -825,18 +751,28 @@ local function initializeMainHub(resumedFarm)
     local function runThread(key)
         stopThread(key)
         if key == "Knob Farm" then
-            getgenv().XvlamerStop_KnobFarm = false
-            if isInLobby() then
-                executeLobbyAutomationSequence()
-            else
-                activeThreads[key] = task.spawn(function() executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/main/Knob%20Farm.lua") end)
+            if not isInLobby() then
+                getgenv().XvlamerStop_KnobFarm = false
+                activeThreads[key] = task.spawn(function()
+                    pcall(function()
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs"))()
+                    end)
+                end)
             end
         elseif key == "Death Farm" then
             getgenv().XvlamerStop_DeathFarm = false
-            activeThreads[key] = task.spawn(function() executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/main/Death%20Farm.lua") end)
+            activeThreads[key] = task.spawn(function()
+                pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Deaths"))()
+                end)
+            end)
         elseif key == "Stardust Farm" then
             getgenv().XvlamerStop_StardustFarm = false
-            activeThreads[key] = task.spawn(function() executeLoadstringUrl("https://raw.githubusercontent.com/Xvlamer/Doors/main/Stardust%20Farm.lua") end)
+            activeThreads[key] = task.spawn(function()
+                pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
+                end)
+            end)
         elseif key == "V-Clip" then
             setVClip(true)
         elseif key == "V-Clip Spam" then
@@ -888,77 +824,100 @@ local function initializeMainHub(resumedFarm)
         if isVClipRadio then table.insert(vclipRadioToggles, toggleObj) end
 
         local function updateState(newState, skipWarning)
-            if newState and name == "Knob Farm" and isInGame() then
-                local leaderstats = P:FindFirstChild("leaderstats")
-                local gold = leaderstats and leaderstats:FindFirstChild("Gold")
-                local goldVal = gold and gold.Value or 0
-                if goldVal <= 0 then
-                    setVisual(false)
-                    on = false
-                    showPopupModal(
-                        "XvlamersZeroGoldWarning",
-                        "⚠️ KNOB FARM",
-                        "knob farm only works with more than 0 gold you must collect some first.",
-                        "",
-                        "OK",
-                        function() end,
-                        function() end
-                    )
-                    return
-                end
-            end
-
             on = newState
             setVisual(on)
             
             if isRadio then
                 if on then
-                    if name == "Death Farm" and not skipWarning and not isInGame() then
+                    if name == "Knob Farm" and not skipWarning then
+                        if isInLobby() then
+                            setVisual(false)
+                            on = false
+                            if state.ActiveFarm == name then
+                                state.ActiveFarm = nil
+                                pcall(saveState)
+                            end
+                            showPopupModal(
+                                "XvlamersModifiersPrompt",
+                                "⚠️ 150% MODIFIERS",
+                                "Use 150% Modifiers in the mines and collect the most gold for maximum Knobs.",
+                                "",
+                                "Proceed",
+                                function() end,
+                                function()
+                                    setVisual(false)
+                                    on = false
+                                    if state.ActiveFarm == name then
+                                        state.ActiveFarm = nil
+                                        pcall(saveState)
+                                    end
+                                end
+                            )
+                            return
+                        elseif getGoldValue() <= 0 then
+                            setVisual(false)
+                            on = false
+                            if state.ActiveFarm == name then
+                                state.ActiveFarm = nil
+                                pcall(saveState)
+                            end
+                            showPopupModal(
+                                "XvlamersZeroGoldWarning",
+                                "⚠️ 0 GOLD",
+                                "You have 0 gold collect more to start.",
+                                "",
+                                "Proceed",
+                                function() end,
+                                function()
+                                    setVisual(false)
+                                    on = false
+                                    if state.ActiveFarm == name then
+                                        state.ActiveFarm = nil
+                                        pcall(saveState)
+                                    end
+                                end
+                            )
+                            return
+                        else
+                            for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
+                            state.ActiveFarm = name
+                            pcall(saveState)
+                            runThread(name)
+                        end
+                    elseif name == "Death Farm" and not skipWarning then
                         setVisual(false)
                         on = false
                         showPopupModal(
                             "XvlamersDeathFarmWarning",
-                            "⚠️ DEATH FARM NOTICE",
-                            "Death Farm utilizes deep hooks. Re-open Roblox after completing this farm to ensure stability.",
-                            "Disable",
+                            "⚠️ DEATH FARM",
+                            "Death farm uses advanced techniques for the most precision and speed and you must re open Roblox to completely stop it.",
+                            "Cancel",
                             "Proceed",
-                            function() end,
                             function()
-                                on = true
-                                setVisual(true)
+                                setVisual(false)
+                                on = false
+                                if state.ActiveFarm == name then
+                                    state.ActiveFarm = nil
+                                    pcall(saveState)
+                                end
+                            end,
+                            function()
                                 for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
+                                setVisual(true)
+                                on = true
                                 state.ActiveFarm = name
                                 pcall(saveState)
                                 runThread(name)
                             end
                         )
-                        return
-                    elseif name == "Knob Farm" and not skipWarning and isInLobby() then
-                        setVisual(false)
-                        on = false
-                        showPopupModal(
-                            "XvlamersKnobFarmWarning",
-                            "⚠️ LOBBY NOTICE",
-                            "You should play in Mines with a 150% modifier boost.",
-                            "Disable",
-                            "Proceed",
-                            function() end,
-                            function()
-                                on = true
-                                setVisual(true)
-                                for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                                state.ActiveFarm = name
-                                pcall(saveState)
-                                runThread(name)
-                            end
-                        )
-                        return
+                    else
+                        for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
+                        if name ~= "Knob Farm" then
+                            state.ActiveFarm = name
+                            pcall(saveState)
+                        end
+                        runThread(name)
                     end
-
-                    for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                    state.ActiveFarm = name
-                    pcall(saveState)
-                    runThread(name)
                 else
                     if state.ActiveFarm == name then state.ActiveFarm = nil; pcall(saveState) end
                     stopThread(name)
@@ -1002,57 +961,31 @@ local function initializeMainHub(resumedFarm)
     createToggle("Optimizations", pages[3], false, false, "Optimizations", 3, 36)
     createToggle("Unlock fps", pages[3], false, false, "UnlockFps", 4, 36)
     createToggle("Anti-AFK", pages[3], false, false, "AntiAFK", 5, 36)
-
-    if resumedFarm then
-        local toggleObj = toggleHandlers[resumedFarm]
-        if toggleObj and type(toggleObj.update) == "function" then
-            toggleObj.update(true, true)
-            if resumedFarm == "Knob Farm" and isInLobby() then
-                executeLobbyAutomationSequence()
-            end
-        end
-    end
 end
 
 local function showStartupAutofarmPrompt(onComplete)
-    if pendingStartupFarm and isInLobby() then
-        local savedFarmToPrompt = pendingStartupFarm
+    if pendingStartupFarm then
+        local savedStartupFarm = pendingStartupFarm
         pendingStartupFarm = nil
         
-        if savedFarmToPrompt == "Knob Farm" then
-            showPopupModal(
-                "XvlamersStartupAutofarmPrompt",
-                "⚙️ ACTIVE AUTOMATION DETECTED",
-                "Xvlamer's Hub detected that 'Knob Farm' was running during your previous session. Would you like to resume this automation?",
-                "Disable",
-                "Proceed",
-                function()
-                    if onComplete then onComplete(nil) end
-                end,
-                function()
-                    if onComplete then onComplete("Knob Farm") end
-                    executeLobbyAutomationSequence()
-                end
-            )
+        if savedStartupFarm ~= "Stardust Farm" then
+            if onComplete then onComplete(nil) end
             return
         end
         
-        local isStardust = (savedFarmToPrompt == "Stardust Farm")
-        local titleText = isStardust and "⚠️ STARDUST FARM NOTICE" or "⚙️ ACTIVE AUTOMATION DETECTED"
-        local msgText = isStardust and "Stardust Farm will auto continue in 5 seconds..." or string.format("Xvlamer's Hub detected that '%s' was running during your previous session. Would you like to resume this automation?", savedFarmToPrompt)
-        local countdown = isStardust and 5 or nil
-
+        local countdown = (savedStartupFarm == "Stardust Farm") and 5 or nil
+        
         showPopupModal(
-            isStardust and "XvlamersStardustFarmWarning" or "XvlamersStartupAutofarmPrompt",
-            titleText,
-            msgText,
-            "Disable",
+            "XvlamersStartupAutofarmPrompt",
+            string.format("⚙️ %s", string.upper(savedStartupFarm)),
+            string.format("Would you like to proceed with the %s or cancel it?", savedStartupFarm),
+            "Cancel",
             "Proceed",
             function()
                 if onComplete then onComplete(nil) end
             end,
             function()
-                if onComplete then onComplete(savedFarmToPrompt) end
+                if onComplete then onComplete(savedStartupFarm) end
             end,
             countdown
         )
@@ -1064,8 +997,9 @@ end
 local function startKeySystem()
     local keyGui = create("ScreenGui", {Name="XvlamersKeySystem", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999, Parent=safeUI})
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(keyGui) end end)
-
-    updateMouseState()
+    pcall(function()
+        UIS.MouseBehavior = Enum.MouseBehavior.Default
+    end)
 
     local keyFrame = create("Frame", {
         Size=UDim2.new(0, 320, 0, 145), 
@@ -1085,7 +1019,6 @@ local function startKeySystem()
     _G.XvlamerHub_CloseKeySystem = function() 
         pcall(function() 
             keyGui:Destroy() 
-            updateMouseState()
         end) 
     end
 
@@ -1113,24 +1046,15 @@ local function startKeySystem()
             pcall(saveState)
             _G.XvlamerHub_CloseKeySystem()
             
-            local initialResumed = nil
-            if isInLobby() then
-                initialResumed = pendingStartupFarm
-            end
-            initializeMainHub(initialResumed)
-            if isInLobby() then
-                showStartupAutofarmPrompt(function(resumedFarm)
-                    if resumedFarm then
-                        local toggleObj = toggleHandlers[resumedFarm]
-                        if toggleObj and type(toggleObj.update) == "function" then
-                            toggleObj.update(true, true)
-                            if resumedFarm == "Knob Farm" then
-                                executeLobbyAutomationSequence()
-                            end
-                        end
+            initializeMainHub()
+            showStartupAutofarmPrompt(function(resumedFarm)
+                if resumedFarm then
+                    local toggleObj = toggleHandlers[resumedFarm]
+                    if toggleObj and type(toggleObj.update) == "function" then
+                        toggleObj.update(true, true)
                     end
-                end)
-            end
+                end
+            end)
         else
             errorLbl.Text = "Incorrect key! Verify with the script owner."
         end
@@ -1145,24 +1069,15 @@ if (passedKey == CORRECT_KEY) or (globalKey == CORRECT_KEY) or (state.KeyExpiry 
     state.KeyExpiry = os.time() + 86400
     pcall(saveState)
     
-    local initialResumed = nil
-    if isInLobby() then
-        initialResumed = pendingStartupFarm
-    end
-    initializeMainHub(initialResumed)
-    if isInLobby() then
-        showStartupAutofarmPrompt(function(resumedFarm)
-            if resumedFarm then
-                local toggleObj = toggleHandlers[resumedFarm]
-                if toggleObj and type(toggleObj.update) == "function" then
-                    toggleObj.update(true, true)
-                    if resumedFarm == "Knob Farm" then
-                        executeLobbyAutomationSequence()
-                    end
-                end
+    initializeMainHub()
+    showStartupAutofarmPrompt(function(resumedFarm)
+        if resumedFarm then
+            local toggleObj = toggleHandlers[resumedFarm]
+            if toggleObj and type(toggleObj.update) == "function" then
+                toggleObj.update(true, true)
             end
-        end)
-    end
+        end
+    end)
 else
     startKeySystem()
 end
