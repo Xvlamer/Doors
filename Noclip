@@ -40,10 +40,10 @@ local function toggleVClip()
 
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        if humanoid.WalkSpeed ~= 1.5 then
+        if humanoid.WalkSpeed ~= 1 then
             getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
         end
-        if not getgenv().Xvlamer_SavedSpeed or getgenv().Xvlamer_SavedSpeed == 1.5 then
+        if not getgenv().Xvlamer_SavedSpeed or getgenv().Xvlamer_SavedSpeed == 1 then
             getgenv().Xvlamer_SavedSpeed = 16
         end
     end
@@ -58,7 +58,7 @@ local function toggleVClip()
 
         local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
         if hum then
-            hum.WalkSpeed = 1.5
+            hum.WalkSpeed = 1
         end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
