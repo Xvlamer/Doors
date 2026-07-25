@@ -13,6 +13,7 @@ local function setKnobFarm(state)
         getgenv().Xvlamer_KnobFarmActive = state and true or false
     end
 
+    -- Sync with Main Hub saved state if available
     if getgenv().XvlamerHub_SavedState then
         getgenv().XvlamerHub_SavedState.KnobFarm = getgenv().Xvlamer_KnobFarmActive
         pcall(function()
@@ -28,17 +29,12 @@ local function setKnobFarm(state)
         end)
     end
 
-    if getgenv().Xvlamer_KnobFarmThread then
-        getgenv().Xvlamer_KnobFarmActive = false
-        task.wait(0.1)
-        getgenv().Xvlamer_KnobFarmActive = state and true or false
-    end
-
     if not getgenv().Xvlamer_KnobFarmActive then
         return
     end
 
-    getgenv().Xvlamer_KnobFarmThread = task.spawn(function()
+    -- Exact loop structure and timing from your original working script
+    task.spawn(function()
         local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
         local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 10)
 
@@ -60,23 +56,8 @@ local function setKnobFarm(state)
                     statisticsRemote:FireServer()
                 end
             end)
-
-            local char = LocalPlayer.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    pcall(function() hum.Died:Wait() end)
-                end
-            end
-
-            task.wait(0.3)
-
-            local t = tick()
-            repeat
-                task.wait(0.1)
-                char = LocalPlayer.Character
-            until (char and char:FindFirstChildOfClass("Humanoid") and char:FindFirstChildOfClass("Humanoid").Health > 0) or (tick() - t > 5)
-
+            
+            -- Original timing restored (using integer-safe math.random for Luau)
             task.wait(0.25 + (math.random(1, 5) / 100))
         end
     end)
