@@ -14,14 +14,19 @@ local entitySounds = {
 }
 
 local whitelistedKeywords = {
+    -- Entities & Items
     "rush", "ambush", "hide", "seek", "figure", "screech", "eyes", "halt", "dupe",
     "timothy", "jack", "glitch", "void", "dread", "snare", "window", "shadow", "sally",
-    "guiding light", "el goblino", "jeff", "bob", "a-60", "a-90", "a-120",
+    "guiding light", "guidinglight", "el goblino", "jeff", "bob", "a-60", "a-90", "a-120",
     "curious light", "blitz", "lookman", "haste", "giggle", "grumble", "queen grumble",
     "gloombats", "louie", "bramble", "caws", "eyestalk", "grampy", "groundskeeper",
     "mandrake", "monument", "surge", "world lotus", "honcho", "ransom", "evil key",
     "greed", "jeff the killer", "subspace tripmine", "banana peel", "drakobloxxers",
-    "rift", "riftspawn", "starcenter"
+    
+    -- Rift, Center, StarCenter & Internal Components
+    "riftspawn", "rift", "center", "starcenter", "riftprompt", "starriftprompt",
+    "music", "musicclose", "soundmutate", "attachment", "itemholder",
+    "particlesin", "particlesout"
 }
 
 local protectedCache = setmetatable({}, {__mode = "k"})
