@@ -1,6 +1,7 @@
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 
 local entitySounds = {
@@ -14,7 +15,6 @@ local entitySounds = {
 }
 
 local blacklistedKeywords = {
-    -- Entities & Items
     "rush", "ambush", "hide", "seek", "figure", "screech", "eyes", "halt", "dupe",
     "timothy", "jack", "glitch", "void", "dread", "snare", "window", "shadow", "sally",
     "guiding light", "guidinglight", "el goblino", "jeff", "bob", "a-60", "a-90", "a-120",
@@ -22,8 +22,6 @@ local blacklistedKeywords = {
     "gloombats", "louie", "bramble", "caws", "eyestalk", "grampy", "groundskeeper",
     "mandrake", "monument", "surge", "world lotus", "honcho", "ransom", "evil key",
     "greed", "jeff the killer", "subspace tripmine", "banana peel", "drakobloxxers",
-    
-    -- Rift, Center, StarCenter & Internal Components
     "riftspawn", "rift", "center", "starcenter", "riftprompt", "starriftprompt",
     "music", "musicclose", "soundmutate", "attachment", "itemholder",
     "particlesin", "particlesout"
@@ -45,55 +43,63 @@ local function isPlayerCharacter(instance)
     return false
 end
 
-local function matchesBlacklist(name)
-    for _, keyword in ipairs(blacklistedKeywords) do
-        if name:find(keyword) then
-            return true
-        end
-    end
-    return false
-end
-
 local function isProtected(instance)
     if not instance then return false end
     if isPlayerCharacter(instance) then return true end
 
-    -- Robust traversal that handles StreamingEnabled safely
     local curr = instance
-    while curr do
-        if curr == game then break end
-        if isPlayerCharacter(curr) then return true end
-        if matchesBlacklist(curr.Name:lower()) then
-            return true
+    while curr and curr ~= game do
+        local success, name = pcall(function() return curr.Name end)
+        if success and name then
+            local nameLower = name:lower()
+            for _, keyword in ipairs(blacklistedKeywords) do
+                if nameLower:find(keyword, 1, true) then
+                    return true
+                end
+            end
         end
         curr = curr.Parent
     end
 
-    local container = instance:FindFirstAncestorOfClass("Model") or instance:FindFirstAncestorOfClass("Folder") or (instance:IsA("Model") and instance) or (instance:IsA("Folder") and instance)
+    local container = instance:IsA("Model") and instance or instance:IsA("Folder") and instance or instance:FindFirstAncestorOfClass("Model") or instance:FindFirstAncestorOfClass("Folder")
     if not container then return false end
     if isPlayerCharacter(container) then return true end
-    if protectedCache[container] then return true end
-
-    if matchesBlacklist(container.Name:lower()) then
-        protectedCache[container] = true
-        return true
+    if protectedCache[container] ~= nil then
+        return protectedCache[container]
     end
 
-    for _, v in ipairs(container:GetDescendants()) do
-        if isPlayerCharacter(v) then
-            protectedCache[container] = true
-            return true
-        end
-        if v:IsA("Sound") and entitySounds[v.Name] then
-            protectedCache[container] = true
-            return true
-        end
-        if matchesBlacklist(v.Name:lower()) then
-            protectedCache[container] = true
-            return true
+    local success, cName = pcall(function() return container.Name end)
+    if success and cName then
+        local cNameLower = cName:lower()
+        for _, keyword in ipairs(blacklistedKeywords) do
+            if cNameLower:find(keyword, 1, true) then
+                protectedCache[container] = true
+                return true
+            end
         end
     end
 
+    local successDesc, descendants = pcall(function() return container:GetDescendants() end)
+    if successDesc and descendants then
+        for _, v in ipairs(descendants) do
+            if isPlayerCharacter(v) or (v:IsA("Sound") and entitySounds[v.Name]) then
+                protectedCache[container] = true
+                return true
+            end
+            local successV, vName = pcall(function() return v.Name end)
+            if successV and vName then
+                local vNameLower = vName:lower()
+                for _, keyword in ipairs(blacklistedKeywords) do
+                    if vNameLower:find(keyword, 1, true) then
+                        protectedCache[container] = true
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    protectedCache[container] = false
     return false
 end
 
@@ -118,29 +124,40 @@ local function applyOptimization(instance)
     end)
 end
 
-pcall(function()
-    Lighting.GlobalShadows = false
-    Lighting.FogEnd = 9e9
-    Lighting.FogStart = 9e9
-    Lighting.Brightness = 2
-    Lighting.ClockTime = 14
-    Lighting.Ambient = Color3.fromRGB(130, 130, 130)
-    Lighting.OutdoorAmbient = Color3.fromRGB(130, 130, 130)
-    
-    for _, v in ipairs(Lighting:GetDescendants()) do
-        if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
-            v.Enabled = false
+local function enforceLightingAndFog()
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.ShadowSoftness = 0
+        Lighting.Brightness = 3
+        Lighting.ClockTime = 14
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        Lighting.FogEnd = 9e9
+        Lighting.FogStart = 9e9
+        Lighting.FogColor = Color3.fromRGB(255, 255, 255)
+        
+        for _, v in ipairs(Lighting:GetDescendants()) do
+            if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") or v:IsA("Fog") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("BloomEffect") then
+                v:Destroy()
+            end
         end
-    end
-end)
+    end)
 
-pcall(function()
-    if Terrain then
-        Terrain.WaterWaveSize = 0
-        Terrain.WaterWaveSpeed = 0
-        Terrain.WaterReflectance = 0
-        Terrain.WaterTransparency = 1
-        Terrain.Decoration = false
+    pcall(function()
+        if Terrain then
+            Terrain.WaterWaveSize = 0
+            Terrain.WaterWaveSpeed = 0
+            Terrain.WaterReflectance = 0
+            Terrain.WaterTransparency = 1
+            Terrain.Decoration = false
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        enforceLightingAndFog()
+        task.wait(1)
     end
 end)
 
