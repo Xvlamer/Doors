@@ -24,7 +24,6 @@ local function cleanupVClip()
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
-            hum.WalkSpeed = 16
             hum.MaxSlopeAngle = 89
         end
 
@@ -75,7 +74,7 @@ local function setVClip(state)
 
     lastValidY = nil
 
-    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
+    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function(dt)
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
         
@@ -83,22 +82,27 @@ local function setVClip(state)
         local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
         
         if hum and rootPart then
-            hum.WalkSpeed = 1
             hum.MaxSlopeAngle = 0
             
-            local moveDir = hum.MoveDirection
             local currentPos = rootPart.Position
-            
             if lastValidY == nil then
                 lastValidY = currentPos.Y
             end
             
-            local targetX = currentPos.X + (moveDir.X * hum.WalkSpeed * 0.016)
-            local targetZ = currentPos.Z + (moveDir.Z * hum.WalkSpeed * 0.016)
-            local targetY = lastValidY
+            local lookVector = rootPart.CFrame.LookVector
+            local forwardDir = Vector3.new(lookVector.X, 0, lookVector.Z)
+            if forwardDir.Magnitude > 0 then
+                forwardDir = forwardDir.Unit
+            else
+                forwardDir = Vector3.new(0, 0, -1)
+            end
             
+            local targetX = currentPos.X + (forwardDir.X * 1.5 * dt)
+            local targetZ = currentPos.Z + (forwardDir.Z * 1.5 * dt)
+            
+            local targetY = lastValidY
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                targetY = currentPos.Y + 0.5
+                targetY = currentPos.Y + (5 * dt)
                 lastValidY = targetY
             else
                 if currentPos.Y < lastValidY then
@@ -109,7 +113,8 @@ local function setVClip(state)
                 end
             end
             
-            rootPart.CFrame = CFrame.new(targetX, targetY, targetZ) * (rootPart.CFrame - rootPart.Position)
+            local currentRotation = rootPart.CFrame - rootPart.Position
+            rootPart.CFrame = CFrame.new(targetX, targetY, targetZ) * currentRotation
             rootPart.AssemblyLinearVelocity = Vector3.zero
         end
     end)
