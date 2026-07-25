@@ -272,36 +272,8 @@ local Optimizer = {}
 do
     local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 
-    local entitySounds = {
-        ["Footsteps"] = true,
-        ["Kill"] = true,
-        ["Knock"] = true,
-        ["PlaySound"] = true,
-        ["Repent"] = true,
-        ["Scream"] = true,
-        ["Sounds"] = true
-    }
-
-    local protectedCache = setmetatable({}, {__mode = "k"})
-
-    local function isProtected(instance)
-        local container = instance:FindFirstAncestorOfClass("Model")
-        if not container then return false end
-        if protectedCache[container] then return true end
-        
-        for _, v in ipairs(container:GetDescendants()) do
-            if v:IsA("Sound") and entitySounds[v.Name] then
-                protectedCache[container] = true
-                return true
-            end
-        end
-        return false
-    end
-
     local function applyOptimization(instance)
         pcall(function()
-            if isProtected(instance) then return end
-
             if instance:IsA("BasePart") and not instance:IsA("Terrain") then
                 instance.Material = Enum.Material.SmoothPlastic
                 instance.CastShadow = false
@@ -374,7 +346,7 @@ end
 -- ==========================================
 
 -- ==========================================
--- INTEGRATED NOCLIP MODULE
+-- INTEGRATED NOCLIP MODULE (WITH LOBBY BYPASS)
 -- ==========================================
 local NoclipModule = {}
 do
@@ -436,7 +408,17 @@ do
                 if getgenv().Xvlamer_SavedSlope == nil or getgenv().Xvlamer_SavedSlope == 0 then
                     getgenv().Xvlamer_SavedSlope = hum.MaxSlopeAngle
                 end
-                
+            end
+
+            -- Completely bypass speed reduction and velocity restriction in the lobby
+            if isInLobby() then
+                if hum and hum.WalkSpeed ~= getgenv().Xvlamer_SavedSpeed then
+                    hum.WalkSpeed = getgenv().Xvlamer_SavedSpeed
+                end
+                return
+            end
+
+            if hum then
                 if hum.WalkSpeed ~= 1.5 then
                     hum.WalkSpeed = 1.5
                 end
@@ -457,6 +439,16 @@ do
         getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
             local currentCharacter = P.Character
             if not currentCharacter then return end
+
+            -- If in the lobby, restore collidability and don't apply noclip
+            if isInLobby() then
+                for _, v in ipairs(currentCharacter:GetDescendants()) do
+                    if v:IsA("BasePart") and not v.CanCollide then
+                        v.CanCollide = true
+                    end
+                end
+                return
+            end
 
             for _, v in ipairs(currentCharacter:GetDescendants()) do
                 if v:IsA("BasePart") and v.CanCollide then
