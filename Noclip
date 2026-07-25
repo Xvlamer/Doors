@@ -25,7 +25,6 @@ local function setVClip(state)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
 
     if not getgenv().Xvlamer_VClipActive then
-        -- Turning OFF: Cleanly disconnect loop and restore original speed without data loss
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
             getgenv().Xvlamer_VClipConn = nil
@@ -44,7 +43,6 @@ local function setVClip(state)
         return
     end
 
-    -- Turning ON: Save walkspeed strictly once and apply noclip speed
     if humanoid then
         if getgenv().Xvlamer_SavedSpeed == nil then
             getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
@@ -57,7 +55,6 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipConn = nil
     end
 
-    -- Strong frame-by-frame collision enforcement loop
     getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -70,10 +67,8 @@ local function setVClip(state)
     end)
 end
 
--- Expose global functions for hub and loadstring integration
 getgenv().Xvlamer_SetVClip = setVClip
 
--- Keybind setup (Press V to toggle, with textbox typing protection)
 if getgenv().Xvlamer_KeyConn then
     getgenv().Xvlamer_KeyConn:Disconnect()
     getgenv().Xvlamer_KeyConn = nil
@@ -88,5 +83,4 @@ getgenv().Xvlamer_KeyConn = UserInputService.InputBegan:Connect(function(input, 
     end
 end)
 
--- Return the function so loadstring callers can execute it directly
 return setVClip
