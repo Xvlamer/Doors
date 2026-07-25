@@ -1,1 +1,132 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
+if getgenv().Xvlamer_VClipActive == nil then
+    getgenv().Xvlamer_VClipActive = false
+end
+
+local function cleanupVClip()
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
+    end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
+    
+    local char = LocalPlayer.Character
+    if char then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = true
+            end
+        end
+    end
+end
+
+local function setVClip(state)
+    if state == nil then
+        getgenv().Xvlamer_VClipActive = not getgenv().Xvlamer_VClipActive
+    else
+        getgenv().Xvlamer_VClipActive = state and true or false
+    end
+
+    if getgenv().XvlamerHub_SavedState then
+        getgenv().XvlamerHub_SavedState.Noclip = getgenv().Xvlamer_VClipActive
+        pcall(function()
+            local writefile = writefile or function() end
+            local Http = game:GetService("HttpService")
+            writefile("XvlamersSaveState.json", Http:JSONEncode(getgenv().XvlamerHub_SavedState))
+        end)
+    end
+
+    if getgenv().Xvlamer_UpdateToggleState then
+        pcall(function()
+            getgenv().Xvlamer_UpdateToggleState("Noclip", getgenv().Xvlamer_VClipActive)
+        end)
+    end
+
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
+    end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
+
+    if not getgenv().Xvlamer_VClipActive then
+        cleanupVClip()
+        return
+    end
+
+    -- Velocity lock to completely prevent sliding down slopes while noclipping
+    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
+        
+        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+        
+        if hum and rootPart then
+            local moveDir = hum.MoveDirection
+            local currentVel = rootPart.AssemblyLinearVelocity
+            
+            -- This forces your horizontal velocity to strictly match your walking input.
+            -- If you stand still, X/Z velocity becomes 0 so you don't slide. 
+            -- The Y velocity is left alone so jumping/falling still works perfectly.
+            rootPart.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * hum.WalkSpeed,
+                currentVel.Y,
+                moveDir.Z * hum.WalkSpeed
+            )
+        end
+    end)
+
+    getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
+
+        for _, v in ipairs(currentCharacter:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then
+                v.CanCollide = false
+            end
+        end
+    end)
+end
+
+getgenv().Xvlamer_SetVClip = setVClip
+
+if getgenv().Xvlamer_RespawnConn then
+    getgenv().Xvlamer_RespawnConn:Disconnect()
+    getgenv().Xvlamer_RespawnConn = nil
+end
+
+getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
+    if getgenv().Xvlamer_VClipActive then
+        task.wait(0.3)
+    else
+        cleanupVClip()
+    end
+end)
+
+if getgenv().Xvlamer_KeyConn then
+    getgenv().Xvlamer_KeyConn:Disconnect()
+    getgenv().Xvlamer_KeyConn = nil
+end
+
+getgenv().Xvlamer_KeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.V then
+        if not (UserInputService:GetFocusedTextBox()) then
+            setVClip(not getgenv().Xvlamer_VClipActive)
+        end
+    end
+end)
+
+setVClip(true)
+
+return setVClip
