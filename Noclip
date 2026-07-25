@@ -12,10 +12,6 @@ local function cleanupVClip()
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
-    if getgenv().Xvlamer_SpeedConn then
-        getgenv().Xvlamer_SpeedConn:Disconnect()
-        getgenv().Xvlamer_SpeedConn = nil
-    end
     
     local char = LocalPlayer.Character
     if char then
@@ -24,12 +20,7 @@ local function cleanupVClip()
                 v.CanCollide = true
             end
         end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
-        end
     end
-    getgenv().Xvlamer_SavedSpeed = nil
 end
 
 local function setVClip(state)
@@ -58,39 +49,11 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
-    if getgenv().Xvlamer_SpeedConn then
-        getgenv().Xvlamer_SpeedConn:Disconnect()
-        getgenv().Xvlamer_SpeedConn = nil
-    end
 
     if not getgenv().Xvlamer_VClipActive then
         cleanupVClip()
         return
     end
-
-    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
-        local currentCharacter = LocalPlayer.Character
-        if not currentCharacter then return end
-        
-        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
-        if hum then
-            if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1 then
-                getgenv().Xvlamer_SavedSpeed = 16
-            end
-            
-            if hum.WalkSpeed ~= 1 then
-                hum.WalkSpeed = 1
-            end
-        end
-
-        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            local vel = rootPart.AssemblyLinearVelocity
-            if vel.Y > 0 then
-                rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
-            end
-        end
-    end)
 
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
