@@ -410,16 +410,7 @@ do
 
     function NoclipModule.Toggle(stateVal)
         getgenv().Xvlamer_VClipActive = stateVal and true or false
-
-        if stateVal then
-            if getgenv().Xvlamer_SpamActive then
-                getgenv().Xvlamer_SpamActive = false
-                local spamToggle = toggleHandlers["Noclip SPAM"]
-                if spamToggle and type(spamToggle.setOff) == "function" then
-                    spamToggle.setOff(false)
-                end
-            end
-        end
+        getgenv().Xvlamer_SpamActive = false
 
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
@@ -494,16 +485,7 @@ do
 
     function NoclipModule.ToggleSpam(stateVal)
         getgenv().Xvlamer_SpamActive = stateVal and true or false
-
-        if stateVal then
-            if getgenv().Xvlamer_VClipActive then
-                getgenv().Xvlamer_VClipActive = false
-                local noclipToggle = toggleHandlers["Noclip"]
-                if noclipToggle and type(noclipToggle.setOff) == "function" then
-                    noclipToggle.setOff(false)
-                end
-            end
-        end
+        getgenv().Xvlamer_VClipActive = false
 
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
@@ -1319,7 +1301,7 @@ local function initializeMainHub()
                     if on then
                         local spamToggle = toggleHandlers["Noclip SPAM"]
                         if spamToggle and spamToggle.get() then
-                            spamToggle.setOff(false)
+                            spamToggle.update(false)
                         end
                         NoclipModule.Toggle(true)
                     else
@@ -1329,7 +1311,7 @@ local function initializeMainHub()
                     if on then
                         local noclipToggle = toggleHandlers["Noclip"]
                         if noclipToggle and noclipToggle.get() then
-                            noclipToggle.setOff(false)
+                            noclipToggle.update(false)
                         end
                         NoclipModule.ToggleSpam(true)
                     else
