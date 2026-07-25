@@ -7,6 +7,8 @@ if getgenv().Xvlamer_VClipActive == nil then
     getgenv().Xvlamer_VClipActive = false
 end
 
+local lastValidY = nil
+
 local function cleanupVClip()
     if getgenv().Xvlamer_VClipConn then
         getgenv().Xvlamer_VClipConn:Disconnect()
@@ -17,13 +19,13 @@ local function cleanupVClip()
         getgenv().Xvlamer_SpeedConn = nil
     end
     
+    lastValidY = nil
     local char = LocalPlayer.Character
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
+            hum.WalkSpeed = 16
             hum.MaxSlopeAngle = 89
-            hum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
         end
 
         for _, v in ipairs(char:GetDescendants()) do
@@ -71,6 +73,8 @@ local function setVClip(state)
         return
     end
 
+    lastValidY = nil
+
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -79,25 +83,34 @@ local function setVClip(state)
         local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
         
         if hum and rootPart then
-            pcall(function()
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            end)
+            hum.WalkSpeed = 1
+            hum.MaxSlopeAngle = 0
             
             local moveDir = hum.MoveDirection
-            local targetVelX = moveDir.X * hum.WalkSpeed
-            local targetVelZ = moveDir.Z * hum.WalkSpeed
-            local currentVel = rootPart.AssemblyLinearVelocity
-            local finalYVel = currentVel.Y
-
-            if not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                if finalYVel > 0 then
-                    finalYVel = 0
-                end
-            else
-                finalYVel = 16
+            local currentPos = rootPart.Position
+            
+            if lastValidY == nil then
+                lastValidY = currentPos.Y
             end
-
-            rootPart.AssemblyLinearVelocity = Vector3.new(targetVelX, finalYVel, targetVelZ)
+            
+            local targetX = currentPos.X + (moveDir.X * hum.WalkSpeed * 0.016)
+            local targetZ = currentPos.Z + (moveDir.Z * hum.WalkSpeed * 0.016)
+            local targetY = lastValidY
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                targetY = currentPos.Y + 0.5
+                lastValidY = targetY
+            else
+                if currentPos.Y < lastValidY then
+                    targetY = currentPos.Y
+                    lastValidY = currentPos.Y
+                else
+                    targetY = lastValidY
+                end
+            end
+            
+            rootPart.CFrame = CFrame.new(targetX, targetY, targetZ) * (rootPart.CFrame - rootPart.Position)
+            rootPart.AssemblyLinearVelocity = Vector3.zero
         end
     end)
 
