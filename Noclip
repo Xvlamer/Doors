@@ -7,6 +7,25 @@ if getgenv().Xvlamer_VClipActive == nil then
     getgenv().Xvlamer_VClipActive = false
 end
 
+local function cleanupConnections()
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
+    end
+    if getgenv().Xvlamer_HeartbeatConn then
+        getgenv().Xvlamer_HeartbeatConn:Disconnect()
+        getgenv().Xvlamer_HeartbeatConn = nil
+    end
+    if getgenv().Xvlamer_SteppedConn then
+        getgenv().Xvlamer_SteppedConn:Disconnect()
+        getgenv().Xvlamer_SteppedConn = nil
+    end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
+end
+
 local function setVClip(state)
     if state == nil then
         getgenv().Xvlamer_VClipActive = not getgenv().Xvlamer_VClipActive
@@ -25,14 +44,7 @@ local function setVClip(state)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
 
     if not getgenv().Xvlamer_VClipActive then
-        if getgenv().Xvlamer_VClipConn then
-            getgenv().Xvlamer_VClipConn:Disconnect()
-            getgenv().Xvlamer_VClipConn = nil
-        end
-        if getgenv().Xvlamer_SpeedConn then
-            getgenv().Xvlamer_SpeedConn:Disconnect()
-            getgenv().Xvlamer_SpeedConn = nil
-        end
+        cleanupConnections()
 
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
@@ -51,14 +63,7 @@ local function setVClip(state)
         getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
     end
 
-    if getgenv().Xvlamer_VClipConn then
-        getgenv().Xvlamer_VClipConn:Disconnect()
-        getgenv().Xvlamer_VClipConn = nil
-    end
-    if getgenv().Xvlamer_SpeedConn then
-        getgenv().Xvlamer_SpeedConn:Disconnect()
-        getgenv().Xvlamer_SpeedConn = nil
-    end
+    cleanupConnections()
 
     if humanoid then
         humanoid.WalkSpeed = 1.5
@@ -69,7 +74,7 @@ local function setVClip(state)
         end)
     end
 
-    getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
+    local function lockDown()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
 
@@ -80,25 +85,27 @@ local function setVClip(state)
             if currentHumanoid.WalkSpeed ~= 1.5 then
                 currentHumanoid.WalkSpeed = 1.5
             end
-            -- Force the state to Running so the anticheat believes you are solidly on the ground
             pcall(function()
                 currentHumanoid:ChangeState(Enum.HumanoidStateType.Running)
             end)
         end
 
         if rootPart then
-            -- Stabilize vertical velocity to prevent fall-distance/airtime flags and rubberbanding
             local vel = rootPart.AssemblyLinearVelocity
             rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -15, 5), vel.Z)
         end
 
-        -- Completely disable collision on everything so multi-part walls never trigger physics step-up pushes
         for _, v in ipairs(currentCharacter:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = false
             end
         end
-    end)
+    end
+
+    -- Hook multiple frame events to completely overpower any server/game script overrides
+    getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(lockDown)
+    getgenv().Xvlamer_SteppedConn = RunService.Stepped:Connect(lockDown)
+    getgenv().Xvlamer_HeartbeatConn = RunService.Heartbeat:Connect(lockDown)
 end
 
 getgenv().Xvlamer_SetVClip = setVClip
