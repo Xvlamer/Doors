@@ -3,10 +3,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
+-- Stop any previously running background loops to prevent memory leaks and stacking
+getgenv().XvlamerStop_KnobFarm = true
+task.wait(0.3)
 getgenv().XvlamerStop_KnobFarm = false
 
-local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 9e9)
-local statisticsRemote = remotesFolder:WaitForChild("Statistics", 9e9)
+local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
+local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 10)
+
+if not statisticsRemote then
+    warn("Statistics remote not found!")
+    return
+end
 
 local function executeKill()
     if typeof(replicatesignal) == "function" then
@@ -28,6 +36,7 @@ task.spawn(function()
             executeKill()
             statisticsRemote:FireServer()
         end)
-        task.wait(0.25 + math.random(0.01, 0.05))
+        -- Fixed math.random to use integers and scale down to decimal seconds
+        task.wait(0.25 + (math.random(1, 5) / 100))
     end
 end)
