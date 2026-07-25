@@ -12,7 +12,12 @@ pcall(function()
         getgenv().Xvlamer_FloatConn:Disconnect()
         getgenv().Xvlamer_FloatConn = nil
     end
+    if getgenv().Xvlamer_SpamConn then
+        pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
+        getgenv().Xvlamer_SpamConn = nil
+    end
     getgenv().Xvlamer_VClipActive = false
+    getgenv().Xvlamer_SpamActive = false
 end)
 
 local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
@@ -355,13 +360,33 @@ end
 -- ==========================================
 
 -- ==========================================
--- INTEGRATED NOCLIP & NOCLIP SPAM MODULE (ENHANCED)
+-- INTEGRATED NOCLIP & FLOAT MODULE (CLEAN)
 -- ==========================================
 local NoclipModule = {}
 do
     local floatY = nil
-    local spamActive = false
-    local spamThread = nil
+    local originalWalkSpeed = 16
+    local originalJumpPower = 50
+    local originalJumpHeight = 7.2
+
+    local function setWalkingDisabled(disabled)
+        local char = P.Character
+        if not char then return end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        if disabled then
+            originalWalkSpeed = humanoid.WalkSpeed
+            originalJumpPower = humanoid.JumpPower
+            originalJumpHeight = humanoid.JumpHeight
+            humanoid.WalkSpeed = 0
+            humanoid.JumpPower = 0
+            humanoid.JumpHeight = 0
+        else
+            humanoid.WalkSpeed = originalWalkSpeed > 0 and originalWalkSpeed or 16
+            humanoid.JumpPower = originalJumpPower
+            humanoid.JumpHeight = originalJumpHeight
+        end
+    end
 
     local function cleanupVClip()
         if getgenv().Xvlamer_VClipConn then
@@ -372,12 +397,15 @@ do
             getgenv().Xvlamer_FloatConn:Disconnect()
             getgenv().Xvlamer_FloatConn = nil
         end
+        if getgenv().Xvlamer_SpamConn then
+            pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
+            getgenv().Xvlamer_SpamConn = nil
+        end
         
         floatY = nil
+        setWalkingDisabled(false)
         local char = P.Character
         if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.WalkSpeed = 16 end
             for _, v in ipairs(char:GetDescendants()) do
                 if v:IsA("BasePart") then
                     v.CanCollide = true
@@ -386,7 +414,7 @@ do
         end
     end
 
-    function NoclipModule.SetNoclip(stateVal)
+    function NoclipModule.Toggle(stateVal)
         getgenv().Xvlamer_VClipActive = stateVal and true or false
 
         if getgenv().Xvlamer_VClipConn then
@@ -397,21 +425,30 @@ do
             getgenv().Xvlamer_FloatConn:Disconnect()
             getgenv().Xvlamer_FloatConn = nil
         end
+        if getgenv().Xvlamer_SpamConn then
+            pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
+            getgenv().Xvlamer_SpamConn = nil
+        end
 
-        if not getgenv().Xvlamer_VClipActive or isInLobby() then
+        if not getgenv().Xvlamer_VClipActive then
             cleanupVClip()
             return
         end
 
         floatY = nil
+        setWalkingDisabled(true)
 
         getgenv().Xvlamer_FloatConn = RS.Heartbeat:Connect(function(dt)
             local char = P.Character
-            if not char or isInLobby() then return end
+            if not char then return end
 
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = 0
+            if isInLobby() then
+                for _, v in ipairs(char:GetDescendants()) do
+                    if v:IsA("BasePart") and not v.CanCollide then
+                        v.CanCollide = true
+                    end
+                end
+                return
             end
 
             local rootPart = char:FindFirstChild("HumanoidRootPart")
@@ -440,7 +477,8 @@ do
 
         getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
             local char = P.Character
-            if not char or isInLobby() then return end
+            if not char then return end
+            if isInLobby() then return end
 
             for _, v in ipairs(char:GetDescendants()) do
                 if v:IsA("BasePart") and v.CanCollide then
@@ -450,38 +488,87 @@ do
         end)
     end
 
-    function NoclipModule.SetSpam(stateVal)
-        spamActive = stateVal and true or false
-        if spamThread then
-            pcall(function() task.cancel(spamThread) end)
-            spamThread = nil
+    function NoclipModule.ToggleSpam(stateVal)
+        getgenv().Xvlamer_SpamActive = stateVal and true or false
+
+        if getgenv().Xvlamer_VClipConn then
+            getgenv().Xvlamer_VClipConn:Disconnect()
+            getgenv().Xvlamer_VClipConn = nil
+        end
+        if getgenv().Xvlamer_FloatConn then
+            getgenv().Xvlamer_FloatConn:Disconnect()
+            getgenv().Xvlamer_FloatConn = nil
+        end
+        if getgenv().Xvlamer_SpamConn then
+            pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
+            getgenv().Xvlamer_SpamConn = nil
         end
 
-        if not spamActive or isInLobby() then
-            NoclipModule.SetNoclip(false)
+        if not getgenv().Xvlamer_SpamActive then
+            cleanupVClip()
             return
         end
 
-        spamThread = task.spawn(function()
-            while spamActive and not getgenv().XvlamerStop_NoclipSpam do
-                if isInLobby() then break end
-                NoclipModule.SetNoclip(true)
-                task.wait(0.25)
-                if isInLobby() then break end
-                NoclipModule.SetNoclip(false)
-                task.wait(0.05)
+        floatY = nil
+        setWalkingDisabled(true)
+
+        getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
+            local char = P.Character
+            if not char then return end
+            if isInLobby() then return end
+
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") and v.CanCollide then
+                    v.CanCollide = false
+                end
             end
-            NoclipModule.SetNoclip(false)
+        end)
+
+        getgenv().Xvlamer_SpamConn = task.spawn(function()
+            while getgenv().Xvlamer_SpamActive do
+                local activeTimer = 0
+                local floatConn
+                floatConn = RS.Heartbeat:Connect(function(dt)
+                    activeTimer = activeTimer + dt
+                    local char = P.Character
+                    if not char then return end
+                    if isInLobby() then return end
+
+                    local rootPart = char:FindFirstChild("HumanoidRootPart")
+                    if not rootPart then return end
+                    
+                    local pos = rootPart.Position
+                    if floatY == nil then
+                        floatY = pos.Y
+                    end
+                    
+                    local look = rootPart.CFrame.LookVector
+                    local dir = Vector3.new(look.X, 0, look.Z)
+                    if dir.Magnitude > 0 then
+                        dir = dir.Unit
+                    else
+                        dir = Vector3.new(0, 0, -1)
+                    end
+                    
+                    local newX = pos.X + (dir.X * 1.5 * dt)
+                    local newZ = pos.Z + (dir.Z * 1.5 * dt)
+                    
+                    rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
+                    rootPart.AssemblyLinearVelocity = Vector3.zero
+                    rootPart.AssemblyAngularVelocity = Vector3.zero
+                end)
+
+                task.wait(0.25)
+                if floatConn then floatConn:Disconnect() end
+
+                task.wait(0.25)
+            end
         end)
     end
 
     function NoclipModule.Disable()
-        spamActive = false
-        if spamThread then
-            pcall(function() task.cancel(spamThread) end)
-            spamThread = nil
-        end
-        NoclipModule.SetNoclip(false)
+        NoclipModule.Toggle(false)
+        NoclipModule.ToggleSpam(false)
     end
 end
 
@@ -493,7 +580,10 @@ end
 getgenv().Xvlamer_RespawnConn = P.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
         task.wait(0.3)
-        NoclipModule.SetNoclip(true)
+        NoclipModule.Toggle(true)
+    elseif getgenv().Xvlamer_SpamActive then
+        task.wait(0.3)
+        NoclipModule.ToggleSpam(true)
     else
         NoclipModule.Disable()
     end
@@ -728,8 +818,8 @@ local function initializeMainHub()
     local sg = create("ScreenGui", {Name=guiName, ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=99999, IgnoreGuiInset=true, Parent=safeUI})
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(sg) end end)
 
-    local targetWidth = 320
-    local targetHeight = 250
+    local targetWidth = isMobile and 260 or 320
+    local targetHeight = isMobile and 205 or 210
 
     local main = create("Frame", {
         Size=UDim2.new(0, targetWidth, 0, targetHeight), 
@@ -855,10 +945,10 @@ local function initializeMainHub()
             elseif key == "Stardust Farm" then getgenv().XvlamerStop_StardustFarm = true
             elseif key == "Noclip" then 
                 getgenv().XvlamerStop_Noclip = true
-                NoclipModule.Disable()
+                NoclipModule.Toggle(false)
             elseif key == "Noclip SPAM" then
                 getgenv().XvlamerStop_NoclipSpam = true
-                NoclipModule.Disable()
+                NoclipModule.ToggleSpam(false)
             end
             
             if activeThreads[key] then
@@ -988,12 +1078,12 @@ local function initializeMainHub()
         elseif key == "Noclip" then
             getgenv().XvlamerStop_Noclip = false
             activeThreads[key] = task.spawn(function()
-                NoclipModule.SetNoclip(true)
+                NoclipModule.Toggle(true)
             end)
         elseif key == "Noclip SPAM" then
             getgenv().XvlamerStop_NoclipSpam = false
             activeThreads[key] = task.spawn(function()
-                NoclipModule.SetSpam(true)
+                NoclipModule.ToggleSpam(true)
             end)
         end
     end
@@ -1230,7 +1320,8 @@ local function initializeMainHub()
             if stateKey == "Optimizations" then Optimizer.Toggle(true)
             elseif stateKey == "AntiAFK" then setAntiAFK(true, true)
             elseif stateKey == "UnlockFps" then setUnlockFPS(true, true)
-            elseif stateKey == "Noclip" or stateKey == "NoclipSpam" then runThread(name) end
+            elseif stateKey == "Noclip" then runThread(name)
+            elseif stateKey == "NoclipSpam" then runThread(name) end
         end
     end
 
@@ -1245,13 +1336,15 @@ local function initializeMainHub()
     createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5, 36)
 
     trackConnection(UIS.InputBegan:Connect(function(input, gpe)
-        if not gpe and not UIS:GetFocusedTextBox() then
-            if input.KeyCode == Enum.KeyCode.V then
+        if not gpe and input.KeyCode == Enum.KeyCode.V then
+            if not UIS:GetFocusedTextBox() then
                 local noclipToggle = toggleHandlers["Noclip"]
                 if noclipToggle and type(noclipToggle.update) == "function" and type(noclipToggle.get) == "function" then
                     noclipToggle.update(not noclipToggle.get())
                 end
-            elseif input.KeyCode == Enum.KeyCode.B then
+            end
+        elseif not gpe and input.KeyCode == Enum.KeyCode.B then
+            if not UIS:GetFocusedTextBox() then
                 local spamToggle = toggleHandlers["NoclipSpam"]
                 if spamToggle and type(spamToggle.update) == "function" and type(spamToggle.get) == "function" then
                     spamToggle.update(not spamToggle.get())
