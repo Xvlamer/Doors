@@ -21,13 +21,14 @@ local function cleanupVClip()
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
-            -- Restore default slope behavior when disabling noclip
-            hum.MaxSlopeAngle = 89 
+            hum.MaxSlopeAngle = 89
+            hum.PlatformStand = false
         end
 
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = true
+                v.CustomPhysicalProperties = nil
             end
         end
     end
@@ -69,16 +70,6 @@ local function setVClip(state)
         return
     end
 
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            -- Force the engine to stop treating objects as traversable terrain
-            hum.MaxSlopeAngle = 0 
-        end
-    end
-
-    -- Velocity lock to completely prevent sliding down slopes and auto-stepping
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -87,25 +78,22 @@ local function setVClip(state)
         local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
         
         if hum and rootPart then
-            local moveDir = hum.MoveDirection
-            local currentVel = rootPart.AssemblyLinearVelocity
-            local yVel = currentVel.Y
+            hum.MaxSlopeAngle = 0
+            hum.PlatformStand = false
             
-            -- EXTREME ANTI-STEP LOGIC:
-            -- If you are not actively pressing the jump key, this completely nullifies 
-            -- any upward momentum the Humanoid tries to apply to step onto an object. 
-            -- Since CanCollide is false, you will cleanly phase right through it instead.
+            local moveDir = hum.MoveDirection
+            local targetVelX = moveDir.X * hum.WalkSpeed
+            local targetVelZ = moveDir.Z * hum.WalkSpeed
+            local currentVel = rootPart.AssemblyLinearVelocity
+            local finalYVel = currentVel.Y
+
             if not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                if yVel > 0 then
-                    yVel = 0
+                if finalYVel > 0 then
+                    finalYVel = 0
                 end
             end
-            
-            rootPart.AssemblyLinearVelocity = Vector3.new(
-                moveDir.X * hum.WalkSpeed,
-                yVel,
-                moveDir.Z * hum.WalkSpeed
-            )
+
+            rootPart.AssemblyLinearVelocity = Vector3.new(targetVelX, finalYVel, targetVelZ)
         end
     end)
 
@@ -114,8 +102,11 @@ local function setVClip(state)
         if not currentCharacter then return end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
-            if v:IsA("BasePart") and v.CanCollide then
-                v.CanCollide = false
+            if v:IsA("BasePart") then
+                if v.CanCollide then
+                    v.CanCollide = false
+                end
+                v.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
             end
         end
     end)
