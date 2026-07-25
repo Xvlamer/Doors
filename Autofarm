@@ -1,3 +1,4 @@
+--[cite: 6]
 local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
 local readfile = readfile or function() return "" end
 local writefile = writefile or function() end
@@ -38,6 +39,9 @@ local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local CORRECT_KEY = "x7K9mP2vL4qW8zR1tY3b"
 local THEME_PURPLE = Color3.fromRGB(108, 92, 231)
 
+local cachedLobbyStatus = nil
+local cachedFloor = nil
+
 local function isInGame()
     local success, result = pcall(function()
         return game:IsLoaded() and P
@@ -46,10 +50,29 @@ local function isInGame()
 end
 
 local function isInLobby()
+    if cachedLobbyStatus ~= nil then return cachedLobbyStatus end
     local success, result = pcall(function()
         return game.PlaceId == 6516141723 or (Workspace:FindFirstChild("Lobby") ~= nil)
     end)
-    return success and result
+    if success then
+        cachedLobbyStatus = result
+    end
+    return cachedLobbyStatus or false
+end
+
+local function getFloor()
+    if cachedFloor ~= nil and cachedFloor ~= "" then return cachedFloor end
+    local floorVal = ""
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        if rs and rs:FindFirstChild("GameData") and rs.GameData:FindFirstChild("Floor") then
+            floorVal = rs.GameData.Floor.Value
+        end
+    end)
+    if floorVal ~= "" then
+        cachedFloor = floorVal
+    end
+    return floorVal
 end
 
 local function getGoldValue()
@@ -93,7 +116,7 @@ end
 
 local function isModalOpen()
     for _, v in pairs(safeUI:GetChildren()) do
-        if v:IsA("ScreenGui") and (v.Name == "XvlamersExitWarning" or v.Name == "XvlamersStartupAutofarmPrompt" or v.Name == "XvlamersDeathFarmWarning" or v.Name == "XvlamersModifiersPrompt" or v.Name == "XvlamersZeroGoldWarning" or v.Name == "XvlamersStardustFarmWarning") then
+        if v:IsA("ScreenGui") and (v.Name == "XvlamersExitWarning" or v.Name == "XvlamersStartupAutofarmPrompt" or v.Name == "XvlamersDeathFarmWarning" or v.Name == "XvlamersModifiersPrompt" or v.Name == "XvlamersZeroGoldWarning" or v.Name == "XvlamersStardustFarmWarning" or v.Name == "XvlamersKnobFloorWarning" or v.Name == "XvlamersStardustFloorWarning" or v.Name == "XvlamersNoclipLobbyWarning") then
             return true
         end
     end
@@ -384,51 +407,24 @@ local function setUnlockFPS(enabled, dontSave)
     end
 end
 
+-- NOCLIP LOADSTRING (If empty or blank, the script performs zero modifications)
+local noclipLoadstring = ""
+
 local function setNoclip(enabled)
     if not enabled then
-        if getgenv().Xvlamer_NoclipConn then
-            getgenv().Xvlamer_NoclipConn:Disconnect()
-            getgenv().Xvlamer_NoclipConn = nil
-        end
         pcall(function()
-            local char = P.Character
-            if char then
-                for _, v in ipairs(char:GetDescendants()) do
-                    if v:IsA("BasePart") then
-                        v.CanCollide = true
-                    end
-                end
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    humanoid.WalkSpeed = getgenv().Xvlamer_SavedWalkSpeed or 16
-                end
-            end
+            -- Zero modifications performed when disabled or if loadstring is empty
         end)
     else
         pcall(function()
-            local char = P.Character
-            if char then
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    getgenv().Xvlamer_SavedWalkSpeed = humanoid.WalkSpeed ~= 5 and humanoid.WalkSpeed or 16
+            if noclipLoadstring and noclipLoadstring ~= "" then
+                local success, err = pcall(function()
+                    loadstring(noclipLoadstring)()
+                end)
+                if not success then
+                    warn("Failed to execute noclip loadstring:", err)
                 end
             end
-        end)
-        if getgenv().Xvlamer_NoclipConn then
-            getgenv().Xvlamer_NoclipConn:Disconnect()
-            getgenv().Xvlamer_NoclipConn = nil
-        end
-        getgenv().Xvlamer_NoclipConn = RS.RenderStepped:Connect(function()
-            local char = P.Character
-            if not char then return end
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if not humanoid then return end
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = false
-                end
-            end
-            humanoid.WalkSpeed = 5
         end)
     end
 end
@@ -562,10 +558,19 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
         end
 
         local activeCountdown = true
+        local popupConns = {}
+        local function trackPopupConn(conn)
+            if conn then table.insert(popupConns, conn) end
+            return conn
+        end
 
         local function closeModalAndRun(callback)
             activeCountdown = false
             pcall(function()
+                for _, conn in ipairs(popupConns) do
+                    if conn then pcall(function() conn:Disconnect() end) end
+                end
+                table.clear(popupConns)
                 warnGui:Destroy()
                 if mainRef then mainRef.Visible = wasMainVisible end
                 local mGuiCheck = safeUI:FindFirstChild("XvlamersMobileToggle")
@@ -579,8 +584,8 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
             end)
         end
 
-        if cBtn then trackConnection(cBtn.MouseButton1Click:Connect(function() closeModalAndRun(onCancel) end)) end
-        trackConnection(cfBtn.MouseButton1Click:Connect(function() closeModalAndRun(onConfirm) end))
+        if cBtn then trackPopupConn(cBtn.MouseButton1Click:Connect(function() closeModalAndRun(onCancel) end)) end
+        trackPopupConn(cfBtn.MouseButton1Click:Connect(function() closeModalAndRun(onConfirm) end))
 
         if countdownSeconds and countdownSeconds > 0 then
             task.spawn(function()
@@ -969,35 +974,55 @@ local function initializeMainHub()
                                 end
                             )
                             return
-                        elseif getGoldValue() <= 0 then
-                            setVisual(false)
-                            on = false
-                            if state.ActiveFarm == name then
-                                state.ActiveFarm = nil
-                                pcall(saveState)
-                            end
-                            showPopupModal(
-                                "XvlamersZeroGoldWarning",
-                                "⚠️ 0 GOLD",
-                                "You have 0 gold collect more to start.",
-                                "",
-                                "Proceed",
-                                function() end,
-                                function()
-                                    setVisual(false)
-                                    on = false
-                                    if state.ActiveFarm == name then
-                                        state.ActiveFarm = nil
-                                        pcall(saveState)
-                                    end
-                                end
-                            )
-                            return
                         else
-                            for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                            state.ActiveFarm = name
-                            pcall(saveState)
-                            runThread(name)
+                            local currentFloor = getFloor()
+                            if currentFloor ~= "Hotel" and currentFloor ~= "Mines" then
+                                setVisual(false)
+                                on = false
+                                if state.ActiveFarm == name then
+                                    state.ActiveFarm = nil
+                                    pcall(saveState)
+                                end
+                                showPopupModal(
+                                    "XvlamersKnobFloorWarning",
+                                    "⚠️ WRONG LOCATION",
+                                    "Knob Farm must be run in either the Mines or Hotel. We recommend 150% modifiers in the Mines.",
+                                    "",
+                                    "Proceed",
+                                    function() end,
+                                    function() end
+                                )
+                                return
+                            elseif getGoldValue() <= 0 then
+                                setVisual(false)
+                                on = false
+                                if state.ActiveFarm == name then
+                                    state.ActiveFarm = nil
+                                    pcall(saveState)
+                                end
+                                showPopupModal(
+                                    "XvlamersZeroGoldWarning",
+                                    "⚠️ 0 GOLD",
+                                    "You have 0 gold collect more to start.",
+                                    "",
+                                    "Proceed",
+                                    function() end,
+                                    function()
+                                        setVisual(false)
+                                        on = false
+                                        if state.ActiveFarm == name then
+                                            state.ActiveFarm = nil
+                                            pcall(saveState)
+                                        end
+                                    end
+                                )
+                                return
+                            else
+                                for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
+                                state.ActiveFarm = name
+                                pcall(saveState)
+                                runThread(name)
+                            end
                         end
                     elseif name == "Death Farm" and not skipWarning then
                         setVisual(false)
@@ -1028,6 +1053,27 @@ local function initializeMainHub()
                     elseif name == "Stardust Farm" and not skipWarning then
                         setVisual(false)
                         on = false
+                        
+                        if not isInLobby() then
+                            local currentFloor = getFloor()
+                            if currentFloor ~= "Rooms" then
+                                if state.ActiveFarm == name then
+                                    state.ActiveFarm = nil
+                                    pcall(saveState)
+                                end
+                                showPopupModal(
+                                    "XvlamersStardustFloorWarning",
+                                    "⚠️ WRONG LOCATION",
+                                    "You must run Stardust Farm inside of the Rooms.",
+                                    "",
+                                    "Proceed",
+                                    function() end,
+                                    function() end
+                                )
+                                return
+                            end
+                        end
+
                         showPopupModal(
                             "XvlamersStardustFarmWarning",
                             "⚠️ STARDUST FARM",
@@ -1065,6 +1111,20 @@ local function initializeMainHub()
                 end
             elseif isNoclipRadio then
                 if on then
+                    if isInLobby() then
+                        setVisual(false)
+                        on = false
+                        showPopupModal(
+                            "XvlamersNoclipLobbyWarning",
+                            "⚠️ LOBBY RESTRICTION",
+                            "You cannot turn this on in the lobby.",
+                            "",
+                            "Proceed",
+                            function() end,
+                            function() end
+                        )
+                        return
+                    end
                     for _, r in ipairs(noclipRadioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
                     runThread(name)
                 else
