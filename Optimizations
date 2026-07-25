@@ -67,10 +67,10 @@ local function setOptimizations(state)
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
         Lighting.FogStart = 9e9
-        Lighting.Brightness = 1
+        Lighting.Brightness = 2
         Lighting.ClockTime = 14
-        Lighting.Ambient = Color3.fromRGB(110, 110, 110)
-        Lighting.OutdoorAmbient = Color3.fromRGB(110, 110, 110)
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
         
         for _, v in ipairs(Lighting:GetDescendants()) do
             if v:IsA("PostEffect") or v:IsA("Atmosphere") then
