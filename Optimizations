@@ -19,16 +19,53 @@ local entitySounds = {
 local protectedCache = setmetatable({}, {__mode = "k"})
 
 local function isProtected(instance)
-    local container = instance:FindFirstAncestorOfClass("Model")
+    if not instance then return false end
+
+    local name = instance.Name:lower()
+    if name:find("guiding light") or name:find("guidinglight") or name:find("rift") then
+        return true
+    end
+
+    -- Whitelist all particle emitters, trails, and beams so their textures and effects are never deleted
+    if instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
+        return true
+    end
+
+    local curr = instance
+    while curr and curr ~= game do
+        local cName = curr.Name:lower()
+        if cName:find("guiding light") or cName:find("guidinglight") or cName:find("rift") then
+            return true
+        end
+        curr = curr.Parent
+    end
+
+    local container = instance:FindFirstAncestorOfClass("Model") or instance:FindFirstAncestorOfClass("Folder") or (instance:IsA("Model") and instance) or (instance:IsA("Folder") and instance)
     if not container then return false end
     if protectedCache[container] then return true end
-    
+
+    local contName = container.Name:lower()
+    if contName:find("guiding light") or contName:find("guidinglight") or contName:find("rift") then
+        protectedCache[container] = true
+        return true
+    end
+
     for _, v in ipairs(container:GetDescendants()) do
         if v:IsA("Sound") and entitySounds[v.Name] then
             protectedCache[container] = true
             return true
         end
+        local vName = v.Name:lower()
+        if vName:find("guiding light") or vName:find("guidinglight") or vName:find("rift") then
+            protectedCache[container] = true
+            return true
+        end
+        if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
+            protectedCache[container] = true
+            return true
+        end
     end
+
     return false
 end
 
@@ -38,14 +75,15 @@ local function applyOptimization(instance)
 
         if instance:IsA("BasePart") and not instance:IsA("Terrain") then
             instance.Material = Enum.Material.SmoothPlastic
+            pcall(function() instance.MaterialVariant = "" end)
             instance.CastShadow = false
             if instance:IsA("MeshPart") then
                 instance.TextureID = ""
             end
+        elseif instance:IsA("SpecialMesh") then
+            instance.TextureId = ""
         elseif instance:IsA("Decal") or instance:IsA("Texture") or instance:IsA("SurfaceAppearance") then
             instance:Destroy()
-        elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
-            instance.Enabled = false
         end
     end)
 end
@@ -76,7 +114,7 @@ local function setOptimizations(state)
         Lighting.OutdoorAmbient = Color3.fromRGB(130, 130, 130)
         
         for _, v in ipairs(Lighting:GetDescendants()) do
-            if v:IsA("PostEffect") or v:IsA("Atmosphere") then
+            if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
                 v.Enabled = false
             end
         end
