@@ -29,6 +29,10 @@ local function setVClip(state)
             getgenv().Xvlamer_VClipConn:Disconnect()
             getgenv().Xvlamer_VClipConn = nil
         end
+        if getgenv().Xvlamer_SpeedConn then
+            getgenv().Xvlamer_SpeedConn:Disconnect()
+            getgenv().Xvlamer_SpeedConn = nil
+        end
 
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
@@ -51,24 +55,47 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
+
+    if humanoid then
+        humanoid.WalkSpeed = 1.5
+        getgenv().Xvlamer_SpeedConn = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if getgenv().Xvlamer_VClipActive and humanoid.WalkSpeed ~= 1.5 then
+                humanoid.WalkSpeed = 1.5
+            end
+        end)
+    end
 
     getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
 
         local currentHumanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
+        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+
         if currentHumanoid then
-            currentHumanoid.WalkSpeed = 1.5
+            if currentHumanoid.WalkSpeed ~= 1.5 then
+                currentHumanoid.WalkSpeed = 1.5
+            end
+            -- Force the state to Running so the anticheat believes you are solidly on the ground
+            pcall(function()
+                currentHumanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end)
         end
 
+        if rootPart then
+            -- Stabilize vertical velocity to prevent fall-distance/airtime flags and rubberbanding
+            local vel = rootPart.AssemblyLinearVelocity
+            rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -15, 5), vel.Z)
+        end
+
+        -- Completely disable collision on everything so multi-part walls never trigger physics step-up pushes
         for _, v in ipairs(currentCharacter:GetDescendants()) do
             if v:IsA("BasePart") then
-                if v.Name == "HumanoidRootPart" then
-                    -- Keep HumanoidRootPart collidable so stepping up and falling register properly with physics/anticheat
-                    v.CanCollide = true
-                else
-                    v.CanCollide = false
-                end
+                v.CanCollide = false
             end
         end
     end)
