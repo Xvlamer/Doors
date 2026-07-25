@@ -227,6 +227,7 @@ getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
     AntiAFK = false, 
     Noclip = false,
     NoclipSpam = false,
+    Optimizations = false,
     KeyExpiry = 0
 }
 state = getgenv().XvlamerHub_SavedState
@@ -245,6 +246,7 @@ local function saveState()
             AntiAFK = state.AntiAFK,
             Noclip = state.Noclip,
             NoclipSpam = state.NoclipSpam,
+            Optimizations = state.Optimizations,
             KeyExpiry = state.KeyExpiry
         }
         local encoded = Http:JSONEncode(saveData)
@@ -267,6 +269,7 @@ if readSuccess and readData and readData ~= "" then
         if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
         if decoded.Noclip ~= nil then state.Noclip = decoded.Noclip end
         if decoded.NoclipSpam ~= nil then state.NoclipSpam = decoded.NoclipSpam end
+        if decoded.Optimizations ~= nil then state.Optimizations = decoded.Optimizations end
         if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
     end
 end
