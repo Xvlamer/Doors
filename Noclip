@@ -14,24 +14,17 @@ local function cleanupVClip()
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
-    if getgenv().Xvlamer_SpeedConn then
-        getgenv().Xvlamer_SpeedConn:Disconnect()
-        getgenv().Xvlamer_SpeedConn = nil
+    if getgenv().Xvlamer_FloatConn then
+        getgenv().Xvlamer_FloatConn:Disconnect()
+        getgenv().Xvlamer_FloatConn = nil
     end
     
     floatY = nil
     local char = LocalPlayer.Character
     if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            hum.MaxSlopeAngle = 89
-        end
-
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = true
-                v.CustomPhysicalProperties = nil
             end
         end
     end
@@ -44,28 +37,13 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipActive = state and true or false
     end
 
-    if getgenv().XvlamerHub_SavedState then
-        getgenv().XvlamerHub_SavedState.Noclip = getgenv().Xvlamer_VClipActive
-        pcall(function()
-            local writefile = writefile or function() end
-            local Http = game:GetService("HttpService")
-            writefile("XvlamersSaveState.json", Http:JSONEncode(getgenv().XvlamerHub_SavedState))
-        end)
-    end
-
-    if getgenv().Xvlamer_UpdateToggleState then
-        pcall(function()
-            getgenv().Xvlamer_UpdateToggleState("Noclip", getgenv().Xvlamer_VClipActive)
-        end)
-    end
-
     if getgenv().Xvlamer_VClipConn then
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
-    if getgenv().Xvlamer_SpeedConn then
-        getgenv().Xvlamer_SpeedConn:Disconnect()
-        getgenv().Xvlamer_SpeedConn = nil
+    if getgenv().Xvlamer_FloatConn then
+        getgenv().Xvlamer_FloatConn:Disconnect()
+        getgenv().Xvlamer_FloatConn = nil
     end
 
     if not getgenv().Xvlamer_VClipActive then
@@ -75,54 +53,39 @@ local function setVClip(state)
 
     floatY = nil
 
-    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function(dt)
-        local currentCharacter = LocalPlayer.Character
-        if not currentCharacter then return end
+    getgenv().Xvlamer_FloatConn = RunService.Heartbeat:Connect(function(dt)
+        local char = LocalPlayer.Character
+        if not char then return end
+        local rootPart = char:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return end
         
-        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
-        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
-        
-        if hum and rootPart then
-            hum.PlatformStand = true
-            hum.MaxSlopeAngle = 0
-            
-            local currentPos = rootPart.Position
-            if floatY == nil then
-                floatY = currentPos.Y
-            end
-            
-            local lookVector = rootPart.CFrame.LookVector
-            local forwardDir = Vector3.new(lookVector.X, 0, lookVector.Z)
-            if forwardDir.Magnitude > 0 then
-                forwardDir = forwardDir.Unit
-            else
-                forwardDir = Vector3.new(0, 0, -1)
-            end
-            
-            local targetX = currentPos.X + (forwardDir.X * 1.5 * dt)
-            local targetZ = currentPos.Z + (forwardDir.Z * 1.5 * dt)
-            
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                floatY = floatY + (8 * dt)
-            end
-            
-            local currentRotation = rootPart.CFrame - rootPart.Position
-            rootPart.CFrame = CFrame.new(targetX, floatY, targetZ) * currentRotation
-            rootPart.AssemblyLinearVelocity = Vector3.zero
-            rootPart.AssemblyAngularVelocity = Vector3.zero
+        local pos = rootPart.Position
+        if floatY == nil then
+            floatY = pos.Y
         end
+        
+        local look = rootPart.CFrame.LookVector
+        local dir = Vector3.new(look.X, 0, look.Z)
+        if dir.Magnitude > 0 then
+            dir = dir.Unit
+        else
+            dir = Vector3.new(0, 0, -1)
+        end
+        
+        local newX = pos.X + (dir.X * 1.5 * dt)
+        local newZ = pos.Z + (dir.Z * 1.5 * dt)
+        
+        rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+        rootPart.AssemblyAngularVelocity = Vector3.zero
     end)
 
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
-        local currentCharacter = LocalPlayer.Character
-        if not currentCharacter then return end
-
-        for _, v in ipairs(currentCharacter:GetDescendants()) do
-            if v:IsA("BasePart") then
-                if v.CanCollide then
-                    v.CanCollide = false
-                end
-                v.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then
+                v.CanCollide = false
             end
         end
     end)
