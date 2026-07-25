@@ -1,1 +1,112 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
+if getgenv().Xvlamer_VClipActive == nil then
+    getgenv().Xvlamer_VClipActive = false
+end
+
+local function cleanupVClip()
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
+    end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
+    
+    local char = LocalPlayer.Character
+    if char then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = true
+            end
+        end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
+        end
+    end
+    getgenv().Xvlamer_SavedSpeed = nil
+end
+
+local function setVClip(state)
+    if state == nil then
+        getgenv().Xvlamer_VClipActive = not getgenv().Xvlamer_VClipActive
+    else
+        getgenv().Xvlamer_VClipActive = state and true or false
+    end
+
+    local char = LocalPlayer.Character
+    if not char then
+        getgenv().Xvlamer_VClipActive = false
+        cleanupVClip()
+        return
+    end
+
+    if not getgenv().Xvlamer_VClipActive then
+        cleanupVClip()
+        return
+    end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        if getgenv().Xvlamer_SavedSpeed == nil then
+            getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
+        end
+        humanoid.WalkSpeed = 1.5
+    end
+
+    cleanupVClip()
+
+    -- Bruteforce WalkSpeed to 1.5 continuously to override game modifications
+    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
+        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+        if hum and hum.WalkSpeed ~= 1.5 then
+            hum.WalkSpeed = 1.5
+        end
+    end)
+
+    -- Stable anti-cheat bypass noclip with velocity dampening for smooth hills/steps
+    getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
+
+        for _, v in ipairs(currentCharacter:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = false
+            end
+        end
+
+        local root = currentCharacter:FindFirstChild("HumanoidRootPart")
+        if root then
+            local vel = root.AssemblyLinearVelocity
+            -- Clamp extreme vertical velocity spikes to prevent anti-cheat flags when walking on hills or stepping
+            if math.abs(vel.Y) > 40 then
+                root.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -25, 25), vel.Z)
+            end
+        end
+    end)
+end
+
+getgenv().Xvlamer_SetVClip = setVClip
+
+if getgenv().Xvlamer_KeyConn then
+    getgenv().Xvlamer_KeyConn:Disconnect()
+    getgenv().Xvlamer_KeyConn = nil
+end
+
+getgenv().Xvlamer_KeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.V then
+        if not (UserInputService:GetFocusedTextBox()) then
+            setVClip(not getgenv().Xvlamer_VClipActive)
+        end
+    end
+end)
+
+return setVClip
