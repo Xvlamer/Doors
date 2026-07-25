@@ -8,8 +8,11 @@ pcall(function()
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
+    if getgenv().Xvlamer_FloatConn then
+        getgenv().Xvlamer_FloatConn:Disconnect()
+        getgenv().Xvlamer_FloatConn = nil
+    end
     getgenv().Xvlamer_VClipActive = false
-    getgenv().Xvlamer_SavedSpeed = nil
 end)
 
 local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
@@ -346,20 +349,23 @@ end
 -- ==========================================
 
 -- ==========================================
--- INTEGRATED NOCLIP MODULE (WITH LOBBY BYPASS)
+-- INTEGRATED NOCLIP & FLOAT MODULE (CLEAN)
 -- ==========================================
 local NoclipModule = {}
 do
+    local floatY = nil
+
     local function cleanupVClip()
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
             getgenv().Xvlamer_VClipConn = nil
         end
-        if getgenv().Xvlamer_SpeedConn then
-            getgenv().Xvlamer_SpeedConn:Disconnect()
-            getgenv().Xvlamer_SpeedConn = nil
+        if getgenv().Xvlamer_FloatConn then
+            getgenv().Xvlamer_FloatConn:Disconnect()
+            getgenv().Xvlamer_FloatConn = nil
         end
         
+        floatY = nil
         local char = P.Character
         if char then
             for _, v in ipairs(char:GetDescendants()) do
@@ -367,12 +373,7 @@ do
                     v.CanCollide = true
                 end
             end
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
-            end
         end
-        getgenv().Xvlamer_SavedSpeed = nil
     end
 
     function NoclipModule.Toggle(stateVal)
@@ -382,9 +383,9 @@ do
             getgenv().Xvlamer_VClipConn:Disconnect()
             getgenv().Xvlamer_VClipConn = nil
         end
-        if getgenv().Xvlamer_SpeedConn then
-            getgenv().Xvlamer_SpeedConn:Disconnect()
-            getgenv().Xvlamer_SpeedConn = nil
+        if getgenv().Xvlamer_FloatConn then
+            getgenv().Xvlamer_FloatConn:Disconnect()
+            getgenv().Xvlamer_FloatConn = nil
         end
 
         if not getgenv().Xvlamer_VClipActive then
@@ -392,58 +393,14 @@ do
             return
         end
 
-        getgenv().Xvlamer_SpeedConn = RS.Heartbeat:Connect(function()
-            local currentCharacter = P.Character
-            if not currentCharacter then return end
-            
-            local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
-            if hum then
-                if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1.5 then
-                    getgenv().Xvlamer_SavedSpeed = 16
-                end
-            end
+        floatY = nil
 
-            -- Completely bypass speed reduction and velocity restriction in the lobby
+        getgenv().Xvlamer_FloatConn = RS.Heartbeat:Connect(function(dt)
+            local char = P.Character
+            if not char then return end
+
             if isInLobby() then
-                if hum and hum.WalkSpeed ~= getgenv().Xvlamer_SavedSpeed then
-                    hum.WalkSpeed = getgenv().Xvlamer_SavedSpeed
-                end
-                return
-            end
-
-            if hum then
-                if hum.WalkSpeed ~= 1.5 then
-                    hum.WalkSpeed = 1.5
-                end
-            end
-
-            local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
-            if hum and rootPart then
-                local moveDir = hum.MoveDirection
-                local currentVel = rootPart.AssemblyLinearVelocity
-                local yVel = currentVel.Y
-                
-                -- Retain the anti-fly logic you originally had for upward momentum
-                if yVel > 0 then
-                    yVel = 0
-                end
-                
-                -- Anti-Slip velocity lock: Maps X/Z directly to inputs to prevent slope sliding
-                rootPart.AssemblyLinearVelocity = Vector3.new(
-                    moveDir.X * hum.WalkSpeed,
-                    yVel,
-                    moveDir.Z * hum.WalkSpeed
-                )
-            end
-        end)
-
-        getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
-            local currentCharacter = P.Character
-            if not currentCharacter then return end
-
-            -- If in the lobby, restore collidability and don't apply noclip
-            if isInLobby() then
-                for _, v in ipairs(currentCharacter:GetDescendants()) do
+                for _, v in ipairs(char:GetDescendants()) do
                     if v:IsA("BasePart") and not v.CanCollide then
                         v.CanCollide = true
                     end
@@ -451,7 +408,36 @@ do
                 return
             end
 
-            for _, v in ipairs(currentCharacter:GetDescendants()) do
+            local rootPart = char:FindFirstChild("HumanoidRootPart")
+            if not rootPart then return end
+            
+            local pos = rootPart.Position
+            if floatY == nil then
+                floatY = pos.Y
+            end
+            
+            local look = rootPart.CFrame.LookVector
+            local dir = Vector3.new(look.X, 0, look.Z)
+            if dir.Magnitude > 0 then
+                dir = dir.Unit
+            else
+                dir = Vector3.new(0, 0, -1)
+            end
+            
+            local newX = pos.X + (dir.X * 1.5 * dt)
+            local newZ = pos.Z + (dir.Z * 1.5 * dt)
+            
+            rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
+            rootPart.AssemblyLinearVelocity = Vector3.zero
+            rootPart.AssemblyAngularVelocity = Vector3.zero
+        end)
+
+        getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
+            local char = P.Character
+            if not char then return end
+            if isInLobby() then return end
+
+            for _, v in ipairs(char:GetDescendants()) do
                 if v:IsA("BasePart") and v.CanCollide then
                     v.CanCollide = false
                 end
