@@ -39,6 +39,16 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipActive = state and true or false
     end
 
+    -- Disconnect old loops before applying new states
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
+    end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
+
     local char = LocalPlayer.Character
     if not char or not getgenv().Xvlamer_VClipActive then
         getgenv().Xvlamer_VClipActive = false
@@ -53,8 +63,6 @@ local function setVClip(state)
         end
         humanoid.WalkSpeed = 1.5
     end
-
-    cleanupVClip()
 
     -- Bruteforce WalkSpeed to 1.5 continuously without jitter
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
