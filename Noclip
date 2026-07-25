@@ -63,7 +63,12 @@ local function setVClip(state)
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
             if v:IsA("BasePart") then
-                v.CanCollide = false
+                if v.Name == "HumanoidRootPart" then
+                    -- Keep HumanoidRootPart collidable so stepping up and falling register properly with physics/anticheat
+                    v.CanCollide = true
+                else
+                    v.CanCollide = false
+                end
             end
         end
     end)
