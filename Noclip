@@ -43,6 +43,22 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipActive = state and true or false
     end
 
+    -- Sync with Main Hub saved state and UI toggle if available
+    if getgenv().XvlamerHub_SavedState then
+        getgenv().XvlamerHub_SavedState.Noclip = getgenv().Xvlamer_VClipActive
+        pcall(function()
+            local writefile = writefile or function() end
+            local Http = game:GetService("HttpService")
+            writefile("XvlamersSaveState.json", Http:JSONEncode(getgenv().XvlamerHub_SavedState))
+        end)
+    end
+
+    if getgenv().Xvlamer_UpdateToggleState then
+        pcall(function()
+            getgenv().Xvlamer_UpdateToggleState("Noclip", getgenv().Xvlamer_VClipActive)
+        end)
+    end
+
     -- Always clear old connections first
     if getgenv().Xvlamer_VClipConn then
         getgenv().Xvlamer_VClipConn:Disconnect()
@@ -76,13 +92,12 @@ local function setVClip(state)
                 hum.WalkSpeed = 1.5
             end
             if hum.MaxSlopeAngle ~= 0 then
-                hum.MaxSlopeAngle = 0 -- Completely stops the humanoid from stepping up slopes/stairs
+                hum.MaxSlopeAngle = 0
             end
         end
 
         local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
         if rootPart then
-            -- Kill upward momentum instantly, allowing only falling (negative Y) or flat movement
             local vel = rootPart.AssemblyLinearVelocity
             if vel.Y > 0 then
                 rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
@@ -114,7 +129,6 @@ end
 getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
         task.wait(0.3)
-        -- Keep state active and let the background loops pick up the new character parts
     else
         cleanupVClip()
     end
@@ -133,5 +147,8 @@ getgenv().Xvlamer_KeyConn = UserInputService.InputBegan:Connect(function(input, 
         end
     end
 end)
+
+-- Immediately enable noclip upon loading via the Hub toggle
+setVClip(true)
 
 return setVClip
