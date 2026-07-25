@@ -40,13 +40,8 @@ local function setVClip(state)
     end
 
     local char = LocalPlayer.Character
-    if not char then
+    if not char or not getgenv().Xvlamer_VClipActive then
         getgenv().Xvlamer_VClipActive = false
-        cleanupVClip()
-        return
-    end
-
-    if not getgenv().Xvlamer_VClipActive then
         cleanupVClip()
         return
     end
@@ -61,7 +56,7 @@ local function setVClip(state)
 
     cleanupVClip()
 
-    -- Bruteforce WalkSpeed to 1.5 continuously to override game modifications
+    -- Bruteforce WalkSpeed to 1.5 continuously without jitter
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -71,29 +66,35 @@ local function setVClip(state)
         end
     end)
 
-    -- Stable anti-cheat bypass noclip with velocity dampening for smooth hills/steps
+    -- Stable noclip loop for smooth movement across hills and steps without physics breakage
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
-            if v:IsA("BasePart") then
+            if v:IsA("BasePart") and v.CanCollide then
                 v.CanCollide = false
-            end
-        end
-
-        local root = currentCharacter:FindFirstChild("HumanoidRootPart")
-        if root then
-            local vel = root.AssemblyLinearVelocity
-            -- Clamp extreme vertical velocity spikes to prevent anti-cheat flags when walking on hills or stepping
-            if math.abs(vel.Y) > 40 then
-                root.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -25, 25), vel.Z)
             end
         end
     end)
 end
 
 getgenv().Xvlamer_SetVClip = setVClip
+
+-- Handle character respawns so noclip/speed automatically re-applies or cleans up cleanly
+if getgenv().Xvlamer_RespawnConn then
+    getgenv().Xvlamer_RespawnConn:Disconnect()
+    getgenv().Xvlamer_RespawnConn = nil
+end
+
+getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
+    if getgenv().Xvlamer_VClipActive then
+        task.wait(0.5)
+        setVClip(true)
+    else
+        cleanupVClip()
+    end
+end)
 
 if getgenv().Xvlamer_KeyConn then
     getgenv().Xvlamer_KeyConn:Disconnect()
