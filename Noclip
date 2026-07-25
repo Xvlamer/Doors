@@ -1,11 +1,16 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 if getgenv().Xvlamer_VClipActive == nil then
     getgenv().Xvlamer_VClipActive = false
 end
+
+-- Default fallback values for restoration
+local originalWalkSpeed = 16
+local originalMaxSlopeAngle = 45
 
 local function cleanupVClip()
     if getgenv().Xvlamer_VClipConn then
@@ -22,7 +27,11 @@ local function cleanupVClip()
         end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            hum.WalkSpeed = originalWalkSpeed
+            hum.MaxSlopeAngle = originalMaxSlopeAngle
+            pcall(function()
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end)
         end
     end
 end
@@ -38,8 +47,7 @@ local function setVClip(state)
         getgenv().XvlamerHub_SavedState.Noclip = getgenv().Xvlamer_VClipActive
         pcall(function()
             local writefile = writefile or function() end
-            local Http = game:GetService("HttpService")
-            writefile("XvlamersSaveState.json", Http:JSONEncode(getgenv().XvlamerHub_SavedState))
+            writefile("XvlamersSaveState.json", HttpService:JSONEncode(getgenv().XvlamerHub_SavedState))
         end)
     end
 
@@ -59,14 +67,35 @@ local function setVClip(state)
         return
     end
 
+    -- Capture stats before applying noclip & speed 1
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if hum.WalkSpeed ~= 1 and hum.WalkSpeed ~= 16 then
+                originalWalkSpeed = hum.WalkSpeed
+            elseif hum.WalkSpeed == 16 then
+                originalWalkSpeed = 16
+            end
+            originalMaxSlopeAngle = hum.MaxSlopeAngle
+            hum.WalkSpeed = 1
+            hum.MaxSlopeAngle = 90 -- Prevents engine sliding/pulling down on angles and ramps
+        end
+    end
+
+    -- Clean loop: only handle noclip and speed 1 without altering vertical velocity or physics states
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
 
         local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
         if hum then
-            -- Bypass gravity and floor-snapping on slopes/angles completely
-            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            if hum.WalkSpeed ~= 1 then
+                hum.WalkSpeed = 1
+            end
+            if hum.MaxSlopeAngle ~= 90 then
+                hum.MaxSlopeAngle = 90
+            end
         end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
@@ -87,6 +116,7 @@ end
 getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
         task.wait(0.3)
+        setVClip(true)
     else
         cleanupVClip()
     end
