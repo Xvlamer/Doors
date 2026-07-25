@@ -6,7 +6,7 @@ local LocalPlayer = Players.LocalPlayer
 -- Prevent thread stacking / memory leaks by killing any existing background loop first
 if getgenv().XvlamerStop_KnobFarm ~= nil then
     getgenv().XvlamerStop_KnobFarm = true
-    task.wait(0.1)
+    task.wait(0.05)
 end
 
 getgenv().XvlamerStop_KnobFarm = false
@@ -17,13 +17,12 @@ local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistic
 local function executeKill()
     if typeof(replicatesignal) == "function" then
         pcall(replicatesignal, LocalPlayer.Kill)
-    else
-        local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 then
-                hum.Health = 0
-            end
+    end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            hum.Health = 0
         end
     end
 end
@@ -36,7 +35,7 @@ task.spawn(function()
                 statisticsRemote:FireServer()
             end
         end)
-        -- Fixed math.random error (Luau math.random requires integer parameters)
-        task.wait(0.25 + (math.random(1, 5) / 100))
+        -- Removed math.random and optimized the wait interval for maximum speed
+        task.wait(0.05)
     end
 end)
