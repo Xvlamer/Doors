@@ -226,6 +226,7 @@ getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
     UnlockFps = false, 
     AntiAFK = false, 
     Noclip = false,
+    NoclipSpam = false,
     KeyExpiry = 0
 }
 state = getgenv().XvlamerHub_SavedState
@@ -243,6 +244,7 @@ local function saveState()
             UnlockFps = state.UnlockFps,
             AntiAFK = state.AntiAFK,
             Noclip = state.Noclip,
+            NoclipSpam = state.NoclipSpam,
             KeyExpiry = state.KeyExpiry
         }
         local encoded = Http:JSONEncode(saveData)
@@ -264,6 +266,7 @@ if readSuccess and readData and readData ~= "" then
         if decoded.UnlockFps ~= nil then state.UnlockFps = decoded.UnlockFps end
         if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
         if decoded.Noclip ~= nil then state.Noclip = decoded.Noclip end
+        if decoded.NoclipSpam ~= nil then state.NoclipSpam = decoded.NoclipSpam end
         if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
     end
 end
@@ -349,11 +352,13 @@ end
 -- ==========================================
 
 -- ==========================================
--- INTEGRATED NOCLIP & FLOAT MODULE (CLEAN)
+-- INTEGRATED NOCLIP & NOCLIP SPAM MODULE (ENHANCED)
 -- ==========================================
 local NoclipModule = {}
 do
     local floatY = nil
+    local spamActive = false
+    local spamThread = nil
 
     local function cleanupVClip()
         if getgenv().Xvlamer_VClipConn then
@@ -368,6 +373,8 @@ do
         floatY = nil
         local char = P.Character
         if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = 16 end
             for _, v in ipairs(char:GetDescendants()) do
                 if v:IsA("BasePart") then
                     v.CanCollide = true
@@ -376,7 +383,7 @@ do
         end
     end
 
-    function NoclipModule.Toggle(stateVal)
+    function NoclipModule.SetNoclip(stateVal)
         getgenv().Xvlamer_VClipActive = stateVal and true or false
 
         if getgenv().Xvlamer_VClipConn then
@@ -388,7 +395,7 @@ do
             getgenv().Xvlamer_FloatConn = nil
         end
 
-        if not getgenv().Xvlamer_VClipActive then
+        if not getgenv().Xvlamer_VClipActive or isInLobby() then
             cleanupVClip()
             return
         end
@@ -397,15 +404,11 @@ do
 
         getgenv().Xvlamer_FloatConn = RS.Heartbeat:Connect(function(dt)
             local char = P.Character
-            if not char then return end
+            if not char or isInLobby() then return end
 
-            if isInLobby() then
-                for _, v in ipairs(char:GetDescendants()) do
-                    if v:IsA("BasePart") and not v.CanCollide then
-                        v.CanCollide = true
-                    end
-                end
-                return
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = 0
             end
 
             local rootPart = char:FindFirstChild("HumanoidRootPart")
@@ -434,8 +437,7 @@ do
 
         getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
             local char = P.Character
-            if not char then return end
-            if isInLobby() then return end
+            if not char or isInLobby() then return end
 
             for _, v in ipairs(char:GetDescendants()) do
                 if v:IsA("BasePart") and v.CanCollide then
@@ -445,8 +447,38 @@ do
         end)
     end
 
+    function NoclipModule.SetSpam(stateVal)
+        spamActive = stateVal and true or false
+        if spamThread then
+            pcall(function() task.cancel(spamThread) end)
+            spamThread = nil
+        end
+
+        if not spamActive or isInLobby() then
+            NoclipModule.SetNoclip(false)
+            return
+        end
+
+        spamThread = task.spawn(function()
+            while spamActive and not getgenv().XvlamerStop_NoclipSpam do
+                if isInLobby() then break end
+                NoclipModule.SetNoclip(true)
+                task.wait(0.25)
+                if isInLobby() then break end
+                NoclipModule.SetNoclip(false)
+                task.wait(0.05)
+            end
+            NoclipModule.SetNoclip(false)
+        end)
+    end
+
     function NoclipModule.Disable()
-        NoclipModule.Toggle(false)
+        spamActive = false
+        if spamThread then
+            pcall(function() task.cancel(spamThread) end)
+            spamThread = nil
+        end
+        NoclipModule.SetNoclip(false)
     end
 end
 
@@ -458,7 +490,7 @@ end
 getgenv().Xvlamer_RespawnConn = P.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
         task.wait(0.3)
-        NoclipModule.Toggle(true)
+        NoclipModule.SetNoclip(true)
     else
         NoclipModule.Disable()
     end
@@ -535,6 +567,7 @@ purge = function()
     getgenv().XvlamerStop_DeathFarm = true
     getgenv().XvlamerStop_StardustFarm = true
     getgenv().XvlamerStop_Noclip = true
+    getgenv().XvlamerStop_NoclipSpam = true
     
     for _, thread in pairs(activeThreads) do if thread then pcall(function() task.cancel(thread) end) end end
     table.clear(activeThreads)
@@ -693,7 +726,7 @@ local function initializeMainHub()
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(sg) end end)
 
     local targetWidth = isMobile and 260 or 320
-    local targetHeight = isMobile and 205 or 210
+    local targetHeight = isMobile and 245 or 250
 
     local main = create("Frame", {
         Size=UDim2.new(0, targetWidth, 0, targetHeight), 
@@ -819,6 +852,9 @@ local function initializeMainHub()
             elseif key == "Stardust Farm" then getgenv().XvlamerStop_StardustFarm = true
             elseif key == "Noclip" then 
                 getgenv().XvlamerStop_Noclip = true
+                NoclipModule.Disable()
+            elseif key == "Noclip SPAM" then
+                getgenv().XvlamerStop_NoclipSpam = true
                 NoclipModule.Disable()
             end
             
@@ -949,7 +985,12 @@ local function initializeMainHub()
         elseif key == "Noclip" then
             getgenv().XvlamerStop_Noclip = false
             activeThreads[key] = task.spawn(function()
-                NoclipModule.Toggle(true)
+                NoclipModule.SetNoclip(true)
+            end)
+        elseif key == "Noclip SPAM" then
+            getgenv().XvlamerStop_NoclipSpam = false
+            activeThreads[key] = task.spawn(function()
+                NoclipModule.SetSpam(true)
             end)
         end
     end
@@ -1186,7 +1227,7 @@ local function initializeMainHub()
             if stateKey == "Optimizations" then Optimizer.Toggle(true)
             elseif stateKey == "AntiAFK" then setAntiAFK(true, true)
             elseif stateKey == "UnlockFps" then setUnlockFPS(true, true)
-            elseif stateKey == "Noclip" then runThread(name) end
+            elseif stateKey == "Noclip" or stateKey == "NoclipSpam" then runThread(name) end
         end
     end
 
@@ -1195,16 +1236,22 @@ local function initializeMainHub()
     createToggle("Stardust Farm", pages[2], true, nil, 3, 36)
 
     createToggle("Noclip", pages[3], false, "Noclip", 1, 36)
-    createToggle("Optimizations", pages[3], false, "Optimizations", 2, 36)
-    createToggle("Unlock fps", pages[3], false, "UnlockFps", 3, 36)
-    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 4, 36)
+    createToggle("Noclip SPAM", pages[3], false, "NoclipSpam", 2, 36)
+    createToggle("Optimizations", pages[3], false, "Optimizations", 3, 36)
+    createToggle("Unlock fps", pages[3], false, "UnlockFps", 4, 36)
+    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5, 36)
 
     trackConnection(UIS.InputBegan:Connect(function(input, gpe)
-        if not gpe and input.KeyCode == Enum.KeyCode.V then
-            if not UIS:GetFocusedTextBox() then
+        if not gpe and not UIS:GetFocusedTextBox() then
+            if input.KeyCode == Enum.KeyCode.V then
                 local noclipToggle = toggleHandlers["Noclip"]
                 if noclipToggle and type(noclipToggle.update) == "function" and type(noclipToggle.get) == "function" then
                     noclipToggle.update(not noclipToggle.get())
+                end
+            elseif input.KeyCode == Enum.KeyCode.B then
+                local spamToggle = toggleHandlers["NoclipSpam"]
+                if spamToggle and type(spamToggle.update) == "function" and type(spamToggle.get) == "function" then
+                    spamToggle.update(not spamToggle.get())
                 end
             end
         end
