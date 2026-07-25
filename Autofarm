@@ -230,8 +230,6 @@ getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
     ActiveFarm = nil, 
     UnlockFps = false, 
     AntiAFK = false, 
-    Noclip = false,
-    NoclipSpam = false,
     Optimizations = false,
     KeyExpiry = 0
 }
@@ -249,8 +247,6 @@ local function saveState()
             ActiveFarm = farmToSave,
             UnlockFps = state.UnlockFps,
             AntiAFK = state.AntiAFK,
-            Noclip = state.Noclip,
-            NoclipSpam = state.NoclipSpam,
             Optimizations = state.Optimizations,
             KeyExpiry = state.KeyExpiry
         }
@@ -272,8 +268,6 @@ if readSuccess and readData and readData ~= "" then
         if decoded.ActiveFarm ~= nil and decoded.ActiveFarm ~= "Knob Farm" then pendingStartupFarm = decoded.ActiveFarm end
         if decoded.UnlockFps ~= nil then state.UnlockFps = decoded.UnlockFps end
         if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
-        if decoded.Noclip ~= nil then state.Noclip = decoded.Noclip end
-        if decoded.NoclipSpam ~= nil then state.NoclipSpam = decoded.NoclipSpam end
         if decoded.Optimizations ~= nil then state.Optimizations = decoded.Optimizations end
         if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
     end
@@ -417,6 +411,16 @@ do
     function NoclipModule.Toggle(stateVal)
         getgenv().Xvlamer_VClipActive = stateVal and true or false
 
+        if stateVal then
+            if getgenv().Xvlamer_SpamActive then
+                getgenv().Xvlamer_SpamActive = false
+                local spamToggle = toggleHandlers["Noclip SPAM"]
+                if spamToggle and type(spamToggle.setOff) == "function" then
+                    spamToggle.setOff(false)
+                end
+            end
+        end
+
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
             getgenv().Xvlamer_VClipConn = nil
@@ -467,8 +471,8 @@ do
                 dir = Vector3.new(0, 0, -1)
             end
             
-            local newX = pos.X + (dir.X * 1.5 * dt)
-            local newZ = pos.Z + (dir.Z * 1.5 * dt)
+            local newX = pos.X + (dir.X * 1 * dt)
+            local newZ = pos.Z + (dir.Z * 1 * dt)
             
             rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
             rootPart.AssemblyLinearVelocity = Vector3.zero
@@ -490,6 +494,16 @@ do
 
     function NoclipModule.ToggleSpam(stateVal)
         getgenv().Xvlamer_SpamActive = stateVal and true or false
+
+        if stateVal then
+            if getgenv().Xvlamer_VClipActive then
+                getgenv().Xvlamer_VClipActive = false
+                local noclipToggle = toggleHandlers["Noclip"]
+                if noclipToggle and type(noclipToggle.setOff) == "function" then
+                    noclipToggle.setOff(false)
+                end
+            end
+        end
 
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
@@ -550,18 +564,18 @@ do
                         dir = Vector3.new(0, 0, -1)
                     end
                     
-                    local newX = pos.X + (dir.X * 1.5 * dt)
-                    local newZ = pos.Z + (dir.Z * 1.5 * dt)
+                    local newX = pos.X + (dir.X * 1 * dt)
+                    local newZ = pos.Z + (dir.Z * 1 * dt)
                     
                     rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
                     rootPart.AssemblyLinearVelocity = Vector3.zero
                     rootPart.AssemblyAngularVelocity = Vector3.zero
                 end)
 
-                task.wait(0.25)
+                task.wait(0.25 / 3)
                 if floatConn then floatConn:Disconnect() end
 
-                task.wait(0.25)
+                task.wait(0.25 / 3)
             end
         end)
     end
@@ -1301,6 +1315,26 @@ local function initializeMainHub()
                 if stateKey == "Optimizations" then Optimizer.Toggle(on)
                 elseif stateKey == "AntiAFK" then setAntiAFK(on)
                 elseif stateKey == "UnlockFps" then setUnlockFPS(on)
+                elseif name == "Noclip" then
+                    if on then
+                        local spamToggle = toggleHandlers["Noclip SPAM"]
+                        if spamToggle and spamToggle.get() then
+                            spamToggle.setOff(false)
+                        end
+                        NoclipModule.Toggle(true)
+                    else
+                        NoclipModule.Toggle(false)
+                    end
+                elseif name == "Noclip SPAM" then
+                    if on then
+                        local noclipToggle = toggleHandlers["Noclip"]
+                        if noclipToggle and noclipToggle.get() then
+                            noclipToggle.setOff(false)
+                        end
+                        NoclipModule.ToggleSpam(true)
+                    else
+                        NoclipModule.ToggleSpam(false)
+                    end
                 else 
                     if on then runThread(name) else stopThread(name) end 
                 end
@@ -1319,9 +1353,7 @@ local function initializeMainHub()
             setVisual(true)
             if stateKey == "Optimizations" then Optimizer.Toggle(true)
             elseif stateKey == "AntiAFK" then setAntiAFK(true, true)
-            elseif stateKey == "UnlockFps" then setUnlockFPS(true, true)
-            elseif stateKey == "Noclip" then runThread(name)
-            elseif stateKey == "NoclipSpam" then runThread(name) end
+            elseif stateKey == "UnlockFps" then setUnlockFPS(true, true) end
         end
     end
 
@@ -1329,8 +1361,8 @@ local function initializeMainHub()
     createToggle("Death Farm", pages[2], true, nil, 2, 36)
     createToggle("Stardust Farm", pages[2], true, nil, 3, 36)
 
-    createToggle("Noclip", pages[3], false, "Noclip", 1, 36)
-    createToggle("Noclip SPAM", pages[3], false, "NoclipSpam", 2, 36)
+    createToggle("Noclip", pages[3], false, nil, 1, 36)
+    createToggle("Noclip SPAM", pages[3], false, nil, 2, 36)
     createToggle("Optimizations", pages[3], false, "Optimizations", 3, 36)
     createToggle("Unlock fps", pages[3], false, "UnlockFps", 4, 36)
     createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5, 36)
@@ -1345,7 +1377,7 @@ local function initializeMainHub()
             end
         elseif not gpe and input.KeyCode == Enum.KeyCode.B then
             if not UIS:GetFocusedTextBox() then
-                local spamToggle = toggleHandlers["NoclipSpam"]
+                local spamToggle = toggleHandlers["Noclip SPAM"]
                 if spamToggle and type(spamToggle.update) == "function" and type(spamToggle.get) == "function" then
                     spamToggle.update(not spamToggle.get())
                 end
