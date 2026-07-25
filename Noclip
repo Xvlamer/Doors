@@ -27,13 +27,9 @@ local function cleanupVClip()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
-            if getgenv().Xvlamer_SavedSlope ~= nil then
-                humanoid.MaxSlopeAngle = getgenv().Xvlamer_SavedSlope
-            end
         end
     end
     getgenv().Xvlamer_SavedSpeed = nil
-    getgenv().Xvlamer_SavedSlope = nil
 end
 
 local function setVClip(state)
@@ -72,7 +68,6 @@ local function setVClip(state)
         return
     end
 
-    -- Enforce WalkSpeed, MaxSlopeAngle, and restrict upward velocity for stability
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -82,15 +77,9 @@ local function setVClip(state)
             if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1 then
                 getgenv().Xvlamer_SavedSpeed = 16
             end
-            if getgenv().Xvlamer_SavedSlope == nil or getgenv().Xvlamer_SavedSlope == 0 then
-                getgenv().Xvlamer_SavedSlope = hum.MaxSlopeAngle
-            end
             
             if hum.WalkSpeed ~= 1 then
                 hum.WalkSpeed = 1
-            end
-            if hum.MaxSlopeAngle ~= 0 then
-                hum.MaxSlopeAngle = 0
             end
         end
 
