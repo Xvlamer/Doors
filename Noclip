@@ -30,10 +30,14 @@ local function cleanupVClip()
             if getgenv().Xvlamer_SavedSlope ~= nil then
                 humanoid.MaxSlopeAngle = getgenv().Xvlamer_SavedSlope
             end
+            if getgenv().Xvlamer_SavedHipHeight ~= nil then
+                humanoid.HipHeight = getgenv().Xvlamer_SavedHipHeight
+            end
         end
     end
     getgenv().Xvlamer_SavedSpeed = nil
     getgenv().Xvlamer_SavedSlope = nil
+    getgenv().Xvlamer_SavedHipHeight = nil
 end
 
 local function setVClip(state)
@@ -74,22 +78,28 @@ local function setVClip(state)
         return
     end
 
-    -- Bruteforce WalkSpeed and strictly prevent stepping up / upward velocity
+    -- Enforce WalkSpeed, HipHeight, MaxSlopeAngle, and restrict upward velocity for stability
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
         
         local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
         if hum then
-            if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1.5 then
+            if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1 then
                 getgenv().Xvlamer_SavedSpeed = 16
             end
             if getgenv().Xvlamer_SavedSlope == nil or getgenv().Xvlamer_SavedSlope == 0 then
                 getgenv().Xvlamer_SavedSlope = hum.MaxSlopeAngle
             end
+            if getgenv().Xvlamer_SavedHipHeight == nil or getgenv().Xvlamer_SavedHipHeight == 45 then
+                getgenv().Xvlamer_SavedHipHeight = hum.HipHeight ~= 45 and hum.HipHeight or 0
+            end
             
-            if hum.WalkSpeed ~= 1.5 then
-                hum.WalkSpeed = 1.5
+            if hum.WalkSpeed ~= 1 then
+                hum.WalkSpeed = 1
+            end
+            if hum.HipHeight ~= 45 then
+                hum.HipHeight = 45
             end
             if hum.MaxSlopeAngle ~= 0 then
                 hum.MaxSlopeAngle = 0
@@ -105,7 +115,7 @@ local function setVClip(state)
         end
     end)
 
-    -- Stable noclip loop
+    -- Stable noclip loop covering all character parts, accessories, and tools
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
