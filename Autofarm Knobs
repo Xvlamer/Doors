@@ -1,68 +1,42 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local LocalPlayer = Players.LocalPlayer
 
-if getgenv().Xvlamer_KnobFarmActive == nil then
-    getgenv().Xvlamer_KnobFarmActive = false
+-- Prevent thread stacking / memory leaks by killing any existing background loop first
+if getgenv().XvlamerStop_KnobFarm ~= nil then
+    getgenv().XvlamerStop_KnobFarm = true
+    task.wait(0.1)
 end
 
-local function setKnobFarm(state)
-    if state == nil then
-        getgenv().Xvlamer_KnobFarmActive = not getgenv().Xvlamer_KnobFarmActive
+getgenv().XvlamerStop_KnobFarm = false
+
+local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
+local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 10)
+
+local function executeKill()
+    if typeof(replicatesignal) == "function" then
+        pcall(replicatesignal, LocalPlayer.Kill)
     else
-        getgenv().Xvlamer_KnobFarmActive = state and true or false
-    end
-
-    -- Sync with Main Hub saved state if available
-    if getgenv().XvlamerHub_SavedState then
-        getgenv().XvlamerHub_SavedState.KnobFarm = getgenv().Xvlamer_KnobFarmActive
-        pcall(function()
-            local writefile = writefile or function() end
-            local Http = game:GetService("HttpService")
-            writefile("XvlamersSaveState.json", Http:JSONEncode(getgenv().XvlamerHub_SavedState))
-        end)
-    end
-
-    if getgenv().Xvlamer_UpdateToggleState then
-        pcall(function()
-            getgenv().Xvlamer_UpdateToggleState("KnobFarm", getgenv().Xvlamer_KnobFarmActive)
-        end)
-    end
-
-    if not getgenv().Xvlamer_KnobFarmActive then
-        return
-    end
-
-    -- Exact loop structure and timing from your original working script
-    task.spawn(function()
-        local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
-        local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 10)
-
-        while getgenv().Xvlamer_KnobFarmActive do
-            pcall(function()
-                if typeof(replicatesignal) == "function" then
-                    replicatesignal(LocalPlayer.Kill)
-                else
-                    local char = LocalPlayer.Character
-                    if char then
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        if hum and hum.Health > 0 then
-                            hum.Health = 0
-                        end
-                    end
-                end
-
-                if statisticsRemote then
-                    statisticsRemote:FireServer()
-                end
-            end)
-            
-            -- Original timing restored (using integer-safe math.random for Luau)
-            task.wait(0.25 + (math.random(1, 5) / 100))
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                hum.Health = 0
+            end
         end
-    end)
+    end
 end
 
-getgenv().Xvlamer_SetKnobFarm = setKnobFarm
-
-return setKnobFarm
+task.spawn(function()
+    while not getgenv().XvlamerStop_KnobFarm do
+        pcall(function()
+            executeKill()
+            if statisticsRemote then
+                statisticsRemote:FireServer()
+            end
+        end)
+        -- Fixed math.random error (Luau math.random requires integer parameters)
+        task.wait(0.25 + (math.random(1, 5) / 100))
+    end
+end)
