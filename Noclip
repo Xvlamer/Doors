@@ -7,19 +7,25 @@ if getgenv().Xvlamer_VClipActive == nil then
     getgenv().Xvlamer_VClipActive = false
 end
 
-local function toggleVClip()
-    getgenv().Xvlamer_VClipActive = not getgenv().Xvlamer_VClipActive
+local function setVClip(state)
+    if state == nil then
+        getgenv().Xvlamer_VClipActive = not getgenv().Xvlamer_VClipActive
+    else
+        getgenv().Xvlamer_VClipActive = state and true or false
+    end
 
     local char = LocalPlayer.Character
     if not char then
-        getgenv().Xvlamer_VClipActive = false
+        if getgenv().Xvlamer_VClipActive and state == nil then
+            getgenv().Xvlamer_VClipActive = false
+        end
         return
     end
 
     local humanoid = char:FindFirstChildOfClass("Humanoid")
 
     if not getgenv().Xvlamer_VClipActive then
-        -- Turning OFF
+        -- Turning OFF: Cleanly disconnect loop and restore original speed without data loss
         if getgenv().Xvlamer_VClipConn then
             getgenv().Xvlamer_VClipConn:Disconnect()
             getgenv().Xvlamer_VClipConn = nil
@@ -32,22 +38,26 @@ local function toggleVClip()
         end
 
         if humanoid then
-            humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 15
+            humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
         end
+        getgenv().Xvlamer_SavedSpeed = nil
         return
     end
 
-    -- Turning ON (changes speed once)
+    -- Turning ON: Save walkspeed strictly once and apply noclip speed
     if humanoid then
-        getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
+        if getgenv().Xvlamer_SavedSpeed == nil then
+            getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
+        end
         humanoid.WalkSpeed = 1.5
     end
 
     if getgenv().Xvlamer_VClipConn then
         getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
     end
 
-    -- Only handles collision dropping every frame so parts don't re-enable
+    -- Strong frame-by-frame collision enforcement loop
     getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -60,15 +70,23 @@ local function toggleVClip()
     end)
 end
 
+-- Expose global functions for hub and loadstring integration
+getgenv().Xvlamer_SetVClip = setVClip
+
+-- Keybind setup (Press V to toggle, with textbox typing protection)
 if getgenv().Xvlamer_KeyConn then
     getgenv().Xvlamer_KeyConn:Disconnect()
+    getgenv().Xvlamer_KeyConn = nil
 end
 
 getgenv().Xvlamer_KeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.V then
-        toggleVClip()
+        if not (UserInputService:GetFocusedTextBox()) then
+            setVClip(not getgenv().Xvlamer_VClipActive)
+        end
     end
 end)
 
-toggleVClip()
+-- Return the function so loadstring callers can execute it directly
+return setVClip
