@@ -13,7 +13,7 @@ local entitySounds = {
     ["Sounds"] = true
 }
 
-local whitelistedKeywords = {
+local blacklistedKeywords = {
     -- Entities & Items
     "rush", "ambush", "hide", "seek", "figure", "screech", "eyes", "halt", "dupe",
     "timothy", "jack", "glitch", "void", "dread", "snare", "window", "shadow", "sally",
@@ -45,8 +45,8 @@ local function isPlayerCharacter(instance)
     return false
 end
 
-local function matchesWhitelist(name)
-    for _, keyword in ipairs(whitelistedKeywords) do
+local function matchesBlacklist(name)
+    for _, keyword in ipairs(blacklistedKeywords) do
         if name:find(keyword) then
             return true
         end
@@ -63,7 +63,7 @@ local function isProtected(instance)
     while curr do
         if curr == game then break end
         if isPlayerCharacter(curr) then return true end
-        if matchesWhitelist(curr.Name:lower()) then
+        if matchesBlacklist(curr.Name:lower()) then
             return true
         end
         curr = curr.Parent
@@ -74,7 +74,7 @@ local function isProtected(instance)
     if isPlayerCharacter(container) then return true end
     if protectedCache[container] then return true end
 
-    if matchesWhitelist(container.Name:lower()) then
+    if matchesBlacklist(container.Name:lower()) then
         protectedCache[container] = true
         return true
     end
@@ -88,7 +88,7 @@ local function isProtected(instance)
             protectedCache[container] = true
             return true
         end
-        if matchesWhitelist(v.Name:lower()) then
+        if matchesBlacklist(v.Name:lower()) then
             protectedCache[container] = true
             return true
         end
