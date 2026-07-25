@@ -72,6 +72,7 @@ local function setVClip(state)
         return
     end
 
+    -- Enforce WalkSpeed, MaxSlopeAngle, and restrict upward velocity for stability
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
