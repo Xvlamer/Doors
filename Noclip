@@ -23,7 +23,6 @@ local function cleanupConnections()
     end
 end
 
--- Function to neutralize local anti-cheat detection boxes or zones in the workspace
 local function sweepAntiCheatZones()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
@@ -79,6 +78,20 @@ local function setVClip(state)
 
     if humanoid then
         humanoid.WalkSpeed = 1.5
+
+        -- Hook the metatable to instantly intercept and override any external script trying to change WalkSpeed
+        pcall(function()
+            local mt = getrawmetatable(humanoid)
+            local oldNewIndex = mt.__newindex
+            setreadonly(mt, false)
+            mt.__newindex = newcclosure(function(self, index, value)
+                if self == humanoid and index == "WalkSpeed" and getgenv().Xvlamer_VClipActive then
+                    value = 1.5
+                end
+                return oldNewIndex(self, index, value)
+            end)
+            setreadonly(mt, true)
+        end)
     end
 
     local function lockDown(dt)
@@ -98,14 +111,12 @@ local function setVClip(state)
         end
 
         if rootPart then
-            -- Micro-stepping movement replication so the server accepts the position for interactions
             local moveDir = currentHumanoid and currentHumanoid.MoveDirection or Vector3.zero
             if moveDir.Magnitude > 0 then
                 local targetCF = rootPart.CFrame + (moveDir * 1.5 * dt * 60)
                 rootPart.CFrame = targetCF
             end
 
-            -- Neutralize fall velocity spikes that cause server-side position rollbacks
             local vel = rootPart.AssemblyLinearVelocity
             rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -10, 5), vel.Z)
         end
