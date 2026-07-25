@@ -22,11 +22,6 @@ local function cleanupVClip()
     lastValidY = nil
     local char = LocalPlayer.Character
     if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.MaxSlopeAngle = 89
-        end
-
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = true
@@ -82,8 +77,6 @@ local function setVClip(state)
         local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
         
         if hum and rootPart then
-            hum.MaxSlopeAngle = 0
-            
             local currentPos = rootPart.Position
             if lastValidY == nil then
                 lastValidY = currentPos.Y
