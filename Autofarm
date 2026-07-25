@@ -1,3 +1,17 @@
+local queueteleport = queue_on_teleport or syn.queue_on_teleport or fluxus and fluxus.queue_on_teleport
+if queueteleport then
+    queueteleport('loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Hub"))()')
+end
+
+pcall(function()
+    if getgenv().Xvlamer_VClipConn then
+        getgenv().Xvlamer_VClipConn:Disconnect()
+        getgenv().Xvlamer_VClipConn = nil
+    end
+    getgenv().Xvlamer_VClipActive = false
+    getgenv().Xvlamer_SavedSpeed = nil
+end)
+
 local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
 local readfile = readfile or function() return "" end
 local writefile = writefile or function() end
@@ -40,6 +54,31 @@ local THEME_PURPLE = Color3.fromRGB(108, 92, 231)
 
 local cachedLobbyStatus = nil
 local cachedFloor = nil
+
+local function loadAndRunUrl(url)
+    local success, response = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if not success then
+        warn("[HttpError]: Failed to fetch URL ->", url, response)
+        return false
+    end
+    if response:match("404: Not Found") or response:match("<!DOCTYPE html>") then
+        warn("[GitHub Error]: The raw URL returned an HTML page or 404 for ->", url)
+        return false
+    end
+    local fn, syntaxError = loadstring(response)
+    if not fn then
+        warn("[SyntaxError]: Failed to compile script ->", url, syntaxError)
+        return false
+    end
+    local runSuccess, runError = pcall(fn)
+    if not runSuccess then
+        warn("[RuntimeError]: Script crashed during execution ->", url, runError)
+        return false
+    end
+    return true
+end
 
 local function isInGame()
     local success, result = pcall(function()
@@ -105,7 +144,6 @@ end
 local HubConnections = {}
 local activeThreads = {}
 local radioToggles = {}
-local noclipRadioToggles = {}
 local toggleHandlers = {}
 
 local function trackConnection(conn)
@@ -113,9 +151,32 @@ local function trackConnection(conn)
     return conn
 end
 
+pcall(function()
+    local queueteleport = queue_on_teleport or syn.queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+    if queueteleport then
+        local scriptCode = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Hub"))()'
+        trackConnection(game:GetService("TeleportService").TeleportInit:Connect(function()
+            pcall(function()
+                queueteleport(scriptCode)
+            end)
+        end))
+    end
+end)
+
+local function onDebouncedClick(btn, callback, cooldown)
+    cooldown = cooldown or 0.25
+    local lastTick = 0
+    return trackConnection(btn.MouseButton1Click:Connect(function()
+        local now = tick()
+        if now - lastTick < cooldown then return end
+        lastTick = now
+        pcall(callback)
+    end))
+end
+
 local function isModalOpen()
     for _, v in pairs(safeUI:GetChildren()) do
-        if v:IsA("ScreenGui") and (v.Name == "XvlamersExitWarning" or v.Name == "XvlamersStartupAutofarmPrompt" or v.Name == "XvlamersDeathFarmWarning" or v.Name == "XvlamersModifiersPrompt" or v.Name == "XvlamersZeroGoldWarning" or v.Name == "XvlamersStardustFarmWarning" or v.Name == "XvlamersKnobFloorWarning" or v.Name == "XvlamersStardustFloorWarning" or v.Name == "XvlamersNoclipLobbyWarning") then
+        if v:IsA("ScreenGui") and (v.Name == "XvlamersExitWarning" or v.Name == "XvlamersStartupAutofarmPrompt" or v.Name == "XvlamersDeathFarmWarning" or v.Name == "XvlamersModifiersPrompt" or v.Name == "XvlamersZeroGoldWarning" or v.Name == "XvlamersStardustFarmWarning" or v.Name == "XvlamersKnobFloorWarning" or v.Name == "XvlamersStardustFloorWarning") then
             return true
         end
     end
@@ -161,6 +222,7 @@ getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
     ActiveFarm = nil, 
     UnlockFps = false, 
     AntiAFK = false, 
+    Noclip = false,
     KeyExpiry = 0
 }
 state = getgenv().XvlamerHub_SavedState
@@ -177,6 +239,7 @@ local function saveState()
             ActiveFarm = farmToSave,
             UnlockFps = state.UnlockFps,
             AntiAFK = state.AntiAFK,
+            Noclip = state.Noclip,
             KeyExpiry = state.KeyExpiry
         }
         local encoded = Http:JSONEncode(saveData)
@@ -197,162 +260,227 @@ if readSuccess and readData and readData ~= "" then
         if decoded.ActiveFarm ~= nil and decoded.ActiveFarm ~= "Knob Farm" then pendingStartupFarm = decoded.ActiveFarm end
         if decoded.UnlockFps ~= nil then state.UnlockFps = decoded.UnlockFps end
         if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
+        if decoded.Noclip ~= nil then state.Noclip = decoded.Noclip end
         if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
     end
 end
 
+-- ==========================================
+-- INTEGRATED ZERO-LEAK OPTIMIZER MODULE
+-- ==========================================
 local Optimizer = {}
 do
-    local isEnabled, targetState, isProcessing, sweepToken = false, false, false, 0
-    local connections = {}
-    local cache = { props = {}, surfaces = {}, fx = {}, lighting = {}, terrain = {}, quality = nil }
-    setmetatable(cache.props, {__mode = "k"})
-    setmetatable(cache.surfaces, {__mode = "k"})
-    setmetatable(cache.fx, {__mode = "k"})
+    local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 
-    local smoothPlastic = Enum.Material.SmoothPlastic
-    local camera = Workspace:FindFirstChildOfClass("Camera")
+    local entitySounds = {
+        ["Footsteps"] = true,
+        ["Kill"] = true,
+        ["Knock"] = true,
+        ["PlaySound"] = true,
+        ["Repent"] = true,
+        ["Scream"] = true,
+        ["Sounds"] = true
+    }
 
-    local function isExcluded(v, char)
-        if not v then return true end
-        if char and (v == char or v:IsDescendantOf(char)) then return true end
-        if v == camera or (camera and v:IsDescendantOf(camera)) then return true end
-        if v.ClassName == "Tool" or v:FindFirstAncestorOfClass("Tool") then return true end
+    local protectedCache = setmetatable({}, {__mode = "k"})
+
+    local function isProtected(instance)
+        local container = instance:FindFirstAncestorOfClass("Model")
+        if not container then return false end
+        if protectedCache[container] then return true end
+        
+        for _, v in ipairs(container:GetDescendants()) do
+            if v:IsA("Sound") and entitySounds[v.Name] then
+                protectedCache[container] = true
+                return true
+            end
+        end
         return false
     end
 
-    local function applyOptimization(v, char)
-        if not isEnabled or isExcluded(v, char) then return end
+    local function applyOptimization(instance)
         pcall(function()
-            local className = v.ClassName
-            if className == "Part" or className == "MeshPart" or className == "UnionOperation" or className == "CornerWedgePart" or className == "WedgePart" then
-                if not cache.props[v] then 
-                    cache.props[v] = { Reflectance = v.Reflectance, Material = v.Material, CastShadow = v.CastShadow, Color = v.Color, Transparency = v.Transparency } 
-                end
-                v.Reflectance = 0
-                v.CastShadow = false
-                if v.Material ~= smoothPlastic then v.Material = smoothPlastic end
-            elseif className == "SurfaceAppearance" then
-                if cache.surfaces[v] == nil then cache.surfaces[v] = v.Parent end
-                v.Parent = nil
-            elseif className == "Decal" or className == "Texture" then
-                if cache.props[v] == nil then cache.props[v] = { Transparency = v.Transparency, Parent = v.Parent } end
-                v.Transparency = 1
-                v.Parent = nil
-            elseif className == "PostEffect" or className == "BloomEffect" or className == "BlurEffect" or className == "SunRaysEffect" or className == "DepthOfFieldEffect" or className == "ColorCorrectionEffect" then
-                if cache.fx[v] == nil then
-                    cache.fx[v] = v.Enabled
+            if isProtected(instance) then return end
+
+            if instance:IsA("BasePart") and not instance:IsA("Terrain") then
+                instance.Material = Enum.Material.SmoothPlastic
+                instance.Color = Color3.new(1, 1, 1)
+                instance.CastShadow = false
+            elseif instance:IsA("Decal") or instance:IsA("Texture") then
+                instance.Transparency = 1
+            elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
+                instance.Enabled = false
+            end
+        end)
+    end
+
+    function Optimizer.Toggle(stateVal)
+        getgenv().Xvlamer_OptActive = stateVal and true or false
+
+        if getgenv().Xvlamer_OptConn then
+            getgenv().Xvlamer_OptConn:Disconnect()
+            getgenv().Xvlamer_OptConn = nil
+        end
+
+        if not getgenv().Xvlamer_OptActive then
+            return
+        end
+
+        pcall(function()
+            Lighting.GlobalShadows = false
+            Lighting.FogEnd = 9e9
+            Lighting.FogStart = 9e9
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 14
+            Lighting.Ambient = Color3.new(1, 1, 1)
+            Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+            
+            for _, v in ipairs(Lighting:GetDescendants()) do
+                if v:IsA("PostEffect") or v:IsA("Atmosphere") then
                     v.Enabled = false
                 end
             end
         end)
-    end
 
-    local function executeEnable(currentToken)
-        isEnabled = true
-        camera = Workspace:FindFirstChildOfClass("Camera")
-        pcall(function() 
-            if cache.quality == nil then cache.quality = settings().Rendering.QualityLevel end
-            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 
-        end)
-
-        if next(cache.lighting) == nil then 
-            cache.lighting = { GlobalShadows = Lighting.GlobalShadows, EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale, EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale, Brightness = Lighting.Brightness, OutdoorAmbient = Lighting.OutdoorAmbient, FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart } 
-        end
-
-        pcall(function() 
-            Lighting.GlobalShadows = false
-            Lighting.EnvironmentSpecularScale = 0
-            Lighting.EnvironmentDiffuseScale = 0
-            Lighting.Brightness = 2
-            Lighting.FogEnd = 999999
-            Lighting.FogStart = 999999
-        end)
-
-        for _, v in pairs(Lighting:GetChildren()) do 
-            if v.ClassName ~= "Sky" then applyOptimization(v, nil) end 
-        end
-
-        local terrain = Workspace:FindFirstChildOfClass("Terrain")
-        if terrain and next(cache.terrain) == nil then
-            cache.terrain = { WaterWaveSize = terrain.WaterWaveSize, WaterWaveSpeed = terrain.WaterWaveSpeed, WaterReflectance = terrain.WaterReflectance, WaterTransparency = terrain.WaterTransparency, Decoration = terrain.Decoration }
-            pcall(function() 
-                terrain.WaterWaveSize = 0
-                terrain.WaterWaveSpeed = 0
-                terrain.WaterReflectance = 0
-                terrain.WaterTransparency = 0
-                terrain.Decoration = false
-            end)
-        end
-
-        local char = P.Character
-        local descendants = Workspace:GetDescendants()
-        task.spawn(function()
-            for i = 1, #descendants do
-                if not isEnabled or sweepToken ~= currentToken then break end
-                applyOptimization(descendants[i], char)
+        pcall(function()
+            if Terrain then
+                Terrain.WaterWaveSize = 0
+                Terrain.WaterWaveSpeed = 0
+                Terrain.WaterReflectance = 0
+                Terrain.WaterTransparency = 1
+                Terrain.Decoration = false
             end
         end)
 
-        if not connections.descendantAdded then 
-            connections.descendantAdded = Workspace.DescendantAdded:Connect(function(v) 
-                if isEnabled and sweepToken == currentToken then 
-                    applyOptimization(v, P.Character) 
-                end 
-            end) 
+        for _, v in ipairs(Workspace:GetDescendants()) do
+            applyOptimization(v)
         end
+
+        getgenv().Xvlamer_OptConn = Workspace.DescendantAdded:Connect(function(instance)
+            if getgenv().Xvlamer_OptActive then
+                task.defer(applyOptimization, instance)
+            end
+        end)
     end
 
-    local function executeDisable(currentToken)
-        sweepToken = currentToken
-        isEnabled = false
-        if connections.descendantAdded then 
-            pcall(function() connections.descendantAdded:Disconnect() end)
-            connections.descendantAdded = nil 
-        end
-        pcall(function() if cache.quality then settings().Rendering.QualityLevel = cache.quality end end)
-        for k, v in pairs(cache.lighting) do pcall(function() Lighting[k] = v end) end
-        table.clear(cache.lighting)
-
-        local terrain = Workspace:FindFirstChildOfClass("Terrain")
-        if terrain then for k, v in pairs(cache.terrain) do pcall(function() terrain[k] = v end) end end
-        table.clear(cache.terrain)
-        
-        for obj, props in pairs(cache.props) do 
-            if obj then 
-                if props.Parent and not obj.Parent then pcall(function() obj.Parent = props.Parent end) end
-                for propName, propValue in pairs(props) do if propName ~= "Parent" then pcall(function() obj[propName] = propValue end) end end 
-            end 
-        end 
-        table.clear(cache.props)
-        
-        for obj, oldParent in pairs(cache.surfaces) do if obj and oldParent then pcall(function() obj.Parent = oldParent end) end end 
-        table.clear(cache.surfaces)
-        
-        for obj, oldState in pairs(cache.fx) do if obj then pcall(function() obj.Enabled = oldState end) end end 
-        table.clear(cache.fx)
-    end
-
-    local function processQueue()
-        if isProcessing then return end
-        isProcessing = true
-        while targetState ~= isEnabled do
-            sweepToken = sweepToken + 1
-            local currentToken = sweepToken
-            if targetState then executeEnable(currentToken) else executeDisable(currentToken) end
-        end
-        isProcessing = false
-    end
-
-    function Optimizer.Toggle(stateVal) 
-        targetState = stateVal and true or false
-        task.spawn(processQueue) 
-    end
-    function Optimizer.Disable() 
-        targetState = false
-        task.spawn(processQueue) 
+    function Optimizer.Disable()
+        Optimizer.Toggle(false)
     end
 end
+-- ==========================================
+
+-- ==========================================
+-- INTEGRATED NOCLIP MODULE
+-- ==========================================
+local NoclipModule = {}
+do
+    local function cleanupVClip()
+        if getgenv().Xvlamer_VClipConn then
+            getgenv().Xvlamer_VClipConn:Disconnect()
+            getgenv().Xvlamer_VClipConn = nil
+        end
+        if getgenv().Xvlamer_SpeedConn then
+            getgenv().Xvlamer_SpeedConn:Disconnect()
+            getgenv().Xvlamer_SpeedConn = nil
+        end
+        
+        local char = P.Character
+        if char then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = true
+                end
+            end
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
+                if getgenv().Xvlamer_SavedSlope ~= nil then
+                    humanoid.MaxSlopeAngle = getgenv().Xvlamer_SavedSlope
+                end
+            end
+        end
+        getgenv().Xvlamer_SavedSpeed = nil
+        getgenv().Xvlamer_SavedSlope = nil
+    end
+
+    function NoclipModule.Toggle(stateVal)
+        getgenv().Xvlamer_VClipActive = stateVal and true or false
+
+        if getgenv().Xvlamer_VClipConn then
+            getgenv().Xvlamer_VClipConn:Disconnect()
+            getgenv().Xvlamer_VClipConn = nil
+        end
+        if getgenv().Xvlamer_SpeedConn then
+            getgenv().Xvlamer_SpeedConn:Disconnect()
+            getgenv().Xvlamer_SpeedConn = nil
+        end
+
+        if not getgenv().Xvlamer_VClipActive then
+            cleanupVClip()
+            return
+        end
+
+        getgenv().Xvlamer_SpeedConn = RS.Heartbeat:Connect(function()
+            local currentCharacter = P.Character
+            if not currentCharacter then return end
+            
+            local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+            if hum then
+                if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1.5 then
+                    getgenv().Xvlamer_SavedSpeed = 16
+                end
+                if getgenv().Xvlamer_SavedSlope == nil or getgenv().Xvlamer_SavedSlope == 0 then
+                    getgenv().Xvlamer_SavedSlope = hum.MaxSlopeAngle
+                end
+                
+                if hum.WalkSpeed ~= 1.5 then
+                    hum.WalkSpeed = 1.5
+                end
+                if hum.MaxSlopeAngle ~= 0 then
+                    hum.MaxSlopeAngle = 0
+                end
+            end
+
+            local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                local vel = rootPart.AssemblyLinearVelocity
+                if vel.Y > 0 then
+                    rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+                end
+            end
+        end)
+
+        getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
+            local currentCharacter = P.Character
+            if not currentCharacter then return end
+
+            for _, v in ipairs(currentCharacter:GetDescendants()) do
+                if v:IsA("BasePart") and v.CanCollide then
+                    v.CanCollide = false
+                end
+            end
+        end)
+    end
+
+    function NoclipModule.Disable()
+        NoclipModule.Toggle(false)
+    end
+end
+
+if getgenv().Xvlamer_RespawnConn then
+    getgenv().Xvlamer_RespawnConn:Disconnect()
+    getgenv().Xvlamer_RespawnConn = nil
+end
+
+getgenv().Xvlamer_RespawnConn = P.CharacterAdded:Connect(function(newChar)
+    if getgenv().Xvlamer_VClipActive then
+        task.wait(0.3)
+        NoclipModule.Toggle(true)
+    else
+        NoclipModule.Disable()
+    end
+end)
+-- ==========================================
 
 local antiAfkConn = nil
 local function setAntiAFK(enabled, dontSave)
@@ -406,25 +534,6 @@ local function setUnlockFPS(enabled, dontSave)
     end
 end
 
--- NOCLIP LOADSTRING (Fixed with Raw GitHub URL and state synchronization)[cite: 6]
-local noclipLoadstring = "https://raw.githubusercontent.com/Xvlamer/Doors/main/Noclip"
-
-local function setNoclip(enabled)
-    pcall(function()
-        local currentState = getgenv().Xvlamer_VClipActive == true
-        if currentState ~= enabled then
-            if noclipLoadstring and noclipLoadstring ~= "" then
-                local success, err = pcall(function()
-                    loadstring(game:HttpGet(noclipLoadstring))()
-                end)
-                if not success then
-                    warn("Failed to execute noclip loadstring:", err)
-                end
-            end
-        end
-    end)
-end
-
 local purge = function() end
 purge = function()
     getgenv().XvlamerStop_PhantomPurge = true
@@ -437,11 +546,12 @@ purge = function()
     pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = originalFps end)
     pcall(function() settings().Rendering.FramerateLimit = originalFps end)
 
-    setNoclip(false)
     if Optimizer and type(Optimizer.Disable) == "function" then pcall(function() Optimizer.Disable() end) end
+    if NoclipModule and type(NoclipModule.Disable) == "function" then pcall(function() NoclipModule.Disable() end) end
     getgenv().XvlamerStop_KnobFarm = true
     getgenv().XvlamerStop_DeathFarm = true
     getgenv().XvlamerStop_StardustFarm = true
+    getgenv().XvlamerStop_Noclip = true
     
     for _, thread in pairs(activeThreads) do if thread then pcall(function() task.cancel(thread) end) end end
     table.clear(activeThreads)
@@ -453,7 +563,6 @@ purge = function()
     table.clear(HubConnections)
     table.clear(toggleHandlers)
     table.clear(radioToggles)
-    table.clear(noclipRadioToggles)
 
     mainRef = nil
 
@@ -510,9 +619,6 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
         if mainRef then mainRef.Visible = false end
         local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
         if mGuiRef then mGuiRef.Enabled = false end
-        pcall(function()
-            UIS.MouseBehavior = Enum.MouseBehavior.Default
-        end)
 
         local warnGui = Instance.new("ScreenGui")
         warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 1000000; warnGui.Parent = safeUI
@@ -554,6 +660,7 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
         end
 
         local activeCountdown = true
+        local isClosingModal = false
         local popupConns = {}
         local function trackPopupConn(conn)
             if conn then table.insert(popupConns, conn) end
@@ -561,6 +668,8 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
         end
 
         local function closeModalAndRun(callback)
+            if isClosingModal then return end
+            isClosingModal = true
             activeCountdown = false
             pcall(function()
                 for _, conn in ipairs(popupConns) do
@@ -571,17 +680,12 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
                 if mainRef then mainRef.Visible = wasMainVisible end
                 local mGuiCheck = safeUI:FindFirstChild("XvlamersMobileToggle")
                 if mGuiCheck then mGuiCheck.Enabled = true end
-                if mainRef and mainRef.Visible then
-                    UIS.MouseBehavior = Enum.MouseBehavior.Default
-                else
-                    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
-                end
                 if callback then callback() end
             end)
         end
 
-        if cBtn then trackPopupConn(cBtn.MouseButton1Click:Connect(function() closeModalAndRun(onCancel) end)) end
-        trackPopupConn(cfBtn.MouseButton1Click:Connect(function() closeModalAndRun(onConfirm) end))
+        if cBtn then onDebouncedClick(cBtn, function() closeModalAndRun(onCancel) end, 0.2) end
+        onDebouncedClick(cfBtn, function() closeModalAndRun(onConfirm) end, 0.2)
 
         if countdownSeconds and countdownSeconds > 0 then
             task.spawn(function()
@@ -629,25 +733,8 @@ local function initializeMainHub()
         pcall(function() 
             if visible and isModalOpen() then return end
             main.Visible = visible
-            if visible then
-                pcall(function()
-                    UIS.MouseBehavior = Enum.MouseBehavior.Default
-                end)
-            else
-                pcall(function()
-                    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
-                end)
-            end
         end) 
     end
-
-    pcall(function()
-        if main.Visible then
-            UIS.MouseBehavior = Enum.MouseBehavior.Default
-        else
-            UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
-        end
-    end)
 
     trackConnection(UIS.InputBegan:Connect(function(input) 
         if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then 
@@ -655,18 +742,6 @@ local function initializeMainHub()
                 setMainGuiVisible(not main.Visible) 
             end
         end 
-    end))
-
-    trackConnection(UIS.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.KeyCode == Enum.KeyCode.V then
-            if not isModalOpen() and not (UIS:GetFocusedTextBox()) then
-                local noclipToggle = toggleHandlers["Noclip"]
-                if noclipToggle and type(noclipToggle.update) == "function" then
-                    noclipToggle.update(not noclipToggle.get())
-                end
-            end
-        end
     end))
 
     if isMobile then
@@ -691,9 +766,9 @@ local function initializeMainHub()
         trackConnection(UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then mDragInput = input end end))
         trackConnection(UIS.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - mDragStart; mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) end end))
 
-        trackConnection(mBtn.MouseButton1Click:Connect(function() 
+        onDebouncedClick(mBtn, function() 
             setMainGuiVisible(not main.Visible) 
-        end))
+        end, 0.2)
     end
 
     local top = create("Frame", {Size=UDim2.new(1,0,0,38), BackgroundColor3=Color3.fromRGB(16, 16, 22), BorderSizePixel=0, Parent=main})
@@ -733,7 +808,7 @@ local function initializeMainHub()
                 for i, p in ipairs(pages) do p.Visible = (i==id) end 
             end)
         end
-        trackConnection(btn.MouseButton1Click:Connect(selectTab))
+        onDebouncedClick(btn, selectTab, 0.2)
     end
     addTab("Info", 1, true); addTab("AutoFarm", 2, false); addTab("Player", 3, true)
     pages[3].Size = UDim2.new(1, -20, 1, -8)
@@ -752,14 +827,17 @@ local function initializeMainHub()
             minBtn.Text = isMin and "+" or "-" 
         end)
     end
-    trackConnection(minBtn.MouseButton1Click:Connect(toggleMinimize))
+    onDebouncedClick(minBtn, toggleMinimize, 0.2)
 
     local function stopThread(key)
         pcall(function()
             if key == "Knob Farm" then getgenv().XvlamerStop_KnobFarm = true
             elseif key == "Death Farm" then getgenv().XvlamerStop_DeathFarm = true
             elseif key == "Stardust Farm" then getgenv().XvlamerStop_StardustFarm = true
-            elseif key == "Noclip" then setNoclip(false) end
+            elseif key == "Noclip" then 
+                getgenv().XvlamerStop_Noclip = true
+                NoclipModule.Disable()
+            end
             
             if activeThreads[key] then
                 pcall(function() task.cancel(activeThreads[key]) end)
@@ -779,7 +857,7 @@ local function initializeMainHub()
             function() pcall(function() purge() end) end
         )
     end
-    trackConnection(closeBtn.MouseButton1Click:Connect(handleExitClick))
+    onDebouncedClick(closeBtn, handleExitClick, 0.2)
 
     local function runThread(key)
         stopThread(key)
@@ -787,17 +865,13 @@ local function initializeMainHub()
             if not isInLobby() then
                 getgenv().XvlamerStop_KnobFarm = false
                 activeThreads[key] = task.spawn(function()
-                    pcall(function()
-                        loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs"))()
-                    end)
+                    loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs")
                 end)
             end
         elseif key == "Death Farm" then
             getgenv().XvlamerStop_DeathFarm = false
             activeThreads[key] = task.spawn(function()
-                pcall(function()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Deaths"))()
-                end)
+                loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Deaths")
             end)
         elseif key == "Stardust Farm" then
             getgenv().XvlamerStop_StardustFarm = false
@@ -887,16 +961,17 @@ local function initializeMainHub()
 
                 if getgenv().XvlamerStop_StardustFarm then return end
 
-                pcall(function()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"))()
-                end)
+                loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust")
             end)
         elseif key == "Noclip" then
-            setNoclip(true)
+            getgenv().XvlamerStop_Noclip = false
+            activeThreads[key] = task.spawn(function()
+                NoclipModule.Toggle(true)
+            end)
         end
     end
 
-    local function createToggle(name, parentPage, isRadio, isNoclipRadio, stateKey, order, customHeight)
+    local function createToggle(name, parentPage, isRadio, stateKey, order, customHeight)
         local toggleHeight = customHeight or 36
         local box = create("TextButton", {Size=UDim2.new(1,0,0,toggleHeight), BackgroundColor3=Color3.fromRGB(18, 18, 24), Text="", AutoButtonColor=false, Active=true, LayoutOrder=order, Parent=parentPage})
         create("UICorner", {CornerRadius=UDim.new(0,9), Parent=box}); create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=box})
@@ -928,7 +1003,7 @@ local function initializeMainHub()
                         state.ActiveFarm = nil
                         pcall(saveState)
                     end
-                elseif not isNoclipRadio and stateKey then
+                elseif stateKey then
                     if state[stateKey] then
                         state[stateKey] = false
                         pcall(saveState)
@@ -937,7 +1012,6 @@ local function initializeMainHub()
             end
         }
         if isRadio then table.insert(radioToggles, toggleObj) end
-        if isNoclipRadio then table.insert(noclipRadioToggles, toggleObj) end
 
         local function updateState(newState, skipWarning)
             on = newState
@@ -1105,58 +1179,53 @@ local function initializeMainHub()
                     if state.ActiveFarm == name then state.ActiveFarm = nil; pcall(saveState) end
                     stopThread(name)
                 end
-            elseif isNoclipRadio then
-                if on then
-                    if isInLobby() then
-                        setVisual(false)
-                        on = false
-                        showPopupModal(
-                            "XvlamersNoclipLobbyWarning",
-                            "⚠️ LOBBY RESTRICTION",
-                            "You cannot turn this on in the lobby.",
-                            "",
-                            "Proceed",
-                            function() end,
-                            function() end
-                        )
-                        return
-                    end
-                    for _, r in ipairs(noclipRadioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                    runThread(name)
-                else
-                    stopThread(name)
-                end
             else
                 if stateKey then state[stateKey] = on; pcall(saveState) end
                 if stateKey == "Optimizations" then Optimizer.Toggle(on)
                 elseif stateKey == "AntiAFK" then setAntiAFK(on)
                 elseif stateKey == "UnlockFps" then setUnlockFPS(on)
-                else if on then runThread(name) else stopThread(name) end end
+                else 
+                    if on then runThread(name) else stopThread(name) end 
+                end
             end
         end
 
         toggleObj.update = updateState
-        if isRadio then toggleHandlers[name] = toggleObj elseif isNoclipRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
+        if isRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
 
-        trackConnection(box.MouseButton1Click:Connect(function() updateState(not on) end))
+        onDebouncedClick(box, function()
+            updateState(not on)
+        end, 0.2)
 
         if stateKey and state[stateKey] == true then
             on = true
             setVisual(true)
             if stateKey == "Optimizations" then Optimizer.Toggle(true)
             elseif stateKey == "AntiAFK" then setAntiAFK(true, true)
-            elseif stateKey == "UnlockFps" then setUnlockFPS(true, true) end
+            elseif stateKey == "UnlockFps" then setUnlockFPS(true, true)
+            elseif stateKey == "Noclip" then runThread(name) end
         end
     end
 
-    createToggle("Knob Farm", pages[2], true, false, nil, 1, 36)
-    createToggle("Death Farm", pages[2], true, false, nil, 2, 36)
-    createToggle("Stardust Farm", pages[2], true, false, nil, 3, 36)
+    createToggle("Knob Farm", pages[2], true, nil, 1, 36)
+    createToggle("Death Farm", pages[2], true, nil, 2, 36)
+    createToggle("Stardust Farm", pages[2], true, nil, 3, 36)
 
-    createToggle("Noclip", pages[3], false, true, nil, 1, 36)
-    createToggle("Optimizations", pages[3], false, false, "Optimizations", 2, 36)
-    createToggle("Unlock fps", pages[3], false, false, "UnlockFps", 3, 36)
-    createToggle("Anti-AFK", pages[3], false, false, "AntiAFK", 4, 36)
+    createToggle("Noclip", pages[3], false, "Noclip", 1, 36)
+    createToggle("Optimizations", pages[3], false, "Optimizations", 2, 36)
+    createToggle("Unlock fps", pages[3], false, "UnlockFps", 3, 36)
+    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 4, 36)
+
+    trackConnection(UIS.InputBegan:Connect(function(input, gpe)
+        if not gpe and input.KeyCode == Enum.KeyCode.V then
+            if not UIS:GetFocusedTextBox() then
+                local noclipToggle = toggleHandlers["Noclip"]
+                if noclipToggle and type(noclipToggle.update) == "function" and type(noclipToggle.get) == "function" then
+                    noclipToggle.update(not noclipToggle.get())
+                end
+            end
+        end
+    end))
 end
 
 local function showStartupAutofarmPrompt(onComplete)
@@ -1193,9 +1262,6 @@ end
 local function startKeySystem()
     local keyGui = create("ScreenGui", {Name="XvlamersKeySystem", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999, Parent=safeUI})
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(keyGui) end end)
-    pcall(function()
-        UIS.MouseBehavior = Enum.MouseBehavior.Default
-    end)
 
     local keyFrame = create("Frame", {
         Size=UDim2.new(0, 320, 0, 145), 
@@ -1220,7 +1286,7 @@ local function startKeySystem()
 
     local closeKeyBtn = create("TextButton", {Size=UDim2.new(0, 24, 0, 24), Position=UDim2.new(1, -32, 0, 12), BackgroundColor3=Color3.fromRGB(20, 20, 28), Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(180, 180, 200), TextSize=10, Parent=keyFrame})
     create("UICorner", {CornerRadius=UDim.new(0, 7), Parent=closeKeyBtn})
-    trackConnection(closeKeyBtn.MouseButton1Click:Connect(function() _G.XvlamerHub_CloseKeySystem() end))
+    onDebouncedClick(closeKeyBtn, function() _G.XvlamerHub_CloseKeySystem() end, 0.2)
 
     create("TextLabel", {Size=UDim2.new(1, -40, 0, 12), Position=UDim2.new(0, 15, 0, 12), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="AUTHENTICATION", TextColor3=THEME_PURPLE, TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
     create("TextLabel", {Size=UDim2.new(1, -40, 0, 16), Position=UDim2.new(0, 15, 0, 24), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="You must get the key from the script owner.", TextColor3=Color3.fromRGB(245, 245, 255), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
@@ -1255,7 +1321,7 @@ local function startKeySystem()
             errorLbl.Text = "Incorrect key! Verify with the script owner."
         end
     end
-    trackConnection(confirmBtn.MouseButton1Click:Connect(handleKeyConfirm))
+    onDebouncedClick(confirmBtn, handleKeyConfirm, 0.2)
 end
 
 local passedKey = select(1, ...)
