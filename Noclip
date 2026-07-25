@@ -20,6 +20,10 @@ local function cleanupVClip()
                 v.CanCollide = true
             end
         end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
     end
 end
 
@@ -58,6 +62,12 @@ local function setVClip(state)
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
+
+        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+        if hum then
+            -- Bypass gravity and floor-snapping on slopes/angles completely
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
             if v:IsA("BasePart") and v.CanCollide then
