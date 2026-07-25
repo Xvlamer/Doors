@@ -43,11 +43,8 @@ local function setVClip(state)
         return
     end
 
-    if humanoid then
-        if getgenv().Xvlamer_SavedSpeed == nil then
-            getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
-        end
-        humanoid.WalkSpeed = 1.5
+    if humanoid and getgenv().Xvlamer_SavedSpeed == nil then
+        getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
     end
 
     if getgenv().Xvlamer_VClipConn then
@@ -58,6 +55,11 @@ local function setVClip(state)
     getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
+
+        local currentHumanoid = currentCharacter:FindFirstChildOfClass("Humanoid")
+        if currentHumanoid then
+            currentHumanoid.WalkSpeed = 1.5
+        end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
             if v:IsA("BasePart") then
