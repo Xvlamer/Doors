@@ -19,6 +19,12 @@ local function cleanupVClip()
     
     local char = LocalPlayer.Character
     if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            -- Restore default slope behavior when disabling noclip
+            hum.MaxSlopeAngle = 89 
+        end
+
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = true
@@ -63,7 +69,16 @@ local function setVClip(state)
         return
     end
 
-    -- Velocity lock to completely prevent sliding down slopes while noclipping
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            -- Force the engine to stop treating objects as traversable terrain
+            hum.MaxSlopeAngle = 0 
+        end
+    end
+
+    -- Velocity lock to completely prevent sliding down slopes and auto-stepping
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -74,13 +89,21 @@ local function setVClip(state)
         if hum and rootPart then
             local moveDir = hum.MoveDirection
             local currentVel = rootPart.AssemblyLinearVelocity
+            local yVel = currentVel.Y
             
-            -- This forces your horizontal velocity to strictly match your walking input.
-            -- If you stand still, X/Z velocity becomes 0 so you don't slide. 
-            -- The Y velocity is left alone so jumping/falling still works perfectly.
+            -- EXTREME ANTI-STEP LOGIC:
+            -- If you are not actively pressing the jump key, this completely nullifies 
+            -- any upward momentum the Humanoid tries to apply to step onto an object. 
+            -- Since CanCollide is false, you will cleanly phase right through it instead.
+            if not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                if yVel > 0 then
+                    yVel = 0
+                end
+            end
+            
             rootPart.AssemblyLinearVelocity = Vector3.new(
                 moveDir.X * hum.WalkSpeed,
-                currentVel.Y,
+                yVel,
                 moveDir.Z * hum.WalkSpeed
             )
         end
@@ -108,6 +131,7 @@ end
 getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
         task.wait(0.3)
+        setVClip(true)
     else
         cleanupVClip()
     end
