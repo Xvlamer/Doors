@@ -2,10 +2,6 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 
-if getgenv().Xvlamer_OptActive == nil then
-    getgenv().Xvlamer_OptActive = false
-end
-
 local entitySounds = {
     ["Footsteps"] = true,
     ["Kill"] = true,
@@ -26,7 +22,6 @@ local function isProtected(instance)
         return true
     end
 
-    -- Whitelist all particle emitters, trails, and beams so their textures and effects are never deleted
     if instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
         return true
     end
@@ -88,58 +83,36 @@ local function applyOptimization(instance)
     end)
 end
 
-local function setOptimizations(state)
-    if state == nil then
-        getgenv().Xvlamer_OptActive = not getgenv().Xvlamer_OptActive
-    else
-        getgenv().Xvlamer_OptActive = state and true or false
-    end
-
-    if getgenv().Xvlamer_OptConn then
-        getgenv().Xvlamer_OptConn:Disconnect()
-        getgenv().Xvlamer_OptConn = nil
-    end
-
-    if not getgenv().Xvlamer_OptActive then
-        return
-    end
-
-    pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.FogEnd = 9e9
-        Lighting.FogStart = 9e9
-        Lighting.Brightness = 2
-        Lighting.ClockTime = 14
-        Lighting.Ambient = Color3.fromRGB(130, 130, 130)
-        Lighting.OutdoorAmbient = Color3.fromRGB(130, 130, 130)
-        
-        for _, v in ipairs(Lighting:GetDescendants()) do
-            if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
-                v.Enabled = false
-            end
+pcall(function()
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.FogStart = 9e9
+    Lighting.Brightness = 2
+    Lighting.ClockTime = 14
+    Lighting.Ambient = Color3.fromRGB(130, 130, 130)
+    Lighting.OutdoorAmbient = Color3.fromRGB(130, 130, 130)
+    
+    for _, v in ipairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
+            v.Enabled = false
         end
-    end)
-
-    pcall(function()
-        if Terrain then
-            Terrain.WaterWaveSize = 0
-            Terrain.WaterWaveSpeed = 0
-            Terrain.WaterReflectance = 0
-            Terrain.WaterTransparency = 1
-            Terrain.Decoration = false
-        end
-    end)
-
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        applyOptimization(v)
     end
+end)
 
-    getgenv().Xvlamer_OptConn = Workspace.DescendantAdded:Connect(function(instance)
-        if getgenv().Xvlamer_OptActive then
-            task.defer(applyOptimization, instance)
-        end
-    end)
+pcall(function()
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 1
+        Terrain.Decoration = false
+    end
+end)
+
+for _, v in ipairs(Workspace:GetDescendants()) do
+    applyOptimization(v)
 end
 
-getgenv().Xvlamer_SetOptimizations = setOptimizations
-return setOptimizations
+Workspace.DescendantAdded:Connect(function(instance)
+    task.defer(applyOptimization, instance)
+end)
