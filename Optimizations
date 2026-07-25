@@ -13,6 +13,17 @@ local entitySounds = {
     ["Sounds"] = true
 }
 
+local whitelistedKeywords = {
+    "rush", "ambush", "hide", "seek", "figure", "screech", "eyes", "halt", "dupe",
+    "timothy", "jack", "glitch", "void", "dread", "snare", "window", "shadow", "sally",
+    "guiding light", "el goblino", "jeff", "bob", "a-60", "a-90", "a-120",
+    "curious light", "blitz", "lookman", "haste", "giggle", "grumble", "queen grumble",
+    "gloombats", "louie", "bramble", "caws", "eyestalk", "grampy", "groundskeeper",
+    "mandrake", "monument", "surge", "world lotus", "honcho", "ransom", "evil key",
+    "greed", "jeff the killer", "subspace tripmine", "banana peel", "drakobloxxers",
+    "rift", "riftspawn", "starcenter"
+}
+
 local protectedCache = setmetatable({}, {__mode = "k"})
 
 local function isPlayerCharacter(instance)
@@ -29,24 +40,28 @@ local function isPlayerCharacter(instance)
     return false
 end
 
+local function matchesWhitelist(name)
+    for _, keyword in ipairs(whitelistedKeywords) do
+        if name:find(keyword) then
+            return true
+        end
+    end
+    return false
+end
+
 local function isProtected(instance)
     if not instance then return false end
     if isPlayerCharacter(instance) then return true end
 
     local name = instance.Name:lower()
-    if name:find("guiding light") or name:find("guidinglight") or name:find("rift") or name:find("riftspawn") or name:find("starcenter") then
-        return true
-    end
-
-    if instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
+    if matchesWhitelist(name) then
         return true
     end
 
     local curr = instance
     while curr and curr ~= game do
         if isPlayerCharacter(curr) then return true end
-        local cName = curr.Name:lower()
-        if cName:find("guiding light") or cName:find("guidinglight") or cName:find("rift") or cName:find("riftspawn") or cName:find("starcenter") then
+        if matchesWhitelist(curr.Name:lower()) then
             return true
         end
         curr = curr.Parent
@@ -57,8 +72,7 @@ local function isProtected(instance)
     if isPlayerCharacter(container) then return true end
     if protectedCache[container] then return true end
 
-    local contName = container.Name:lower()
-    if contName:find("guiding light") or contName:find("guidinglight") or contName:find("rift") or contName:find("riftspawn") or contName:find("starcenter") then
+    if matchesWhitelist(container.Name:lower()) then
         protectedCache[container] = true
         return true
     end
@@ -72,12 +86,7 @@ local function isProtected(instance)
             protectedCache[container] = true
             return true
         end
-        local vName = v.Name:lower()
-        if vName:find("guiding light") or vName:find("guidinglight") or vName:find("rift") or vName:find("riftspawn") or vName:find("starcenter") then
-            protectedCache[container] = true
-            return true
-        end
-        if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
+        if matchesWhitelist(v.Name:lower()) then
             protectedCache[container] = true
             return true
         end
