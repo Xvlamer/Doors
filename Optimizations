@@ -58,13 +58,10 @@ local function isProtected(instance)
     if not instance then return false end
     if isPlayerCharacter(instance) then return true end
 
-    local name = instance.Name:lower()
-    if matchesWhitelist(name) then
-        return true
-    end
-
+    -- Robust traversal that handles StreamingEnabled safely
     local curr = instance
-    while curr and curr ~= game do
+    while curr do
+        if curr == game then break end
         if isPlayerCharacter(curr) then return true end
         if matchesWhitelist(curr.Name:lower()) then
             return true
@@ -113,7 +110,9 @@ local function applyOptimization(instance)
             end
         elseif instance:IsA("SpecialMesh") then
             instance.TextureId = ""
-        elseif instance:IsA("Decal") or instance:IsA("Texture") or instance:IsA("SurfaceAppearance") then
+        elseif instance:IsA("Decal") or instance:IsA("Texture") or instance:IsA("SurfaceAppearance") 
+            or instance:IsA("ParticleEmitter") or instance:IsA("Fire") or instance:IsA("Smoke") 
+            or instance:IsA("Sparkles") or instance:IsA("Trail") or instance:IsA("Beam") then
             instance:Destroy()
         end
     end)
