@@ -27,9 +27,13 @@ local function cleanupVClip()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
+            if getgenv().Xvlamer_SavedSlope ~= nil then
+                humanoid.MaxSlopeAngle = getgenv().Xvlamer_SavedSlope
+            end
         end
     end
     getgenv().Xvlamer_SavedSpeed = nil
+    getgenv().Xvlamer_SavedSlope = nil
 end
 
 local function setVClip(state)
@@ -39,7 +43,7 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipActive = state and true or false
     end
 
-    -- Disconnect old loops before applying new states
+    -- Always clear old connections first
     if getgenv().Xvlamer_VClipConn then
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
@@ -49,32 +53,44 @@ local function setVClip(state)
         getgenv().Xvlamer_SpeedConn = nil
     end
 
-    local char = LocalPlayer.Character
-    if not char or not getgenv().Xvlamer_VClipActive then
-        getgenv().Xvlamer_VClipActive = false
+    if not getgenv().Xvlamer_VClipActive then
         cleanupVClip()
         return
     end
 
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        if getgenv().Xvlamer_SavedSpeed == nil then
-            getgenv().Xvlamer_SavedSpeed = humanoid.WalkSpeed
-        end
-        humanoid.WalkSpeed = 1.5
-    end
-
-    -- Bruteforce WalkSpeed to 1.5 continuously without jitter
+    -- Bruteforce WalkSpeed and strictly prevent stepping up / upward velocity
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
+        
         local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
-        if hum and hum.WalkSpeed ~= 1.5 then
-            hum.WalkSpeed = 1.5
+        if hum then
+            if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1.5 then
+                getgenv().Xvlamer_SavedSpeed = 16
+            end
+            if getgenv().Xvlamer_SavedSlope == nil or getgenv().Xvlamer_SavedSlope == 0 then
+                getgenv().Xvlamer_SavedSlope = hum.MaxSlopeAngle
+            end
+            
+            if hum.WalkSpeed ~= 1.5 then
+                hum.WalkSpeed = 1.5
+            end
+            if hum.MaxSlopeAngle ~= 0 then
+                hum.MaxSlopeAngle = 0 -- Completely stops the humanoid from stepping up slopes/stairs
+            end
+        end
+
+        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            -- Kill upward momentum instantly, allowing only falling (negative Y) or flat movement
+            local vel = rootPart.AssemblyLinearVelocity
+            if vel.Y > 0 then
+                rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+            end
         end
     end)
 
-    -- Stable noclip loop for smooth movement across hills and steps without physics breakage
+    -- Stable noclip loop
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
@@ -89,7 +105,7 @@ end
 
 getgenv().Xvlamer_SetVClip = setVClip
 
--- Handle character respawns so noclip/speed automatically re-applies or cleans up cleanly
+-- Handle character respawns cleanly
 if getgenv().Xvlamer_RespawnConn then
     getgenv().Xvlamer_RespawnConn:Disconnect()
     getgenv().Xvlamer_RespawnConn = nil
@@ -97,8 +113,8 @@ end
 
 getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
-        task.wait(0.5)
-        setVClip(true)
+        task.wait(0.3)
+        -- Keep state active and let the background loops pick up the new character parts
     else
         cleanupVClip()
     end
