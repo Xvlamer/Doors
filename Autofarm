@@ -728,8 +728,8 @@ local function initializeMainHub()
     local sg = create("ScreenGui", {Name=guiName, ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=99999, IgnoreGuiInset=true, Parent=safeUI})
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(sg) end end)
 
-    local targetWidth = isMobile and 260 or 320
-    local targetHeight = isMobile and 245 or 250
+    local targetWidth = 320
+    local targetHeight = 250
 
     local main = create("Frame", {
         Size=UDim2.new(0, targetWidth, 0, targetHeight), 
