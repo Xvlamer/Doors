@@ -38,10 +38,9 @@ local function applyOptimization(instance)
 
         if instance:IsA("BasePart") and not instance:IsA("Terrain") then
             instance.Material = Enum.Material.SmoothPlastic
-            instance.Color = Color3.new(1, 1, 1)
             instance.CastShadow = false
         elseif instance:IsA("Decal") or instance:IsA("Texture") then
-            instance.Transparency = 1
+            instance:Destroy()
         elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
             instance.Enabled = false
         end
@@ -68,10 +67,10 @@ local function setOptimizations(state)
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
         Lighting.FogStart = 9e9
-        Lighting.Brightness = 2
+        Lighting.Brightness = 1
         Lighting.ClockTime = 14
-        Lighting.Ambient = Color3.new(1, 1, 1)
-        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        Lighting.Ambient = Color3.fromRGB(110, 110, 110)
+        Lighting.OutdoorAmbient = Color3.fromRGB(110, 110, 110)
         
         for _, v in ipairs(Lighting:GetDescendants()) do
             if v:IsA("PostEffect") or v:IsA("Atmosphere") then
