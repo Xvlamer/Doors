@@ -7,7 +7,7 @@ if getgenv().Xvlamer_VClipActive == nil then
     getgenv().Xvlamer_VClipActive = false
 end
 
-local lastValidY = nil
+local floatY = nil
 
 local function cleanupVClip()
     if getgenv().Xvlamer_VClipConn then
@@ -19,9 +19,15 @@ local function cleanupVClip()
         getgenv().Xvlamer_SpeedConn = nil
     end
     
-    lastValidY = nil
+    floatY = nil
     local char = LocalPlayer.Character
     if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+            hum.MaxSlopeAngle = 89
+        end
+
         for _, v in ipairs(char:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = true
@@ -67,7 +73,7 @@ local function setVClip(state)
         return
     end
 
-    lastValidY = nil
+    floatY = nil
 
     getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function(dt)
         local currentCharacter = LocalPlayer.Character
@@ -77,9 +83,12 @@ local function setVClip(state)
         local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
         
         if hum and rootPart then
+            hum.PlatformStand = true
+            hum.MaxSlopeAngle = 0
+            
             local currentPos = rootPart.Position
-            if lastValidY == nil then
-                lastValidY = currentPos.Y
+            if floatY == nil then
+                floatY = currentPos.Y
             end
             
             local lookVector = rootPart.CFrame.LookVector
@@ -93,22 +102,14 @@ local function setVClip(state)
             local targetX = currentPos.X + (forwardDir.X * 1.5 * dt)
             local targetZ = currentPos.Z + (forwardDir.Z * 1.5 * dt)
             
-            local targetY = lastValidY
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                targetY = currentPos.Y + (5 * dt)
-                lastValidY = targetY
-            else
-                if currentPos.Y < lastValidY then
-                    targetY = currentPos.Y
-                    lastValidY = currentPos.Y
-                else
-                    targetY = lastValidY
-                end
+                floatY = floatY + (8 * dt)
             end
             
             local currentRotation = rootPart.CFrame - rootPart.Position
-            rootPart.CFrame = CFrame.new(targetX, targetY, targetZ) * currentRotation
+            rootPart.CFrame = CFrame.new(targetX, floatY, targetZ) * currentRotation
             rootPart.AssemblyLinearVelocity = Vector3.zero
+            rootPart.AssemblyAngularVelocity = Vector3.zero
         end
     end)
 
