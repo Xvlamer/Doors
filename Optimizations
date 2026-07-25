@@ -27,7 +27,10 @@ local blacklistedKeywords = {
     "particlesin", "particlesout"
 }
 
-local protectedCache = setmetatable({}, {__mode = "k"})
+-- Normalize all keywords to lowercase automatically to prevent capitalization bugs
+for i, keyword in ipairs(blacklistedKeywords) do
+    blacklistedKeywords[i] = keyword:lower()
+end
 
 local function isPlayerCharacter(instance)
     if not instance then return false end
@@ -47,6 +50,7 @@ local function isProtected(instance)
     if not instance then return false end
     if isPlayerCharacter(instance) then return true end
 
+    -- Check instance and all parents/ancestors case-insensitively
     local curr = instance
     while curr and curr ~= game do
         local success, name = pcall(function() return curr.Name end)
@@ -61,45 +65,40 @@ local function isProtected(instance)
         curr = curr.Parent
     end
 
+    -- Check container and descendants safely without broken caching
     local container = instance:IsA("Model") and instance or instance:IsA("Folder") and instance or instance:FindFirstAncestorOfClass("Model") or instance:FindFirstAncestorOfClass("Folder")
-    if not container then return false end
-    if isPlayerCharacter(container) then return true end
-    if protectedCache[container] ~= nil then
-        return protectedCache[container]
-    end
+    if container then
+        if isPlayerCharacter(container) then return true end
 
-    local success, cName = pcall(function() return container.Name end)
-    if success and cName then
-        local cNameLower = cName:lower()
-        for _, keyword in ipairs(blacklistedKeywords) do
-            if cNameLower:find(keyword, 1, true) then
-                protectedCache[container] = true
-                return true
+        local successC, cName = pcall(function() return container.Name end)
+        if successC and cName then
+            local cNameLower = cName:lower()
+            for _, keyword in ipairs(blacklistedKeywords) do
+                if cNameLower:find(keyword, 1, true) then
+                    return true
+                end
             end
         end
-    end
 
-    local successDesc, descendants = pcall(function() return container:GetDescendants() end)
-    if successDesc and descendants then
-        for _, v in ipairs(descendants) do
-            if isPlayerCharacter(v) or (v:IsA("Sound") and entitySounds[v.Name]) then
-                protectedCache[container] = true
-                return true
-            end
-            local successV, vName = pcall(function() return v.Name end)
-            if successV and vName then
-                local vNameLower = vName:lower()
-                for _, keyword in ipairs(blacklistedKeywords) do
-                    if vNameLower:find(keyword, 1, true) then
-                        protectedCache[container] = true
-                        return true
+        local successDesc, descendants = pcall(function() return container:GetDescendants() end)
+        if successDesc and descendants then
+            for _, v in ipairs(descendants) do
+                if isPlayerCharacter(v) or (v:IsA("Sound") and entitySounds[v.Name]) then
+                    return true
+                end
+                local successV, vName = pcall(function() return v.Name end)
+                if successV and vName then
+                    local vNameLower = vName:lower()
+                    for _, keyword in ipairs(blacklistedKeywords) do
+                        if vNameLower:find(keyword, 1, true) then
+                            return true
+                        end
                     end
                 end
             end
         end
     end
 
-    protectedCache[container] = false
     return false
 end
 
@@ -154,11 +153,8 @@ local function enforceLightingAndFog()
     end)
 end
 
-task.spawn(function()
-    while true do
-        enforceLightingAndFog()
-        task.wait(1)
-    end
+RunService.RenderStepped:Connect(function()
+    enforceLightingAndFog()
 end)
 
 for _, v in ipairs(Workspace:GetDescendants()) do
