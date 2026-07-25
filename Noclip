@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 if getgenv().Xvlamer_VClipActive == nil then
@@ -20,9 +21,18 @@ local function cleanupConnections()
         getgenv().Xvlamer_SteppedConn:Disconnect()
         getgenv().Xvlamer_SteppedConn = nil
     end
-    if getgenv().Xvlamer_SpeedConn then
-        getgenv().Xvlamer_SpeedConn:Disconnect()
-        getgenv().Xvlamer_SpeedConn = nil
+end
+
+-- Function to neutralize local anti-cheat detection boxes or zones in the workspace
+local function sweepAntiCheatZones()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local nameLower = obj.Name:lower()
+            if nameLower:find("anticheat") or nameLower:find("detect") or nameLower:find("zone") or nameLower:find("region") or nameLower:find("ban") then
+                obj.CanTouch = false
+                obj.CanCollide = false
+            end
+        end
     end
 end
 
@@ -54,6 +64,7 @@ local function setVClip(state)
 
         if humanoid then
             humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
+            humanoid.PlatformStand = false
         end
         getgenv().Xvlamer_SavedSpeed = nil
         return
@@ -64,17 +75,13 @@ local function setVClip(state)
     end
 
     cleanupConnections()
+    sweepAntiCheatZones()
 
     if humanoid then
         humanoid.WalkSpeed = 1.5
-        getgenv().Xvlamer_SpeedConn = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-            if getgenv().Xvlamer_VClipActive and humanoid.WalkSpeed ~= 1.5 then
-                humanoid.WalkSpeed = 1.5
-            end
-        end)
     end
 
-    local function lockDown()
+    local function lockDown(dt)
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
 
@@ -91,8 +98,16 @@ local function setVClip(state)
         end
 
         if rootPart then
+            -- Micro-stepping movement replication so the server accepts the position for interactions
+            local moveDir = currentHumanoid and currentHumanoid.MoveDirection or Vector3.zero
+            if moveDir.Magnitude > 0 then
+                local targetCF = rootPart.CFrame + (moveDir * 1.5 * dt * 60)
+                rootPart.CFrame = targetCF
+            end
+
+            -- Neutralize fall velocity spikes that cause server-side position rollbacks
             local vel = rootPart.AssemblyLinearVelocity
-            rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -15, 5), vel.Z)
+            rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, math.clamp(vel.Y, -10, 5), vel.Z)
         end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
@@ -102,7 +117,6 @@ local function setVClip(state)
         end
     end
 
-    -- Hook multiple frame events to completely overpower any server/game script overrides
     getgenv().Xvlamer_VClipConn = RunService.RenderStepped:Connect(lockDown)
     getgenv().Xvlamer_SteppedConn = RunService.Stepped:Connect(lockDown)
     getgenv().Xvlamer_HeartbeatConn = RunService.Heartbeat:Connect(lockDown)
