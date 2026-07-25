@@ -370,13 +370,9 @@ do
             local humanoid = char:FindFirstChildOfClass("Humanoid")
             if humanoid then
                 humanoid.WalkSpeed = getgenv().Xvlamer_SavedSpeed or 16
-                if getgenv().Xvlamer_SavedSlope ~= nil then
-                    humanoid.MaxSlopeAngle = getgenv().Xvlamer_SavedSlope
-                end
             end
         end
         getgenv().Xvlamer_SavedSpeed = nil
-        getgenv().Xvlamer_SavedSlope = nil
     end
 
     function NoclipModule.Toggle(stateVal)
@@ -405,9 +401,6 @@ do
                 if getgenv().Xvlamer_SavedSpeed == nil or getgenv().Xvlamer_SavedSpeed == 1.5 then
                     getgenv().Xvlamer_SavedSpeed = 16
                 end
-                if getgenv().Xvlamer_SavedSlope == nil or getgenv().Xvlamer_SavedSlope == 0 then
-                    getgenv().Xvlamer_SavedSlope = hum.MaxSlopeAngle
-                end
             end
 
             -- Completely bypass speed reduction and velocity restriction in the lobby
@@ -422,17 +415,25 @@ do
                 if hum.WalkSpeed ~= 1.5 then
                     hum.WalkSpeed = 1.5
                 end
-                if hum.MaxSlopeAngle ~= 0 then
-                    hum.MaxSlopeAngle = 0
-                end
             end
 
             local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
-            if rootPart then
-                local vel = rootPart.AssemblyLinearVelocity
-                if vel.Y > 0 then
-                    rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+            if hum and rootPart then
+                local moveDir = hum.MoveDirection
+                local currentVel = rootPart.AssemblyLinearVelocity
+                local yVel = currentVel.Y
+                
+                -- Retain the anti-fly logic you originally had for upward momentum
+                if yVel > 0 then
+                    yVel = 0
                 end
+                
+                -- Anti-Slip velocity lock: Maps X/Z directly to inputs to prevent slope sliding
+                rootPart.AssemblyLinearVelocity = Vector3.new(
+                    moveDir.X * hum.WalkSpeed,
+                    yVel,
+                    moveDir.Z * hum.WalkSpeed
+                )
             end
         end)
 
