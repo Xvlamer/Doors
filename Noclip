@@ -1,21 +1,20 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 if getgenv().Xvlamer_VClipActive == nil then
     getgenv().Xvlamer_VClipActive = false
 end
 
--- Default fallback values for restoration
-local originalWalkSpeed = 16
-local originalMaxSlopeAngle = 45
-
 local function cleanupVClip()
     if getgenv().Xvlamer_VClipConn then
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
+    end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
     end
     
     local char = LocalPlayer.Character
@@ -24,14 +23,6 @@ local function cleanupVClip()
             if v:IsA("BasePart") then
                 v.CanCollide = true
             end
-        end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.WalkSpeed = originalWalkSpeed
-            hum.MaxSlopeAngle = originalMaxSlopeAngle
-            pcall(function()
-                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-            end)
         end
     end
 end
@@ -47,7 +38,8 @@ local function setVClip(state)
         getgenv().XvlamerHub_SavedState.Noclip = getgenv().Xvlamer_VClipActive
         pcall(function()
             local writefile = writefile or function() end
-            writefile("XvlamersSaveState.json", HttpService:JSONEncode(getgenv().XvlamerHub_SavedState))
+            local Http = game:GetService("HttpService")
+            writefile("XvlamersSaveState.json", Http:JSONEncode(getgenv().XvlamerHub_SavedState))
         end)
     end
 
@@ -61,42 +53,42 @@ local function setVClip(state)
         getgenv().Xvlamer_VClipConn:Disconnect()
         getgenv().Xvlamer_VClipConn = nil
     end
+    if getgenv().Xvlamer_SpeedConn then
+        getgenv().Xvlamer_SpeedConn:Disconnect()
+        getgenv().Xvlamer_SpeedConn = nil
+    end
 
     if not getgenv().Xvlamer_VClipActive then
         cleanupVClip()
         return
     end
 
-    -- Capture stats before applying noclip & speed 1
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            if hum.WalkSpeed ~= 1 and hum.WalkSpeed ~= 16 then
-                originalWalkSpeed = hum.WalkSpeed
-            elseif hum.WalkSpeed == 16 then
-                originalWalkSpeed = 16
-            end
-            originalMaxSlopeAngle = hum.MaxSlopeAngle
-            hum.WalkSpeed = 1
-            hum.MaxSlopeAngle = 90 -- Prevents engine sliding/pulling down on angles and ramps
+    -- Velocity lock to completely prevent sliding down slopes while noclipping
+    getgenv().Xvlamer_SpeedConn = RunService.Heartbeat:Connect(function()
+        local currentCharacter = LocalPlayer.Character
+        if not currentCharacter then return end
+        
+        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
+        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+        
+        if hum and rootPart then
+            local moveDir = hum.MoveDirection
+            local currentVel = rootPart.AssemblyLinearVelocity
+            
+            -- This forces your horizontal velocity to strictly match your walking input.
+            -- If you stand still, X/Z velocity becomes 0 so you don't slide. 
+            -- The Y velocity is left alone so jumping/falling still works perfectly.
+            rootPart.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * hum.WalkSpeed,
+                currentVel.Y,
+                moveDir.Z * hum.WalkSpeed
+            )
         end
-    end
+    end)
 
-    -- Clean loop: only handle noclip and speed 1 without altering vertical velocity or physics states
     getgenv().Xvlamer_VClipConn = RunService.Stepped:Connect(function()
         local currentCharacter = LocalPlayer.Character
         if not currentCharacter then return end
-
-        local hum = currentCharacter:FindFirstChildOfClass("Humanoid")
-        if hum then
-            if hum.WalkSpeed ~= 1 then
-                hum.WalkSpeed = 1
-            end
-            if hum.MaxSlopeAngle ~= 90 then
-                hum.MaxSlopeAngle = 90
-            end
-        end
 
         for _, v in ipairs(currentCharacter:GetDescendants()) do
             if v:IsA("BasePart") and v.CanCollide then
@@ -116,7 +108,6 @@ end
 getgenv().Xvlamer_RespawnConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
     if getgenv().Xvlamer_VClipActive then
         task.wait(0.3)
-        setVClip(true)
     else
         cleanupVClip()
     end
