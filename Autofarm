@@ -938,7 +938,11 @@ local function initializeMainHub()
         pcall(function()
             if key == "Knob Farm" then getgenv().XvlamerStop_KnobFarm = true
             elseif key == "Death Farm" then getgenv().XvlamerStop_DeathFarm = true
-            elseif key == "Stardust Farm" then getgenv().XvlamerStop_StardustFarm = true
+            elseif key == "Stardust Farm" then 
+                getgenv().XvlamerStop_StardustFarm = true
+                local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
+                if mGuiRef then mGuiRef.Enabled = true end
+                if mainRef then mainRef.Visible = true end
             elseif key == "Noclip" then 
                 getgenv().XvlamerStop_Noclip = true
                 NoclipModule.Toggle(false)
@@ -984,6 +988,17 @@ local function initializeMainHub()
         elseif key == "Stardust Farm" then
             getgenv().XvlamerStop_StardustFarm = false
             activeThreads[key] = task.spawn(function()
+                local wasMainVisible = mainRef and mainRef.Visible or false
+                if mainRef then mainRef.Visible = false end
+                local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
+                if mGuiRef then mGuiRef.Enabled = false end
+
+                local function restoreGui()
+                    if mainRef then mainRef.Visible = wasMainVisible end
+                    local mGuiCheck = safeUI:FindFirstChild("XvlamersMobileToggle")
+                    if mGuiCheck then mGuiCheck.Enabled = true end
+                end
+
                 local function clickBtn(btn)
                     if btn then
                         pcall(function()
@@ -1050,7 +1065,10 @@ local function initializeMainHub()
                     end
                 end
 
-                if getgenv().XvlamerStop_StardustFarm then return end
+                if getgenv().XvlamerStop_StardustFarm then
+                    restoreGui()
+                    return
+                end
 
                 while not getgenv().XvlamerStop_StardustFarm and isCreateElevatorVisible() do
                     local roomsBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.SidePanel.Frames.Floors.List.Rooms end, "Rooms")
@@ -1067,8 +1085,12 @@ local function initializeMainHub()
                     end
                 end
 
-                if getgenv().XvlamerStop_StardustFarm then return end
+                if getgenv().XvlamerStop_StardustFarm then
+                    restoreGui()
+                    return
+                end
 
+                restoreGui()
                 loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust")
             end)
         elseif key == "Noclip" then
