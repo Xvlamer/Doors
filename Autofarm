@@ -974,47 +974,70 @@ local function initializeMainHub()
                 local function clickBtn(btn)
                     if not btn then return end
                     
-                    pcall(function()
-                        local evts = {"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "TouchTap"}
-                        for _, ev in ipairs(evts) do
-                            if firesignal then pcall(function() firesignal(btn[ev]) end) end
+                    if isMobile then
+                        -- Mobile click system (uses events + VIM injection with topbar offset)
+                        pcall(function()
+                            local evts = {"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "TouchTap"}
+                            for _, ev in ipairs(evts) do
+                                if firesignal then pcall(function() firesignal(btn[ev]) end) end
+                                if getconnections then
+                                    pcall(function()
+                                        for _, c in ipairs(getconnections(btn[ev])) do c:Fire() end
+                                    end)
+                                end
+                            end
+                        end)
+                        
+                        pcall(function() 
+                            if typeof(btn.Activate) == "function" then btn:Activate() end 
+                        end)
+                        
+                        pcall(function()
+                            local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+                            local x, y = pos.X, pos.Y
+                            local yInset = y + 36 
+                            
+                            if VIM then
+                                VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
+                                task.wait(0.01)
+                                VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
+                                
+                                VIM:SendMouseButtonEvent(x, yInset, 0, true, game, 1)
+                                task.wait(0.01)
+                                VIM:SendMouseButtonEvent(x, yInset, 0, false, game, 1)
+
+                                if typeof(VIM.SendTouchEvent) == "function" then
+                                    VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, y))
+                                    task.wait(0.01)
+                                    VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, y))
+                                    
+                                    VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, yInset))
+                                    task.wait(0.01)
+                                    VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, yInset))
+                                end
+                            end
+                        end)
+                    else
+                        -- PC click system (clean standard event signals and Activate method without disrupting mouse state)
+                        pcall(function()
+                            if firesignal then
+                                pcall(function() firesignal(btn.MouseButton1Click) end)
+                                pcall(function() firesignal(btn.Activated) end)
+                            end
                             if getconnections then
                                 pcall(function()
-                                    for _, c in ipairs(getconnections(btn[ev])) do c:Fire() end
+                                    for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                    for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
                                 end)
                             end
-                        end
-                    end)
-                    
-                    pcall(function() 
-                        if typeof(btn.Activate) == "function" then btn:Activate() end 
-                    end)
-                    
-                    pcall(function()
-                        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
-                        local x, y = pos.X, pos.Y
-                        local yInset = y + 36 -- Account for Roblox topbar inset mapping errors
+                        end)
                         
-                        if VIM then
-                            VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-                            task.wait(0.01)
-                            VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-                            
-                            VIM:SendMouseButtonEvent(x, yInset, 0, true, game, 1)
-                            task.wait(0.01)
-                            VIM:SendMouseButtonEvent(x, yInset, 0, false, game, 1)
-
-                            if typeof(VIM.SendTouchEvent) == "function" then
-                                VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, y))
-                                task.wait(0.01)
-                                VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, y))
-                                
-                                VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, yInset))
-                                task.wait(0.01)
-                                VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, yInset))
+                        pcall(function()
+                            if typeof(btn.Activate) == "function" then
+                                btn:Activate()
                             end
-                        end
-                    end)
+                        end)
+                    end
                 end
 
                 local function getBtn(pathFn, fallbackName)
