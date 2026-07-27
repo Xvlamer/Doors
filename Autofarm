@@ -171,7 +171,6 @@ pcall(function()
     end
 end)
 
--- EXTREME MOBILE SUPPORT: Enhanced Debounce Click
 local function onDebouncedClick(btn, callback, cooldown)
     cooldown = cooldown or 0.25
     local lastTick = 0
@@ -282,9 +281,6 @@ if readSuccess and readData and readData ~= "" then
     end
 end
 
--- ==========================================
--- INTEGRATED ZERO-LEAK OPTIMIZER MODULE
--- ==========================================
 local Optimizer = {}
 do
     local Terrain = Workspace:FindFirstChildOfClass("Terrain")
@@ -360,11 +356,7 @@ do
         Optimizer.Toggle(false)
     end
 end
--- ==========================================
 
--- ==========================================
--- INTEGRATED NOCLIP & FLOAT MODULE (CLEAN)
--- ==========================================
 local NoclipModule = {}
 do
     local floatY = nil
@@ -568,7 +560,6 @@ getgenv().Xvlamer_RespawnConn = P.CharacterAdded:Connect(function(newChar)
         NoclipModule.Disable()
     end
 end)
--- ==========================================
 
 local antiAfkConn = nil
 local function setAntiAFK(enabled, dontSave)
@@ -706,8 +697,6 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
         purgePhantomGUIs()
         local wasMainVisible = mainRef and mainRef.Visible or false
         if mainRef then mainRef.Visible = false end
-        local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
-        if mGuiRef then mGuiRef.Enabled = false end
 
         local warnGui = Instance.new("ScreenGui")
         warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 1000000; warnGui.Parent = safeUI
@@ -767,8 +756,6 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
                 table.clear(popupConns)
                 warnGui:Destroy()
                 if mainRef then mainRef.Visible = wasMainVisible end
-                local mGuiCheck = safeUI:FindFirstChild("XvlamersMobileToggle")
-                if mGuiCheck then mGuiCheck.Enabled = true end
                 if callback then callback() end
             end)
         end
@@ -844,7 +831,6 @@ local function initializeMainHub()
         trackConnection(mBtn.MouseEnter:Connect(function() pcall(function() TS:Create(mBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(24, 24, 32)}):Play() end) end))
         trackConnection(mBtn.MouseLeave:Connect(function() pcall(function() TS:Create(mBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(13, 13, 17)}):Play() end) end))
 
-        -- EXTREME MOBILE SUPPORT: Drag Vs Tap Detection Check
         local mDragging, mDragInput, mDragStart, mStartPos, hasDragged
         trackConnection(mBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -863,7 +849,7 @@ local function initializeMainHub()
         end))
 
         onDebouncedClick(mBtn, function() 
-            if hasDragged then return end -- Prevents accidental GUI toggle when adjusting the button position!
+            if hasDragged then return end
             setMainGuiVisible(not main.Visible) 
         end, 0.2)
     end
@@ -932,8 +918,6 @@ local function initializeMainHub()
             elseif key == "Death Farm" then getgenv().XvlamerStop_DeathFarm = true
             elseif key == "Stardust Farm" then 
                 getgenv().XvlamerStop_StardustFarm = true
-                local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
-                if mGuiRef then mGuiRef.Enabled = true end
                 if mainRef then mainRef.Visible = true end
             elseif key == "Noclip" then 
                 getgenv().XvlamerStop_Noclip = true
@@ -982,57 +966,55 @@ local function initializeMainHub()
             activeThreads[key] = task.spawn(function()
                 local wasMainVisible = mainRef and mainRef.Visible or false
                 if mainRef then mainRef.Visible = false end
-                local mGuiRef = safeUI:FindFirstChild("XvlamersMobileToggle")
-                if mGuiRef then mGuiRef.Enabled = false end
 
                 local function restoreGui()
                     if mainRef then mainRef.Visible = wasMainVisible end
-                    local mGuiCheck = safeUI:FindFirstChild("XvlamersMobileToggle")
-                    if mGuiCheck then mGuiCheck.Enabled = true end
                 end
 
                 local function clickBtn(btn)
-                    if btn then
-                        pcall(function()
-                            if typeof(btn.Activate) == "function" then
-                                btn:Activate()
-                            end
-                        end)
-                        pcall(function()
-                            if firesignal then
-                                firesignal(btn.MouseButton1Click)
-                                firesignal(btn.Activated)
-                                firesignal(btn.TouchTap)
-                            end
-                        end)
-                        pcall(function()
+                    if not btn then return end
+                    
+                    pcall(function()
+                        local evts = {"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "TouchTap"}
+                        for _, ev in ipairs(evts) do
+                            if firesignal then pcall(function() firesignal(btn[ev]) end) end
                             if getconnections then
-                                for _, conn in pairs(getconnections(btn.MouseButton1Click)) do
-                                    conn:Fire()
-                                end
-                                for _, conn in pairs(getconnections(btn.Activated)) do
-                                    conn:Fire()
-                                end
-                                for _, conn in pairs(getconnections(btn.TouchTap)) do
-                                    conn:Fire()
-                                end
+                                pcall(function()
+                                    for _, c in ipairs(getconnections(btn[ev])) do c:Fire() end
+                                end)
                             end
-                        end)
-                        pcall(function()
-                            local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
-                            if pos.X > 0 and pos.Y > 0 then
-                                if typeof(VIM.SendTouchEvent) == "function" then
-                                    VIM:SendTouchEvent(0, Enum.UserInputState.Begin, pos)
-                                    task.wait(0.05)
-                                    VIM:SendTouchEvent(0, Enum.UserInputState.End, pos)
-                                else
-                                    VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
-                                    task.wait(0.01)
-                                    VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
-                                end
+                        end
+                    end)
+                    
+                    pcall(function() 
+                        if typeof(btn.Activate) == "function" then btn:Activate() end 
+                    end)
+                    
+                    pcall(function()
+                        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+                        local x, y = pos.X, pos.Y
+                        local yInset = y + 36 -- Account for Roblox topbar inset mapping errors
+                        
+                        if VIM then
+                            VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
+                            task.wait(0.01)
+                            VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
+                            
+                            VIM:SendMouseButtonEvent(x, yInset, 0, true, game, 1)
+                            task.wait(0.01)
+                            VIM:SendMouseButtonEvent(x, yInset, 0, false, game, 1)
+
+                            if typeof(VIM.SendTouchEvent) == "function" then
+                                VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, y))
+                                task.wait(0.01)
+                                VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, y))
+                                
+                                VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, yInset))
+                                task.wait(0.01)
+                                VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, yInset))
                             end
-                        end)
-                    end
+                        end
+                    end)
                 end
 
                 local function getBtn(pathFn, fallbackName)
