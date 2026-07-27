@@ -171,15 +171,24 @@ pcall(function()
     end
 end)
 
+-- EXTREME MOBILE SUPPORT: Enhanced Debounce Click
 local function onDebouncedClick(btn, callback, cooldown)
     cooldown = cooldown or 0.25
     local lastTick = 0
-    return trackConnection(btn.MouseButton1Click:Connect(function()
+    
+    local function trigger()
         local now = tick()
         if now - lastTick < cooldown then return end
         lastTick = now
         pcall(callback)
-    end))
+    end
+
+    trackConnection(btn.MouseButton1Click:Connect(trigger))
+    
+    if isMobile then
+        pcall(function() trackConnection(btn.Activated:Connect(trigger)) end)
+        pcall(function() trackConnection(btn.TouchTap:Connect(trigger)) end)
+    end
 end
 
 local function isModalOpen()
@@ -359,28 +368,6 @@ end
 local NoclipModule = {}
 do
     local floatY = nil
-    local originalWalkSpeed = 16
-    local originalJumpPower = 50
-    local originalJumpHeight = 7.2
-
-    local function setWalkingDisabled(disabled)
-        local char = P.Character
-        if not char then return end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
-        if disabled then
-            originalWalkSpeed = humanoid.WalkSpeed
-            originalJumpPower = humanoid.JumpPower
-            originalJumpHeight = humanoid.JumpHeight
-            humanoid.WalkSpeed = 0
-            humanoid.JumpPower = 0
-            humanoid.JumpHeight = 0
-        else
-            humanoid.WalkSpeed = originalWalkSpeed > 0 and originalWalkSpeed or 16
-            humanoid.JumpPower = originalJumpPower
-            humanoid.JumpHeight = originalJumpHeight
-        end
-    end
 
     local function cleanupVClip()
         if getgenv().Xvlamer_VClipConn then
@@ -397,7 +384,6 @@ do
         end
         
         floatY = nil
-        setWalkingDisabled(false)
         local char = P.Character
         if char then
             for _, v in ipairs(char:GetDescendants()) do
@@ -431,7 +417,6 @@ do
         end
 
         floatY = nil
-        setWalkingDisabled(true)
 
         getgenv().Xvlamer_FloatConn = RS.Heartbeat:Connect(function(dt)
             local char = P.Character
@@ -506,7 +491,6 @@ do
         end
 
         floatY = nil
-        setWalkingDisabled(true)
 
         getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
             local char = P.Character
@@ -860,18 +844,26 @@ local function initializeMainHub()
         trackConnection(mBtn.MouseEnter:Connect(function() pcall(function() TS:Create(mBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(24, 24, 32)}):Play() end) end))
         trackConnection(mBtn.MouseLeave:Connect(function() pcall(function() TS:Create(mBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(13, 13, 17)}):Play() end) end))
 
-        local mDragging, mDragInput, mDragStart, mStartPos
+        -- EXTREME MOBILE SUPPORT: Drag Vs Tap Detection Check
+        local mDragging, mDragInput, mDragStart, mStartPos, hasDragged
         trackConnection(mBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                mDragging = true; mDragStart = input.Position; mStartPos = mBtn.Position
+                mDragging = true; hasDragged = false; mDragStart = input.Position; mStartPos = mBtn.Position
                 local endConn; endConn = input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then mDragging = false; if endConn then pcall(function() endConn:Disconnect() end) end end end)
                 trackConnection(endConn)
             end
         end))
         trackConnection(UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then mDragInput = input end end))
-        trackConnection(UIS.InputChanged:Connect(function(input) if input == mDragInput and mDragging then local delta = input.Position - mDragStart; mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) end end))
+        trackConnection(UIS.InputChanged:Connect(function(input) 
+            if input == mDragInput and mDragging then 
+                local delta = input.Position - mDragStart
+                if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then hasDragged = true end
+                mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) 
+            end 
+        end))
 
         onDebouncedClick(mBtn, function() 
+            if hasDragged then return end -- Prevents accidental GUI toggle when adjusting the button position!
             setMainGuiVisible(not main.Visible) 
         end, 0.2)
     end
@@ -1010,6 +1002,7 @@ local function initializeMainHub()
                             if firesignal then
                                 firesignal(btn.MouseButton1Click)
                                 firesignal(btn.Activated)
+                                firesignal(btn.TouchTap)
                             end
                         end)
                         pcall(function()
@@ -1020,14 +1013,23 @@ local function initializeMainHub()
                                 for _, conn in pairs(getconnections(btn.Activated)) do
                                     conn:Fire()
                                 end
+                                for _, conn in pairs(getconnections(btn.TouchTap)) do
+                                    conn:Fire()
+                                end
                             end
                         end)
                         pcall(function()
                             local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
                             if pos.X > 0 and pos.Y > 0 then
-                                VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
-                                task.wait(0.01)
-                                VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+                                if typeof(VIM.SendTouchEvent) == "function" then
+                                    VIM:SendTouchEvent(0, Enum.UserInputState.Begin, pos)
+                                    task.wait(0.05)
+                                    VIM:SendTouchEvent(0, Enum.UserInputState.End, pos)
+                                else
+                                    VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+                                    task.wait(0.01)
+                                    VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+                                end
                             end
                         end)
                     end
