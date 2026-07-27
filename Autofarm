@@ -387,24 +387,12 @@ do
     end
 
     function NoclipModule.Toggle(stateVal)
+        cleanupVClip()
+
         getgenv().Xvlamer_VClipActive = stateVal and true or false
         getgenv().Xvlamer_SpamActive = false
 
-        if getgenv().Xvlamer_VClipConn then
-            getgenv().Xvlamer_VClipConn:Disconnect()
-            getgenv().Xvlamer_VClipConn = nil
-        end
-        if getgenv().Xvlamer_FloatConn then
-            getgenv().Xvlamer_FloatConn:Disconnect()
-            getgenv().Xvlamer_FloatConn = nil
-        end
-        if getgenv().Xvlamer_SpamConn then
-            pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
-            getgenv().Xvlamer_SpamConn = nil
-        end
-
         if not getgenv().Xvlamer_VClipActive then
-            cleanupVClip()
             return
         end
 
@@ -461,24 +449,12 @@ do
     end
 
     function NoclipModule.ToggleSpam(stateVal)
+        cleanupVClip()
+
         getgenv().Xvlamer_SpamActive = stateVal and true or false
         getgenv().Xvlamer_VClipActive = false
 
-        if getgenv().Xvlamer_VClipConn then
-            getgenv().Xvlamer_VClipConn:Disconnect()
-            getgenv().Xvlamer_VClipConn = nil
-        end
-        if getgenv().Xvlamer_FloatConn then
-            getgenv().Xvlamer_FloatConn:Disconnect()
-            getgenv().Xvlamer_FloatConn = nil
-        end
-        if getgenv().Xvlamer_SpamConn then
-            pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
-            getgenv().Xvlamer_SpamConn = nil
-        end
-
         if not getgenv().Xvlamer_SpamActive then
-            cleanupVClip()
             return
         end
 
@@ -530,17 +506,18 @@ do
                     rootPart.AssemblyAngularVelocity = Vector3.zero
                 end)
 
-                task.wait(0.25 / 3)
+                task.wait((0.25 * 0.75) / 3)
                 if floatConn then floatConn:Disconnect() end
 
-                task.wait(0.25 / 3)
+                task.wait((0.25 * 0.75) / 3)
             end
         end)
     end
 
     function NoclipModule.Disable()
-        NoclipModule.Toggle(false)
-        NoclipModule.ToggleSpam(false)
+        cleanupVClip()
+        getgenv().Xvlamer_VClipActive = false
+        getgenv().Xvlamer_SpamActive = false
     end
 end
 
@@ -975,7 +952,6 @@ local function initializeMainHub()
                     if not btn then return end
                     
                     if isMobile then
-                        -- Mobile click system (uses events + VIM injection with topbar offset)
                         pcall(function()
                             local evts = {"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "TouchTap"}
                             for _, ev in ipairs(evts) do
@@ -1018,7 +994,6 @@ local function initializeMainHub()
                             end
                         end)
                     else
-                        -- PC click system (clean standard event signals and Activate method without disrupting mouse state)
                         pcall(function()
                             if firesignal then
                                 pcall(function() firesignal(btn.MouseButton1Click) end)
@@ -1150,6 +1125,11 @@ local function initializeMainHub()
                         state[stateKey] = false
                         pcall(saveState)
                     end
+                end
+                if name == "Noclip" or name == "Noclip SPAM" then
+                    NoclipModule.Disable()
+                elseif not isRadio and not stateKey then
+                    stopThread(name)
                 end
             end
         }
@@ -1330,21 +1310,21 @@ local function initializeMainHub()
                     if on then
                         local spamToggle = toggleHandlers["Noclip SPAM"]
                         if spamToggle and spamToggle.get() then
-                            spamToggle.update(false)
+                            spamToggle.setOff(false)
                         end
                         NoclipModule.Toggle(true)
                     else
-                        NoclipModule.Toggle(false)
+                        NoclipModule.Disable()
                     end
                 elseif name == "Noclip SPAM" then
                     if on then
                         local noclipToggle = toggleHandlers["Noclip"]
                         if noclipToggle and noclipToggle.get() then
-                            noclipToggle.update(false)
+                            noclipToggle.setOff(false)
                         end
                         NoclipModule.ToggleSpam(true)
                     else
-                        NoclipModule.ToggleSpam(false)
+                        NoclipModule.Disable()
                     end
                 else 
                     if on then runThread(name) else stopThread(name) end 
@@ -1378,20 +1358,29 @@ local function initializeMainHub()
     createToggle("Unlock fps", pages[3], false, "UnlockFps", 4, 36)
     createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5, 36)
 
+    local hotkeyDebounce = false
     trackConnection(UIS.InputBegan:Connect(function(input, gpe)
-        if not gpe and input.KeyCode == Enum.KeyCode.V then
-            if not UIS:GetFocusedTextBox() then
+        if gpe or UIS:GetFocusedTextBox() then return end
+        
+        if input.KeyCode == Enum.KeyCode.V then
+            if not hotkeyDebounce then
+                hotkeyDebounce = true
                 local noclipToggle = toggleHandlers["Noclip"]
                 if noclipToggle and type(noclipToggle.update) == "function" and type(noclipToggle.get) == "function" then
                     noclipToggle.update(not noclipToggle.get())
                 end
+                task.wait(0.15)
+                hotkeyDebounce = false
             end
-        elseif not gpe and input.KeyCode == Enum.KeyCode.B then
-            if not UIS:GetFocusedTextBox() then
+        elseif input.KeyCode == Enum.KeyCode.B then
+            if not hotkeyDebounce then
+                hotkeyDebounce = true
                 local spamToggle = toggleHandlers["Noclip SPAM"]
                 if spamToggle and type(spamToggle.update) == "function" and type(spamToggle.get) == "function" then
                     spamToggle.update(not spamToggle.get())
                 end
+                task.wait(0.15)
+                hotkeyDebounce = false
             end
         end
     end))
