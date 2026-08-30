@@ -1,0 +1,62 @@
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local TOGGLE_KEY = Enum.KeyCode.Minus
+local espEnabled = true
+local activeHighlights = {}
+
+local function applyESP(target, color)
+	if not target or not target.Parent then return end
+	if activeHighlights[target] then return end 
+	
+	if not (target:IsA("Model") or target:IsA("BasePart")) then return end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "MonsterESP_" .. target.Name
+	highlight.Adornee = target
+	highlight.FillColor = color
+	highlight.OutlineColor = Color3.new(1, 1, 1)
+	highlight.FillTransparency = 0.25 
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = target
+	
+	activeHighlights[target] = highlight
+end
+
+task.spawn(function()
+	while task.wait(0.1) do
+		if not espEnabled then continue end
+
+		local liveEntities = Workspace:FindFirstChild("LiveEntities")
+		if liveEntities then
+			for _, entity in ipairs(liveEntities:GetChildren()) do
+				if string.lower(entity.Name) == "creak" or string.lower(entity.Name) == "creek" then
+					applyESP(entity, Color3.fromRGB(255, 0, 0))
+				end
+			end
+		end
+
+		for target, highlight in pairs(activeHighlights) do
+			if typeof(target) ~= "Instance" or not target.Parent or not target:IsDescendantOf(Workspace) then
+				if highlight then highlight:Destroy() end
+				activeHighlights[target] = nil
+			end
+		end
+	end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	
+	if input.KeyCode == TOGGLE_KEY then
+		espEnabled = not espEnabled
+		
+		if not espEnabled then
+			for target, highlight in pairs(activeHighlights) do
+				if highlight then highlight:Destroy() end
+			end
+			table.clear(activeHighlights)
+		end
+	end
+end)
