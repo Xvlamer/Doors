@@ -3,7 +3,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Prevent thread stacking / memory leaks by killing any existing background loop first
 if getgenv().XvlamerStop_KnobFarm ~= nil then
     getgenv().XvlamerStop_KnobFarm = true
     task.wait(0.05)
