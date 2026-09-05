@@ -17,22 +17,38 @@ do
             or (typeof(queue_on_teleport) == "function" and queue_on_teleport)
             or (fluxus and fluxus.queue_on_teleport)
             or (getgenv and getgenv().queue_on_teleport)
+            or queue_on_teleport
 
         if queueFunc then
             pcall(function()
                 queueFunc([[
                     if not game:IsLoaded() then game.Loaded:Wait() end
                     task.wait(1)
-                    pcall(function()
-                        local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Main")
-                        local fn = loadstring(src)
-                        if fn then fn() end
+                    local ok, err = pcall(function()
+                        local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
+                        loadstring(src)()
                     end)
                 ]])
             end)
+            return
         end
+
+        pcall(function()
+            local Players = game:GetService("Players")
+            local lp = Players.LocalPlayer
+            if lp and lp.OnTeleport then
+                lp.OnTeleport:Connect(function(state)
+                    if state == Enum.TeleportState.Started then
+                    end
+                end)
+            end
+        end)
     end
     tryPersist()
+end
+
+if placeId ~= DOORS_MAIN and placeId ~= DOORS_ROOMS then
+    return
 end
 
 local isfile    = isfile    or function() return false end
@@ -74,7 +90,6 @@ getgenv().XvlamerHub_Executed = game.JobId
 getgenv().XvlamerHub_Cancelled = false
 
 local FARM_TOKENS = {
-    ["Autofarm"]      = "XvlamerHub_AutofarmCancelled",
     ["Knob Farm"]     = "XvlamerHub_KnobFarmCancelled",
     ["Death Farm"]    = "XvlamerHub_DeathFarmCancelled",
     ["Stardust Farm"] = "XvlamerHub_StardustFarmCancelled",
@@ -204,31 +219,17 @@ local function queueTeleportLoad()
         or (typeof(queue_on_teleport) == "function" and queue_on_teleport)
         or (fluxus and fluxus.queue_on_teleport)
         or (getgenv and getgenv().queue_on_teleport)
+        or queue_on_teleport
     if queueFunc then
         pcall(function()
             queueFunc([[
                 task.wait(1.5)
                 pcall(function()
-                    local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Main")
-                    local fn = loadstring(src)
-                    if fn then fn() end
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm"))()
                 end)
             ]])
         end)
     end
-end
-
--- Added Autofarm Link Function
-local function runAutofarm()
-    if farmCancelled("Autofarm") then return end
-    resetFarmToken("Autofarm")
-    task.spawn(function()
-        pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
-            local fn = loadstring(src)
-            if fn then fn() end
-        end)
-    end)
 end
 
 local function runDeathFarm()
@@ -236,9 +237,9 @@ local function runDeathFarm()
     resetFarmToken("Death Farm")
     task.spawn(function()
         pcall(function()
-            local src = game:HttpGet("https://api.luarmor.net/files/v3/loaders/187f19b3cab5144ba87f91792383c3a4.lua")
-            local fn = loadstring(src)
-            if fn then fn() end
+            loadstring(game:HttpGet(
+                "https://api.luarmor.net/files/v3/loaders/187f19b3cab5144ba87f91792383c3a4.lua"
+            ))()
         end)
     end)
 end
@@ -275,9 +276,9 @@ local function runKnobFarmGame()
     resetFarmToken("Knob Farm")
     task.spawn(function()
         pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs")
-            local fn = loadstring(src)
-            if fn then fn() end
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs"
+            ))()
         end)
     end)
 end
@@ -307,9 +308,9 @@ local function runStardustFarmGame()
     resetFarmToken("Stardust Farm")
     task.spawn(function()
         pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust")
-            local fn = loadstring(src)
-            if fn then fn() end
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"
+            ))()
         end)
     end)
 end
@@ -319,9 +320,9 @@ local function runNoclip()
     resetFarmToken("Noclip")
     task.spawn(function()
         pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Noclip")
-            local fn = loadstring(src)
-            if fn then fn() end
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Noclip"
+            ))()
         end)
     end)
 end
@@ -331,9 +332,9 @@ local function runNoclipSpam()
     resetFarmToken("Noclip SPAM")
     task.spawn(function()
         pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Noclip%20SPAM")
-            local fn = loadstring(src)
-            if fn then fn() end
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Noclip%20SPAM"
+            ))()
         end)
     end)
 end
@@ -343,9 +344,9 @@ local function runOptimizations()
     resetFarmToken("Optimizations")
     task.spawn(function()
         pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Optimizations")
-            local fn = loadstring(src)
-            if fn then fn() end
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Optimizations"
+            ))()
         end)
     end)
 end
@@ -950,6 +951,9 @@ local function initializeMainHub()
                 setVisual(false)
                 setToggleSaved(name, false)
                 cancelFarm(name)
+                if name == "Knob Farm" then
+                    setMainGuiVisible(true)
+                end
             end,
         }
 
@@ -962,6 +966,9 @@ local function initializeMainHub()
             setVisual(false)
             setToggleSaved(name, false)
             cancelFarm(name)
+            if name == "Knob Farm" then
+                setMainGuiVisible(true)
+            end
         end
 
         local function turnOn()
@@ -970,6 +977,10 @@ local function initializeMainHub()
             on = true
             setVisual(true)
             setToggleSaved(name, true)
+
+            if name == "Knob Farm" then
+                setMainGuiVisible(false)
+            end
 
             if isRadio then
                 for _, r in ipairs(radioToggles) do
@@ -982,9 +993,7 @@ local function initializeMainHub()
                 end
             end
 
-            if name == "Autofarm" then
-                task.spawn(runAutofarm)
-            elseif name == "Knob Farm" then
+            if name == "Knob Farm" then
                 task.spawn(function()
                     if farmCancelled("Knob Farm") then return end
                     if isInLobby() then
@@ -1024,6 +1033,94 @@ local function initializeMainHub()
                 turnOff()
                 return
             end
+
+            if name == "Knob Farm" then
+                local floor = getCurrentFloor()
+                local isValidFloor = isInLobby() or floor == "Hotel" or floor == "Mines"
+                if not isValidFloor then
+                    showPopupModal(
+                        "XvlamersInvalidFloorWarning", "⚠️ RESTRICTED LOCATION",
+                        "Knob Farm can only be executed while in the Lobby, Hotel, or Mines. Please return to the Lobby or a supported floor to continue.",
+                        "", "OK",
+                        function() end,
+                        function() end
+                    )
+                    turnOff()
+                    return
+                end
+
+                if isInLobby() then
+                    showPopupModal(
+                        "XvlamersModifiersPrompt", "⚠️ 150% MODIFIERS",
+                        "Use 150% Modifiers in the mines and collect the most gold for maximum Knobs.",
+                        "Cancel", "Proceed",
+                        function() turnOff() end,
+                        function() turnOn()  end
+                    )
+                else
+                    if getGoldValue() <= 0 then
+                        showPopupModal(
+                            "XvlamersZeroGoldWarning", "⚠️ 0 GOLD",
+                            "You have 0 gold. Collect more gold before starting Knob Farm.",
+                            "", "OK",
+                            function() end,
+                            function() end
+                        )
+                        turnOff()
+                        return
+                    end
+                    turnOn()
+                end
+                return
+            end
+
+            if name == "Death Farm" then
+                showPopupModal(
+                    "XvlamersDeathFarmWarning", "⚠️ DEATH FARM",
+                    "Death farm uses advanced techniques for the most precision and speed and you must re open Roblox to completely stop it.",
+                    "Cancel", "Proceed",
+                    function() turnOff() end,
+                    function() turnOn()  end
+                )
+                return
+            end
+
+            if name == "Stardust Farm" then
+                local floor = getCurrentFloor()
+                local isValidFloor = isInLobby() or floor == "Archives"
+                if not isValidFloor then
+                    showPopupModal(
+                        "XvlamersInvalidStardustFloor", "⚠️ RESTRICTED LOCATION",
+                        "Stardust Farm must be ran in Archives to work.",
+                        "", "OK",
+                        function() end,
+                        function() end
+                    )
+                    turnOff()
+                    return
+                end
+
+                if isInLobby() then
+                    showPopupModal(
+                        "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
+                        "Would you like to start the Stardust Farm? Do not touch your device while it is in action.",
+                        "Cancel", "Proceed",
+                        function() turnOff() end,
+                        function() turnOn()  end
+                    )
+                else
+                    showPopupModal(
+                        "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
+                        "Stardust Farm resuming. Auto-confirming in 5 seconds if no response.",
+                        "Cancel", "Proceed",
+                        function() turnOff() end,
+                        function() turnOn()  end,
+                        5
+                    )
+                end
+                return
+            end
+
             turnOn()
         end
 
@@ -1031,15 +1128,121 @@ local function initializeMainHub()
         return obj
     end
 
-    createToggle("Autofarm",      pages[2], true,  false, 1)
-    createToggle("Knob Farm",     pages[2], true,  false, 2)
-    createToggle("Death Farm",    pages[2], true,  false, 3)
-    createToggle("Stardust Farm", pages[2], true,  false, 4)
+    createToggle("Knob Farm",     pages[2], true,  false, 1)
+    createToggle("Death Farm",    pages[2], true,  false, 2)
+    createToggle("Stardust Farm", pages[2], true,  false, 3)
 
     createToggle("Noclip",        pages[3], false, true,  1)
     createToggle("Noclip SPAM",   pages[3], false, true,  2)
     createToggle("Optimizations", pages[3], false, false, 3)
     createToggle("Anti-AFK",      pages[3], false, false, 4)
+
+    local farmsLeftOn = {}
+    for _, fname in ipairs({"Knob Farm", "Death Farm", "Stardust Farm"}) do
+        if state.ToggleState[fname] == true then
+            table.insert(farmsLeftOn, fname)
+        end
+    end
+
+    task.spawn(function()
+        task.wait(0.5)
+        if getgenv().XvlamerHub_Cancelled then return end
+        for _, tname in ipairs({"Noclip", "Noclip SPAM", "Optimizations", "Anti-AFK"}) do
+            if state.ToggleState[tname] == true then
+                local h = toggleHandlers[tname]
+                if h and h.turnOnSilent then h.turnOnSilent() end
+            end
+        end
+    end)
+
+    if #farmsLeftOn > 0 then
+        task.spawn(function()
+            task.wait(0.8)
+            if getgenv().XvlamerHub_Cancelled then return end
+            for _, fname in ipairs(farmsLeftOn) do
+                if getgenv().XvlamerHub_Cancelled then break end
+                local h = toggleHandlers[fname]
+                if not h then continue end
+
+                local inLobby      = isInLobby()
+                local currentFloor = getCurrentFloor()
+                local isValidFloor = inLobby or currentFloor == "Hotel" or currentFloor == "Mines"
+                if fname == "Stardust Farm" then
+                    isValidFloor = inLobby or currentFloor == "Archives"
+                end
+
+                if not isValidFloor and fname ~= "Stardust Farm" then
+                    h.setOff(); continue
+                elseif not isValidFloor and fname == "Stardust Farm" then
+                    h.setOff(); continue
+                end
+
+                if fname == "Knob Farm" then
+                    if not isValidFloor then
+                        h.setOff()
+                    elseif inLobby then
+                        showPopupModal(
+                            "XvlamersRestore_" .. fname:gsub(" ", ""),
+                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                            fname .. " was active when you left. Would you like to resume it?",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end
+                        )
+                    else
+                        h.setOff()
+                    end
+                elseif fname == "Stardust Farm" then
+                    if not isValidFloor then
+                        h.setOff()
+                    elseif inLobby then
+                        showPopupModal(
+                            "XvlamersRestore_" .. fname:gsub(" ", ""),
+                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                            fname .. " was active when you left. Would you like to resume it?",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end
+                        )
+                    else
+                        showPopupModal(
+                            "XvlamersRestoreStardust",
+                            "⚠️ " .. fname .. " WAS LEFT ON",
+                            fname .. " was active when you left. Auto-resuming in 5 seconds.",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end,
+                            5
+                        )
+                    end
+                else
+                    if inLobby then
+                        showPopupModal(
+                            "XvlamersRestore_" .. fname:gsub(" ", ""),
+                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                            fname .. " was active when you left. Would you like to resume it?",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end
+                        )
+                    else
+                        h.setOff()
+                    end
+                end
+
+                task.wait(0.3)
+                repeat task.wait(0.1) until getgenv().XvlamerHub_Cancelled or not isModalOpen()
+            end
+        end)
+    end
 end
 
 local function startKeySystem()
@@ -1113,7 +1316,7 @@ local function startKeySystem()
         PlaceholderText = "Enter key here...", Text = "",
         TextColor3 = Color3.fromRGB(255, 255, 255),
         PlaceholderColor3 = Color3.fromRGB(110, 110, 135),
-        TextSize = 11, ClearTextOnFocus = false, Parent = tbBg,
+        TextSize = 11, ClearTextOnFocus = true, Parent = tbBg,
     })
 
     local confirmBtn = create("TextButton", {
