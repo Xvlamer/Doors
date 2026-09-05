@@ -58,16 +58,12 @@ local FARM_TOKENS = {
 
 local function cancelFarm(name)
     local token = FARM_TOKENS[name]
-    if token then
-        getgenv()[token] = true
-    end
+    if token then getgenv()[token] = true end
 end
 
 local function resetFarmToken(name)
     local token = FARM_TOKENS[name]
-    if token then
-        getgenv()[token] = false
-    end
+    if token then getgenv()[token] = false end
 end
 
 local function farmCancelled(name)
@@ -76,15 +72,12 @@ local function farmCancelled(name)
     return getgenv().XvlamerHub_Cancelled or getgenv()[token] == true
 end
 
-for name, _ in pairs(FARM_TOKENS) do
-    resetFarmToken(name)
-end
+for name, _ in pairs(FARM_TOKENS) do resetFarmToken(name) end
 
 local mainRef        = nil
 local HubConnections = {}
 local radioToggles   = {}
 local toggleHandlers = {}
-
 getgenv().XvlamerHub_ToggleHandlers = toggleHandlers
 
 local function trackConnection(conn)
@@ -153,6 +146,34 @@ local function getCurrentFloor()
     return (ok and res and res ~= "") and res or "Hotel"
 end
 
+local function isOnDailyFloor()
+    local floor = getCurrentFloor()
+    if floor == "Daily" or floor == "Ripple" then return true end
+    local ok, res = pcall(function()
+        local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+        if gd then
+            local floorVal = gd:FindFirstChild("Floor")
+            if floorVal then
+                local v = tostring(floorVal.Value):lower()
+                if v:find("daily") or v:find("ripple") then return true end
+            end
+            local gm = gd:FindFirstChild("Gamemode") or gd:FindFirstChild("Mode")
+            if gm then
+                local v = tostring(gm.Value):lower()
+                if v:find("daily") or v:find("ripple") then return true end
+            end
+        end
+        local currentRooms = workspace:FindFirstChild("CurrentRooms")
+        if currentRooms then
+            for _, child in ipairs(currentRooms:GetChildren()) do
+                if tonumber(child.Name) ~= nil then return true end
+            end
+        end
+        return false
+    end)
+    return ok and res or false
+end
+
 local function getGoldValue()
     local gold = 0
     pcall(function()
@@ -183,7 +204,7 @@ local function queueTeleportLoad()
             queueFunc([[
                 if not game:IsLoaded() then game.Loaded:Wait() end
                 task.wait(1)
-                local ok, err = pcall(function()
+                pcall(function()
                     local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
                     loadstring(src)()
                 end)
@@ -192,76 +213,325 @@ local function queueTeleportLoad()
     end
 end
 
--- Ripple Farm Floor Handler Loop (Fixed with Pathfinding & Improved Walkspeed)
-task.spawn(function()
-    while task.wait(0.5) do
-        if getgenv().XvlamerHub_Cancelled then break end
-        if getgenv().XvlamerHub_RippleFarmActive then
-            local floor = getCurrentFloor()
-            if floor == "Ripple" or floor == "Daily" or (workspace:FindFirstChild("CurrentRooms") and workspace.CurrentRooms:FindFirstChild("0")) then
-                local currentRooms = workspace:FindFirstChild("CurrentRooms")
-                if currentRooms then
-                    local room0 = currentRooms:FindFirstChild("0") or currentRooms:GetChildren()[1]
-                    if room0 then
-                        local door = room0:FindFirstChild("Door")
-                        if door then
-                            local char = P.Character
-                            local root = char and char:FindFirstChild("HumanoidRootPart")
-                            local hum = char and char:FindFirstChildOfClass("Humanoid")
-                            if root and hum and hum.Health > 0 then
-                                hum.WalkSpeed = 18 -- Enhanced safe walkspeed above standard 15
-                                local targetPos = door:IsA("Model") and door:GetPivot().Position or (door:IsA("BasePart") and door.Position)
-                                if targetPos then
-                                    local path = PathfindingService:CreatePath({
-                                        AgentRadius = 2,
-                                        AgentHeight = 5,
-                                        AgentCanJump = true
-                                    })
-                                    local success = pcall(function()
-                                        path:ComputeAsync(root.Position, targetPos)
-                                    end)
-                                    if success and path.Status == Enum.PathStatus.Success then
-                                        local waypoints = path:GetWaypoints()
-                                        for _, waypoint in ipairs(waypoints) do
-                                            if getgenv().XvlamerHub_Cancelled or not getgenv().XvlamerHub_RippleFarmActive then break end
-                                            hum:MoveTo(waypoint.Position)
-                                            if waypoint.Action == Enum.PathWaypointAction.Jump then
-                                                hum.Jump = true
-                                            end
-                                            local reached = false
-                                            local conn
-                                            conn = hum.MoveFinished:Connect(function()
-                                                reached = true
-                                                if conn then conn:Disconnect() end
-                                            end)
-                                            local t = tick()
-                                            while not reached and tick() - t < 1.5 do
-                                                task.wait(0.1)
-                                                if (root.Position - waypoint.Position).Magnitude < 4 then break end
-                                            end
-                                            if conn then conn:Disconnect() end
-                                        end
-                                    else
-                                        hum:MoveTo(targetPos)
-                                    end
+-- ── Daily Run engine ──────────────────────────────────────────────────────────
 
-                                    if (root.Position - targetPos).Magnitude < 6 then
-                                        getgenv().XvlamerHub_RippleFarmActive = false
-                                        hum.Health = 0
-                                        task.wait(1)
-                                        pcall(function()
-                                            game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder"):WaitForChild("Lobby"):FireServer()
-                                        end)
-                                    end
-                                end
-                            end
-                        end
-                    end
+-- Heartbeat-driven mover: walks the character toward targetPos at exactly
+-- WALK_SPEED studs/sec on the XZ plane, leaving Y to physics.
+-- Returns true when within ARRIVE_DIST, false if aborted.
+local WALK_SPEED  = 15   -- studs / second
+local ARRIVE_DIST = 4    -- studs from target to count as "arrived"
+local STUCK_TIME  = 3    -- seconds without meaningful progress before giving up
+
+local function heartbeatWalkTo(targetPos, shouldAbort)
+    local char = P.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum  = char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then return false end
+
+    -- Lock humanoid settings
+    hum.WalkSpeed  = WALK_SPEED
+    hum.JumpHeight = 0
+    hum.JumpPower  = 0
+    hum.AutoRotate = true
+
+    local flatTarget = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
+
+    local lastPos    = root.Position
+    local stuckTimer = 0
+    local lastDt     = tick()
+
+    local conn
+    local done   = false
+    local result = false
+
+    conn = RS.Heartbeat:Connect(function(dt)
+        if done then return end
+        if shouldAbort() then
+            done   = true
+            result = false
+            hum.WalkSpeed = 16
+            conn:Disconnect()
+            return
+        end
+
+        local char2 = P.Character
+        if not char2 then
+            done = true; result = false
+            conn:Disconnect(); return
+        end
+        local root2 = char2:FindFirstChild("HumanoidRootPart")
+        local hum2  = char2:FindFirstChildOfClass("Humanoid")
+        if not root2 or not hum2 or hum2.Health <= 0 then
+            done = true; result = false
+            conn:Disconnect(); return
+        end
+
+        -- Keep Y grounded to current position (physics handles stair-stepping)
+        flatTarget = Vector3.new(targetPos.X, root2.Position.Y, targetPos.Z)
+
+        local dist = (Vector3.new(root2.Position.X, 0, root2.Position.Z)
+            - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
+
+        if dist <= ARRIVE_DIST then
+            done   = true
+            result = true
+            hum2.WalkSpeed = 16
+            conn:Disconnect()
+            return
+        end
+
+        -- Stuck detection
+        local moved = (root2.Position - lastPos).Magnitude
+        if moved < 0.05 then
+            stuckTimer = stuckTimer + dt
+        else
+            stuckTimer = 0
+            lastPos = root2.Position
+        end
+
+        if stuckTimer >= STUCK_TIME then
+            done   = true
+            result = false
+            hum2.WalkSpeed = 16
+            conn:Disconnect()
+            return
+        end
+
+        -- Move: set humanoid target every frame so it actually walks
+        hum2.WalkSpeed = WALK_SPEED
+        hum2:MoveTo(flatTarget)
+    end)
+
+    -- Spin-wait without blocking the scheduler
+    while not done do
+        task.wait(0.05)
+    end
+
+    return result
+end
+
+-- Find all door-candidate parts in the first room
+local function findDoorParts()
+    local results = {}
+    local currentRooms = workspace:FindFirstChild("CurrentRooms")
+    if not currentRooms then return results end
+
+    -- Sort rooms numerically, take the lowest-indexed one
+    local children = currentRooms:GetChildren()
+    table.sort(children, function(a, b)
+        return (tonumber(a.Name) or 9999) < (tonumber(b.Name) or 9999)
+    end)
+    local room0 = children[1]
+    if not room0 then return results end
+
+    local doorKeywords = {"door", "exit", "gate", "doorframe", "doorway"}
+
+    for _, v in ipairs(room0:GetDescendants()) do
+        if v:IsA("BasePart") or v:IsA("MeshPart") or v:IsA("UnionOperation") then
+            local nameLower = v.Name:lower()
+            for _, kw in ipairs(doorKeywords) do
+                if nameLower:find(kw) then
+                    -- Only include parts that are physically reachable on ground level
+                    -- (not ceiling-mounted or floating more than 20 studs up)
+                    table.insert(results, v)
+                    break
                 end
             end
         end
     end
-end)
+
+    -- Sort by distance to player
+    local root = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
+    if root then
+        table.sort(results, function(a, b)
+            return (a.Position - root.Position).Magnitude
+                 < (b.Position - root.Position).Magnitude
+        end)
+    end
+
+    return results
+end
+
+-- Walk pathfinding waypoints using heartbeatWalkTo per segment
+local function walkPathTo(targetPos, shouldAbort)
+    local char = P.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+
+    -- Build path with conservative agent settings — no jump, max step 1.5 studs
+    local path = PathfindingService:CreatePath({
+        AgentRadius     = 2,
+        AgentHeight     = 5,
+        AgentCanJump    = false,
+        AgentCanClimb   = false,
+        WaypointSpacing = 4,
+    })
+
+    local ok = pcall(function()
+        path:ComputeAsync(root.Position, targetPos)
+    end)
+
+    if not ok or path.Status ~= Enum.PathStatus.Success then
+        -- Pathfinding failed — walk direct at ground level
+        return heartbeatWalkTo(targetPos, shouldAbort)
+    end
+
+    local waypoints = path:GetWaypoints()
+
+    for i, wp in ipairs(waypoints) do
+        if shouldAbort() then return false end
+        -- Skip Jump waypoints entirely — player cannot jump
+        if wp.Action == Enum.PathWaypointAction.Jump then continue end
+
+        local reached = heartbeatWalkTo(wp.Position, shouldAbort)
+        if not reached then
+            -- Stuck on a waypoint — try skipping to the next one
+            if i < #waypoints then
+                continue
+            else
+                return false
+            end
+        end
+    end
+
+    -- Final approach check
+    local finalRoot = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
+    if finalRoot then
+        local finalDist = (Vector3.new(finalRoot.Position.X, 0, finalRoot.Position.Z)
+            - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
+        return finalDist <= ARRIVE_DIST + 4
+    end
+    return false
+end
+
+-- Main daily run sequence
+local function runDailyCompletion(setGuiHidden)
+    -- Phase 1: wait for daily floor
+    local waitDeadline = tick() + 90
+    while not isOnDailyFloor() do
+        if not getgenv().XvlamerHub_DailyRunActive or getgenv().XvlamerHub_Cancelled then
+            getgenv().XvlamerHub_DailyRunActive = false
+            setGuiHidden(false)
+            return
+        end
+        if tick() > waitDeadline then
+            getgenv().XvlamerHub_DailyRunActive = false
+            setGuiHidden(false)
+            return
+        end
+        task.wait(0.5)
+    end
+
+    -- Hide menu while running in-game
+    setGuiHidden(true)
+
+    -- Wait for room geometry to fully load
+    task.wait(3)
+
+    if not getgenv().XvlamerHub_DailyRunActive or getgenv().XvlamerHub_Cancelled then
+        getgenv().XvlamerHub_DailyRunActive = false
+        setGuiHidden(false)
+        return
+    end
+
+    local shouldAbort = function()
+        return not getgenv().XvlamerHub_DailyRunActive
+            or getgenv().XvlamerHub_Cancelled
+    end
+
+    -- Find door parts
+    local doorParts = {}
+    local searchDeadline = tick() + 20
+    while #doorParts == 0 do
+        if shouldAbort() then
+            setGuiHidden(false)
+            return
+        end
+        if tick() > searchDeadline then
+            getgenv().XvlamerHub_DailyRunActive = false
+            setGuiHidden(false)
+            return
+        end
+        doorParts = findDoorParts()
+        if #doorParts == 0 then task.wait(0.5) end
+    end
+
+    -- Walk toward closest door part — try each candidate if stuck
+    local reached = false
+    for _, part in ipairs(doorParts) do
+        if shouldAbort() then break end
+        local targetPos = part.Position
+        reached = walkPathTo(targetPos, shouldAbort)
+        if reached then break end
+    end
+
+    if shouldAbort() then
+        setGuiHidden(false)
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
+
+    -- Confirm character is near a door before firing anything
+    local char = P.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        getgenv().XvlamerHub_DailyRunActive = false
+        setGuiHidden(false)
+        return
+    end
+
+    -- Check proximity to any door part
+    local nearDoor = false
+    for _, part in ipairs(doorParts) do
+        local dist = (root.Position - part.Position).Magnitude
+        if dist <= 10 then
+            nearDoor = true
+            break
+        end
+    end
+
+    if not nearDoor then
+        -- Try one more direct walk to closest door
+        if #doorParts > 0 then
+            heartbeatWalkTo(doorParts[1].Position, shouldAbort)
+        end
+    end
+
+    if shouldAbort() then
+        setGuiHidden(false)
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
+
+    task.wait(0.5)
+
+    -- Kill character at door
+    local char2 = P.Character
+    if char2 then
+        local hum = char2:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            hum.Health = 0
+        end
+    end
+
+    task.wait(2)
+
+    -- Fire lobby remote to leave
+    pcall(function()
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("RemotesFolder", 10)
+            :WaitForChild("Lobby", 10)
+            :FireServer()
+    end)
+
+    task.wait(1)
+
+    -- Done — reset everything, show menu
+    getgenv().XvlamerHub_DailyRunActive = false
+    setGuiHidden(false)
+end
 
 local function runDeathFarm()
     if farmCancelled("Death Farm") then return end
@@ -403,11 +673,10 @@ end
 
 local purge
 purge = function()
-    getgenv().XvlamerHub_Cancelled = true
-    getgenv().XvlamerHub_Executed  = nil
-    for name, _ in pairs(FARM_TOKENS) do
-        cancelFarm(name)
-    end
+    getgenv().XvlamerHub_Cancelled      = true
+    getgenv().XvlamerHub_Executed       = nil
+    getgenv().XvlamerHub_DailyRunActive = false
+    for name, _ in pairs(FARM_TOKENS) do cancelFarm(name) end
     stopAntiAfk()
     for _, conn in pairs(HubConnections) do
         if conn and typeof(conn) == "RBXScriptConnection" then
@@ -444,10 +713,9 @@ if getgenv().XvlamerHub_RunningInstance then
 end
 getgenv().XvlamerHub_RunningInstance = purge
 purge()
-getgenv().XvlamerHub_Cancelled = false
-for name, _ in pairs(FARM_TOKENS) do
-    resetFarmToken(name)
-end
+getgenv().XvlamerHub_Cancelled      = false
+getgenv().XvlamerHub_DailyRunActive = false
+for name, _ in pairs(FARM_TOKENS) do resetFarmToken(name) end
 
 local function create(className, props)
     local ok, inst = pcall(function()
@@ -816,7 +1084,7 @@ local function initializeMainHub()
 
     local tabs, pages = {}, {}
 
-    local function addTab(name, id, scroll)
+    local function addTab(name, id)
         local btn = create("TextButton", {
             Size = UDim2.new(0.333, 0, 1, 0),
             Position = UDim2.new((id - 1) * 0.333, 0, 0, 0),
@@ -825,26 +1093,14 @@ local function initializeMainHub()
             TextColor3 = Color3.fromRGB(150, 150, 170), TextSize = 11, Parent = tabRow,
         })
 
-        local page
-        if scroll == false then
-            page = create("ScrollingFrame", {
-                Size = UDim2.new(1, -20, 1, -8), Position = UDim2.new(0, 10, 0, 0),
-                BackgroundTransparency = 1, CanvasSize = UDim2.new(0, 0, 0, 0),
-                AutomaticCanvasSize = Enum.AutomaticSize.Y,
-                ScrollBarThickness = 2,
-                ScrollBarImageColor3 = Color3.fromRGB(70, 70, 95),
-                Visible = false, Parent = tabContent,
-            })
-        else
-            page = create("ScrollingFrame", {
-                Size = UDim2.new(1, -20, 1, -8), Position = UDim2.new(0, 10, 0, 0),
-                BackgroundTransparency = 1, CanvasSize = UDim2.new(0, 0, 0, 0),
-                AutomaticCanvasSize = Enum.AutomaticSize.Y,
-                ScrollBarThickness = 2,
-                ScrollBarImageColor3 = Color3.fromRGB(70, 70, 95),
-                Visible = false, Parent = tabContent,
-            })
-        end
+        local page = create("ScrollingFrame", {
+            Size = UDim2.new(1, -20, 1, -8), Position = UDim2.new(0, 10, 0, 0),
+            BackgroundTransparency = 1, CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2,
+            ScrollBarImageColor3 = Color3.fromRGB(70, 70, 95),
+            Visible = false, Parent = tabContent,
+        })
 
         create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = page })
         create("UIPadding",    { PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 2), Parent = page })
@@ -864,9 +1120,9 @@ local function initializeMainHub()
         end, 0.2)
     end
 
-    addTab("Info",     1, false)
-    addTab("AutoFarm", 2, true)
-    addTab("Player",   3, true)
+    addTab("Info",     1)
+    addTab("AutoFarm", 2)
+    addTab("Player",   3)
 
     tabs[1].TextColor3 = Color3.fromRGB(255, 255, 255)
     pages[1].Visible   = true
@@ -979,9 +1235,7 @@ local function initializeMainHub()
                 setVisual(false)
                 setToggleSaved(name, false)
                 cancelFarm(name)
-                if name == "Knob Farm" then
-                    setMainGuiVisible(true)
-                end
+                if name == "Knob Farm" then setMainGuiVisible(true) end
             end,
         }
 
@@ -994,9 +1248,7 @@ local function initializeMainHub()
             setVisual(false)
             setToggleSaved(name, false)
             cancelFarm(name)
-            if name == "Knob Farm" then
-                setMainGuiVisible(true)
-            end
+            if name == "Knob Farm" then setMainGuiVisible(true) end
         end
 
         local function turnOn()
@@ -1006,9 +1258,7 @@ local function initializeMainHub()
             setVisual(true)
             setToggleSaved(name, true)
 
-            if name == "Knob Farm" then
-                setMainGuiVisible(false)
-            end
+            if name == "Knob Farm" then setMainGuiVisible(false) end
 
             if isRadio then
                 for _, r in ipairs(radioToggles) do
@@ -1024,22 +1274,14 @@ local function initializeMainHub()
             if name == "Knob Farm" then
                 task.spawn(function()
                     if farmCancelled("Knob Farm") then return end
-                    if isInLobby() then
-                        runKnobFarmLobby()
-                    else
-                        runKnobFarmGame()
-                    end
+                    if isInLobby() then runKnobFarmLobby() else runKnobFarmGame() end
                 end)
             elseif name == "Death Farm" then
                 task.spawn(runDeathFarm)
             elseif name == "Stardust Farm" then
                 task.spawn(function()
                     if farmCancelled("Stardust Farm") then return end
-                    if isInLobby() then
-                        runStardustFarmLobby()
-                    else
-                        runStardustFarmGame()
-                    end
+                    if isInLobby() then runStardustFarmLobby() else runStardustFarmGame() end
                 end)
             elseif name == "Noclip" then
                 task.spawn(runNoclip)
@@ -1071,17 +1313,14 @@ local function initializeMainHub()
                         "Knob Farm can only be executed while in the Lobby, Hotel, or Mines.",
                         "", "OK", function() end, function() end
                     )
-                    turnOff()
-                    return
+                    turnOff(); return
                 end
-
                 if isInLobby() then
                     showPopupModal(
                         "XvlamersModifiersPrompt", "⚠️ CUSTOM MODIFIERS",
                         "Use custom modifiers in the mines and collect the most gold for maximum Knobs.",
                         "Cancel", "Proceed",
-                        function() turnOff() end,
-                        function() turnOn()  end
+                        function() turnOff() end, function() turnOn() end
                     )
                 else
                     if getGoldValue() <= 0 then
@@ -1090,8 +1329,7 @@ local function initializeMainHub()
                             "You have 0 gold. Collect more gold before starting Knob Farm.",
                             "", "OK", function() end, function() end
                         )
-                        turnOff()
-                        return
+                        turnOff(); return
                     end
                     turnOn()
                 end
@@ -1103,8 +1341,7 @@ local function initializeMainHub()
                     "XvlamersDeathFarmWarning", "⚠️ DEATH FARM",
                     "Death farm uses advanced techniques and you must re open Roblox to completely stop it.",
                     "Cancel", "Proceed",
-                    function() turnOff() end,
-                    function() turnOn()  end
+                    function() turnOff() end, function() turnOn() end
                 )
                 return
             end
@@ -1118,26 +1355,21 @@ local function initializeMainHub()
                         "Stardust Farm must be ran in Archives to work.",
                         "", "OK", function() end, function() end
                     )
-                    turnOff()
-                    return
+                    turnOff(); return
                 end
-
                 if isInLobby() then
                     showPopupModal(
                         "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
                         "Would you like to start the Stardust Farm? Do not touch your device while active.",
                         "Cancel", "Proceed",
-                        function() turnOff() end,
-                        function() turnOn()  end
+                        function() turnOff() end, function() turnOn() end
                     )
                 else
                     showPopupModal(
                         "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
                         "Stardust Farm resuming. Auto-confirming in 5 seconds if no response.",
                         "Cancel", "Proceed",
-                        function() turnOff() end,
-                        function() turnOn()  end,
-                        5
+                        function() turnOff() end, function() turnOn() end, 5
                     )
                 end
                 return
@@ -1150,8 +1382,8 @@ local function initializeMainHub()
         return obj
     end
 
-    -- 4th Item: Updated Click Detector Button ("Complete Daily Run" with Click Icon)
-    local function createClickButton(name, parentPage, order, callback)
+    -- ── Daily Run button ───────────────────────────────────────────────────────
+    local function createDailyRunButton(parentPage, order)
         local box = create("TextButton", {
             Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = Color3.fromRGB(18, 18, 24),
@@ -1160,58 +1392,80 @@ local function initializeMainHub()
         })
         create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = box })
         create("UIStroke",  { Color = Color3.fromRGB(45, 45, 60), Transparency = 0.2, Thickness = 1, Parent = box })
-        create("TextLabel", {
-            Size = UDim2.new(1, -70, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+
+        local lbl = create("TextLabel", {
+            Size = UDim2.new(1, -16, 1, 0), Position = UDim2.new(0, 12, 0, 0),
             BackgroundTransparency = 1, Active = false,
-            Font = Enum.Font.GothamBold, Text = name,
+            Font = Enum.Font.GothamBold, Text = "Complete Daily Run",
             TextColor3 = Color3.fromRGB(245, 245, 255), TextSize = 11,
             TextXAlignment = Enum.TextXAlignment.Left, Parent = box,
         })
 
-        local btnTag = create("TextLabel", {
-            Size = UDim2.new(0, 52, 0, 20), Position = UDim2.new(1, -60, 0.5, -10),
-            BackgroundColor3 = THEME_PURPLE, BackgroundTransparency = 0.2,
-            Font = Enum.Font.GothamBold, Text = "👆", TextColor3 = Color3.fromRGB(255, 255, 255),
-            TextSize = 12, Parent = box,
-        })
-        create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = btnTag })
+        local active = false
 
         onDebouncedClick(box, function()
             if getgenv().XvlamerHub_Cancelled then return end
-            pcall(callback)
-        end, 0.2)
+            if active then return end
+
+            local inLobby = isInLobby()
+            local onDaily = isOnDailyFloor()
+
+            if not inLobby and not onDaily then
+                showPopupModal(
+                    "XvlamersDailyFloorWarning", "⚠️ DAILY COMPLETION",
+                    "This must be ran inside the Daily Run or Lobby for it to work.",
+                    "", "OK", function() end, function() end
+                )
+                return
+            end
+
+            active = true
+            lbl.TextColor3 = Color3.fromRGB(108, 92, 231)
+            setMainGuiVisible(false)
+
+            local function guiHiddenSetter(hidden)
+                pcall(function()
+                    if hidden then
+                        setMainGuiVisible(false)
+                    else
+                        setMainGuiVisible(true)
+                        active = false
+                        lbl.TextColor3 = Color3.fromRGB(245, 245, 255)
+                    end
+                end)
+            end
+
+            getgenv().XvlamerHub_DailyRunActive = true
+
+            if inLobby then
+                -- Fire elevator then wait for teleport into daily floor
+                pcall(function()
+                    local args = {
+                        [1] = {
+                            ["Mods"]        = {},
+                            ["Settings"]    = {},
+                            ["Destination"] = "Daily",
+                            ["FriendsOnly"] = false,
+                            ["MaxPlayers"]  = "1",
+                        }
+                    }
+                    game:GetService("ReplicatedStorage")
+                        :WaitForChild("RemotesFolder")
+                        :WaitForChild("CreateElevator")
+                        :FireServer(unpack(args))
+                end)
+            end
+
+            task.spawn(function()
+                runDailyCompletion(guiHiddenSetter)
+            end)
+        end, 0.5)
     end
 
     createToggle("Knob Farm",     pages[2], true,  false, 1)
     createToggle("Death Farm",    pages[2], true,  false, 2)
     createToggle("Stardust Farm", pages[2], true,  false, 3)
-
-    -- 4th Autofarm button renamed to "Complete Daily Run"
-    createClickButton("Complete Daily Run", pages[2], 4, function()
-        if isInLobby() then
-            local args = {
-                [1] = {
-                    ["Mods"] = {},
-                    ["Settings"] = {},
-                    ["Destination"] = "Daily",
-                    ["FriendsOnly"] = false,
-                    ["MaxPlayers"] = "1"
-                }
-            }
-            queueTeleportLoad()
-            getgenv().XvlamerHub_RippleFarmActive = true
-            pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder"):WaitForChild("CreateElevator"):FireServer(unpack(args))
-            end)
-        else
-            getgenv().XvlamerHub_RippleFarmActive = true
-            showPopupModal(
-                "XvlamersRippleActive", "⚠️ RIPPLE FARM",
-                "Ripple Farm activated! Will pathfind to Door in room 0 when on Ripple floor.",
-                "", "OK", function() end, function() end
-            )
-        end
-    end)
+    createDailyRunButton(pages[2], 4)
 
     createToggle("Noclip",        pages[3], false, true,  1)
     createToggle("Noclip SPAM",   pages[3], false, true,  2)
@@ -1252,9 +1506,7 @@ local function initializeMainHub()
                     isValidFloor = inLobby or currentFloor == "Archives"
                 end
 
-                if not isValidFloor then
-                    h.setOff(); continue
-                end
+                if not isValidFloor then h.setOff(); continue end
 
                 if inLobby then
                     showPopupModal(
