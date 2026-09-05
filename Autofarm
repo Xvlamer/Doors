@@ -246,23 +246,28 @@ local function runKnobFarmLobby()
         local args = {
             [1] = {
                 ["Mods"] = {
-                    [1]  = "ItemSpawnNone",   [2]  = "DupeMost",
-                    [3]  = "LeastHidingSpots",[4]  = "GloombatMore",
-                    [5]  = "GiggleSunglasses",[6]  = "GiggleMost",
-                    [7]  = "ScreechFaster",   [8]  = "HideTime",
-                    [9]  = "FigureFaster",    [10] = "RushQuiet",
-                    [11] = "EntitiesMoster",  [12] = "FiredampMost",
+                    [1] = "AmbushMore",
+                    [2] = "AmbushFaster",
+                    [3] = "RushFaster",
+                    [4] = "BackdoorLookman",
+                    [5] = "BackdoorVacuum",
+                    [6] = "BackdoorRush",
+                    [7] = "GloombatMore",
+                    [8] = "GiggleSunglasses",
+                    [9] = "GiggleMost",
+                    [10] = "HideTime",
+                    [11] = "FigureFaster",
+                    [12] = "EyesFour",
+                    [13] = "RushQuiet",
+                    [14] = "FiredampMost"
                 },
-                ["Settings"]    = {},
+                ["Settings"] = {},
                 ["Destination"] = "Mines",
                 ["FriendsOnly"] = false,
-                ["MaxPlayers"]  = "1",
+                ["MaxPlayers"] = "1"
             }
         }
-        game:GetService("ReplicatedStorage")
-            :WaitForChild("RemotesFolder")
-            :WaitForChild("CreateElevator")
-            :FireServer(unpack(args))
+        game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder"):WaitForChild("CreateElevator"):FireServer(unpack(args))
     end)
 end
 
@@ -1046,8 +1051,8 @@ local function initializeMainHub()
 
                 if isInLobby() then
                     showPopupModal(
-                        "XvlamersModifiersPrompt", "⚠️ 150% MODIFIERS",
-                        "Use 150% Modifiers in the mines and collect the most gold for maximum Knobs.",
+                        "XvlamersModifiersPrompt", "⚠️ CUSTOM MODIFIERS",
+                        "Use custom modifiers in the mines and collect the most gold for maximum Knobs.",
                         "Cancel", "Proceed",
                         function() turnOff() end,
                         function() turnOn()  end
