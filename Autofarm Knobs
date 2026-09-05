@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -33,6 +34,202 @@ local function shouldStop()
         or getgenv().XvlamerHub_Cancelled == true
 end
 
+local function getKnobValue()
+    local val = 0
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return end
+        local topbarUI = pg:FindFirstChild("TopbarUI")
+        if not topbarUI then return end
+        local topbar = topbarUI:FindFirstChild("Topbar")
+        if not topbar then return end
+        local knobsLabel = topbar:FindFirstChild("Knobs")
+        if knobsLabel and knobsLabel:IsA("TextLabel") then
+            local raw = knobsLabel.Text:gsub(",", ""):gsub("%s", "")
+            val = tonumber(raw) or 0
+        end
+    end)
+    return val
+end
+
+local overlayGui, overlayFrame
+
+local function formatNumber(n)
+    if n >= 1e9 then
+        return string.format("%.2fB", n / 1e9)
+    elseif n >= 1e6 then
+        return string.format("%.2fM", n / 1e6)
+    elseif n >= 1e3 then
+        return string.format("%.2fK", n / 1e3)
+    end
+    return tostring(math.floor(n))
+end
+
+local function buildOverlay()
+    pcall(function()
+        if overlayGui then overlayGui:Destroy() end
+    end)
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name           = "XvlamersKnobOverlay"
+    screenGui.ResetOnSpawn   = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder   = 999998
+    screenGui.IgnoreGuiInset = true
+
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then
+        screenGui.Parent = cg
+    else
+        screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    pcall(function()
+        if syn and syn.protect_gui then syn.protect_gui(screenGui) end
+    end)
+
+    overlayGui = screenGui
+
+    local backdrop = Instance.new("Frame")
+    backdrop.Size                = UDim2.new(1, 0, 1, 0)
+    backdrop.Position            = UDim2.new(0, 0, 0, 0)
+    backdrop.BackgroundColor3    = Color3.fromRGB(0, 0, 0)
+    backdrop.BackgroundTransparency = 0.35
+    backdrop.BorderSizePixel     = 0
+    backdrop.ZIndex              = 1
+    backdrop.Parent              = screenGui
+
+    local card = Instance.new("Frame")
+    card.Size                = UDim2.new(0, 320, 0, 220)
+    card.Position            = UDim2.new(0.5, 0, 0.5, 0)
+    card.AnchorPoint         = Vector2.new(0.5, 0.5)
+    card.BackgroundColor3    = Color3.fromRGB(8, 8, 12)
+    card.BackgroundTransparency = 0.08
+    card.BorderSizePixel     = 0
+    card.ZIndex              = 2
+    card.Parent              = screenGui
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 18)
+
+    local stroke = Instance.new("UIStroke", card)
+    stroke.Color        = Color3.fromRGB(108, 92, 231)
+    stroke.Transparency = 0.25
+    stroke.Thickness    = 1.8
+
+    local header = Instance.new("TextLabel", card)
+    header.Size               = UDim2.new(1, 0, 0, 36)
+    header.Position           = UDim2.new(0, 0, 0, 12)
+    header.BackgroundTransparency = 1
+    header.Font               = Enum.Font.GothamBold
+    header.Text               = "KNOB FARM"
+    header.TextColor3         = Color3.fromRGB(108, 92, 231)
+    header.TextSize           = 13
+    header.TextXAlignment     = Enum.TextXAlignment.Center
+    header.ZIndex             = 3
+
+    local div = Instance.new("Frame", card)
+    div.Size              = UDim2.new(0.7, 0, 0, 1)
+    div.Position          = UDim2.new(0.15, 0, 0, 48)
+    div.BackgroundColor3  = Color3.fromRGB(108, 92, 231)
+    div.BackgroundTransparency = 0.6
+    div.BorderSizePixel   = 0
+    div.ZIndex            = 3
+
+    local function makeStat(yOffset, labelText)
+        local block = Instance.new("Frame", card)
+        block.Size                  = UDim2.new(1, -40, 0, 58)
+        block.Position              = UDim2.new(0, 20, 0, yOffset)
+        block.BackgroundColor3      = Color3.fromRGB(15, 15, 22)
+        block.BackgroundTransparency = 0.1
+        block.BorderSizePixel       = 0
+        block.ZIndex                = 3
+        Instance.new("UICorner", block).CornerRadius = UDim.new(0, 10)
+
+        local lbl = Instance.new("TextLabel", block)
+        lbl.Size               = UDim2.new(1, -16, 0, 18)
+        lbl.Position           = UDim2.new(0, 8, 0, 6)
+        lbl.BackgroundTransparency = 1
+        lbl.Font               = Enum.Font.Gotham
+        lbl.Text               = labelText
+        lbl.TextColor3         = Color3.fromRGB(160, 150, 200)
+        lbl.TextSize           = 11
+        lbl.TextXAlignment     = Enum.TextXAlignment.Left
+        lbl.ZIndex             = 4
+
+        local val = Instance.new("TextLabel", block)
+        val.Size               = UDim2.new(1, -16, 0, 28)
+        val.Position           = UDim2.new(0, 8, 0, 24)
+        val.BackgroundTransparency = 1
+        val.Font               = Enum.Font.GothamBold
+        val.Text               = "—"
+        val.TextColor3         = Color3.fromRGB(255, 255, 255)
+        val.TextSize           = 22
+        val.TextXAlignment     = Enum.TextXAlignment.Left
+        val.ZIndex             = 4
+
+        return val
+    end
+
+    local currentLabel  = makeStat(60,  "CURRENT KNOBS")
+    local earnedLabel   = makeStat(126, "KNOBS EARNED THIS SESSION")
+    local perHourLabel  = makeStat(192, "KNOBS PER HOUR")
+
+    -- Extend card height to fit 3 blocks
+    card.Size = UDim2.new(0, 320, 0, 268)
+    overlayFrame = {
+        current  = currentLabel,
+        earned   = earnedLabel,
+        perHour  = perHourLabel,
+    }
+end
+
+local function runStatsLoop()
+    local startKnobs   = getKnobValue()
+    local sessionStart = os.clock()
+    local samples      = {}          -- {time, knobs} ring for rolling rate
+    local MAX_SAMPLES  = 120         -- 120 × 0.5s = last 60 seconds window
+
+    table.insert(samples, { t = os.clock(), k = startKnobs })
+
+    while not shouldStop() do
+        task.wait(0.5)
+        if shouldStop() then break end
+
+        local now   = os.clock()
+        local knobs = getKnobValue()
+
+        table.insert(samples, { t = now, k = knobs })
+        if #samples > MAX_SAMPLES then
+            table.remove(samples, 1)
+        end
+
+        local earned  = math.max(0, knobs - startKnobs)
+        local elapsed = now - sessionStart
+
+        -- Rolling rate over the sample window
+        local rate = 0
+        if #samples >= 2 then
+            local oldest = samples[1]
+            local newest = samples[#samples]
+            local dt     = newest.t - oldest.t
+            local dk     = math.max(0, newest.k - oldest.k)
+            if dt > 0 then
+                rate = (dk / dt) * 3600   -- knobs per hour
+            end
+        end
+
+        if overlayFrame then
+            pcall(function()
+                overlayFrame.current.Text  = formatNumber(knobs)
+                overlayFrame.earned.Text   = "+" .. formatNumber(earned)
+                overlayFrame.perHour.Text  = formatNumber(rate) .. " / hr"
+            end)
+        end
+    end
+end
+
+buildOverlay()
+
+task.spawn(runStatsLoop)
+
 task.spawn(function()
     while not shouldStop() do
         pcall(function()
@@ -44,6 +241,14 @@ task.spawn(function()
         task.wait(0.05)
     end
 
-    getgenv().XvlamerStop_KnobFarm = true
+    -- Cleanup on stop
+    getgenv().XvlamerStop_KnobFarm        = true
     getgenv().XvlamerHub_KnobFarmCancelled = true
+    pcall(function()
+        if overlayGui then
+            overlayGui:Destroy()
+            overlayGui  = nil
+            overlayFrame = nil
+        end
+    end)
 end)
