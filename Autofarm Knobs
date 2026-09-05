@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -14,6 +15,16 @@ getgenv().XvlamerHub_KnobFarmCancelled = false
 
 local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
 local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 10)
+
+task.spawn(function()
+    while not (getgenv().XvlamerStop_KnobFarm or getgenv().XvlamerHub_KnobFarmCancelled or getgenv().XvlamerHub_Cancelled) do
+        pcall(function()
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            UserInputService.MouseIconEnabled = true
+        end)
+        task.wait(0.5)
+    end
+end)
 
 local function executeKill()
     if typeof(replicatesignal) == "function" then
@@ -92,7 +103,6 @@ local function stopKnobFarmCompletely()
     getgenv().XvlamerStop_KnobFarm = true
     getgenv().XvlamerHub_KnobFarmCancelled = true
     
-    -- Interact with the main UI script to turn off its toggle
     pcall(function()
         if getgenv().XvlamerHub_ToggleHandlers and getgenv().XvlamerHub_ToggleHandlers["Knob Farm"] then
             getgenv().XvlamerHub_ToggleHandlers["Knob Farm"].setOff()
@@ -109,6 +119,12 @@ local function stopKnobFarmCompletely()
         end
     end)
 end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.F and not shouldStop() then
+        stopKnobFarmCompletely()
+    end
+end)
 
 local function buildOverlay()
     pcall(function()
@@ -137,7 +153,6 @@ local function buildOverlay()
 
     overlayGui = screenGui
 
-    -- Added back the full-screen black background overlay ("blackscreen")
     local blackScreen = Instance.new("Frame", screenGui)
     blackScreen.Name = "BlackScreen"
     blackScreen.Size = UDim2.new(1, 0, 1, 0)
@@ -177,16 +192,15 @@ local function buildOverlay()
     header.TextXAlignment = Enum.TextXAlignment.Center
     header.ZIndex = 1
 
-    -- Turn Off Button placed right above the main knob display area
     local turnOffBtn = Instance.new("TextButton", card)
     turnOffBtn.Size = UDim2.new(1, -40, 0, 26)
     turnOffBtn.Position = UDim2.new(0, 20, 0, 42)
     turnOffBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
     turnOffBtn.BackgroundTransparency = 0.15
     turnOffBtn.Font = Enum.Font.GothamBold
-    turnOffBtn.Text = "TURN OFF"
+    turnOffBtn.Text = "TURN OFF (OR PRESS F)"
     turnOffBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    turnOffBtn.TextSize = 11
+    turnOffBtn.TextSize = 10
     turnOffBtn.ZIndex = 2
     Instance.new("UICorner", turnOffBtn).CornerRadius = UDim.new(0, 8)
 
