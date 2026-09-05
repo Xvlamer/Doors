@@ -125,59 +125,43 @@ local function setToggleSaved(name, val)
     pcall(saveState)
 end
 
+-- Cache the Floor StringValue once — avoids repeated FindFirstChild traversals
+-- every call. Path confirmed: ReplicatedStorage > GameData > Floor (StringValue)
+local _floorValueRef = nil
+local function getFloorRef()
+    if _floorValueRef and _floorValueRef.Parent then return _floorValueRef end
+    local ok, ref = pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        local gd = rs:FindFirstChild("GameData") or rs:WaitForChild("GameData", 3)
+        if not gd then return nil end
+        return gd:FindFirstChild("Floor") or gd:WaitForChild("Floor", 3)
+    end)
+    if ok and ref then _floorValueRef = ref end
+    return _floorValueRef
+end
+
 local function isInLobby()
     local ok, res = pcall(function()
-        local lobby = game:GetService("Workspace"):FindFirstChild("Lobby")
-        if not lobby then return false end
-        return #lobby:GetChildren() > 0
+        local lobby = workspace:FindFirstChild("Lobby")
+        return lobby ~= nil and #lobby:GetChildren() > 0
     end)
     return ok and res or false
 end
 
+-- Direct StringValue read — single property access, no traversal
 local function getCurrentFloor()
     if isInLobby() then return "Lobby" end
-    local ok, res = pcall(function()
-        local gameData = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
-        if gameData then
-            local floorVal = gameData:FindFirstChild("Floor")
-            if floorVal and (floorVal:IsA("StringValue") or floorVal:IsA("ValueBase")) then
-                local val = tostring(floorVal.Value)
-                if val ~= "" then return val end
-            end
-        end
-    end)
-    return (ok and res and res ~= "") and res or "Hotel"
+    local ref = getFloorRef()
+    if ref then
+        local v = tostring(ref.Value)
+        if v ~= "" then return v end
+    end
+    return "Hotel"
 end
 
--- Daily floor detection: checks GameData.Floor for "Daily" OR workspace tag
 local function isOnDailyFloor()
     local floor = getCurrentFloor()
-    if floor == "Daily" or floor == "Ripple" then return true end
-    local ok, res = pcall(function()
-        local currentRooms = workspace:FindFirstChild("CurrentRooms")
-        if currentRooms then
-            for _, child in ipairs(currentRooms:GetChildren()) do
-                if child.Name == "0" or tonumber(child.Name) == 0 then
-                    return true
-                end
-            end
-        end
-        local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
-        if gd then
-            local floorVal = gd:FindFirstChild("Floor")
-            if floorVal then
-                local v = tostring(floorVal.Value):lower()
-                if v:find("daily") or v:find("ripple") then return true end
-            end
-            local gamemode = gd:FindFirstChild("Gamemode") or gd:FindFirstChild("Mode")
-            if gamemode then
-                local v = tostring(gamemode.Value):lower()
-                if v:find("daily") or v:find("ripple") then return true end
-            end
-        end
-        return false
-    end)
-    return ok and res or false
+    return floor == "Ripple" or floor == "Daily"
 end
 
 local function getGoldValue()
@@ -314,34 +298,38 @@ local function findDoorTarget()
 end
 
 -- tweenToPosition:
--- Moves the player to targetPos by directly stepping the HumanoidRootPart CFrame
--- every Heartbeat at exactly 15 studs/s. This bypasses pathfinding entirely so
--- there is no "stuck" failure mode. Y is preserved from the root's current value
--- so the player hugs the floor and never flies. The game sees smooth positional
--- updates identical to normal walking — no velocity spikes, no teleport delta.
--- Returns true when XZ distance to target drops to ≤2 studs.
+-- Steps the HumanoidRootPart CFrame every Heartbeat at 15 studs/s toward targetPos.
+-- Y is locked to the root's current Y so the player stays on the floor.
+-- hDist uses plain Vector3 magnitude on a flattened vector — no Vector2.Distance
+-- (which doesn't exist in Roblox Luau and was causing the spam crash).
+-- CFrame rotation is preserved with CFrame.new(pos) * cf.Rotation which is valid.
+-- WalkSpeed set to 0 for the duration so physics doesn't fight the writes.
 local function tweenToPosition(targetPos, stopToken)
-    local SPEED        = 15   -- studs per second
-    local ARRIVAL_XZ   = 2.0  -- XZ stud threshold to declare arrival
+    local SPEED      = 15  -- studs per second
+    local ARRIVE_XZ  = 2.0 -- XZ distance threshold for arrival
 
-    local function getRoot()
+    local function getChar()
         local c = P.Character
-        if not c then return nil end
-        return c:FindFirstChild("HumanoidRootPart")
+        if not c then return nil, nil end
+        local root = c:FindFirstChild("HumanoidRootPart")
+        local hum  = c:FindFirstChildOfClass("Humanoid")
+        return root, hum
     end
 
+    -- XZ flat distance — plain magnitude, no Vector2
     local function hDist(a, b)
-        return Vector2.new(a.X, a.Z):Distance(Vector2.new(b.X, b.Z))
+        local dx = a.X - b.X
+        local dz = a.Z - b.Z
+        return math.sqrt(dx*dx + dz*dz)
     end
 
-    local root = getRoot()
+    local root, hum = getChar()
     if not root then return false end
 
-    -- Freeze the humanoid so it doesn't fight the CFrame movement
-    local hum = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
-    local prevWalkSpeed  = hum and hum.WalkSpeed  or 16
-    local prevJumpHeight = hum and hum.JumpHeight or 7.2
-    local prevJumpPower  = hum and hum.JumpPower  or 50
+    local prevWalk   = hum and hum.WalkSpeed  or 16
+    local prevJumpH  = hum and hum.JumpHeight or 7.2
+    local prevJumpP  = hum and hum.JumpPower  or 50
+
     if hum then
         hum.WalkSpeed  = 0
         hum.JumpHeight = 0
@@ -354,60 +342,49 @@ local function tweenToPosition(targetPos, stopToken)
     local conn = RS.Heartbeat:Connect(function(dt)
         if done then return end
         if getgenv().XvlamerHub_Cancelled or stopToken() then
-            done   = true
-            result = false
-            return
+            done = true; result = false; return
         end
 
-        root = getRoot()
+        root, hum = getChar()
         if not root then done = true; result = false; return end
 
-        local cur = root.CFrame
-        local curPos = cur.Position
-
-        -- Recalc hum reference each frame (respawn safety)
-        hum = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
-
-        -- Keep humanoid locked every frame
+        -- Keep humanoid frozen every frame
         if hum then
             hum.WalkSpeed  = 0
             hum.JumpHeight = 0
             hum.JumpPower  = 0
         end
 
-        -- XZ-only direction — Y stays at current floor level
+        local curPos = root.Position
+        local curCF  = root.CFrame
+
+        -- Flat target — keep Y at player's current height
         local flatTarget = Vector3.new(targetPos.X, curPos.Y, targetPos.Z)
         local dist = hDist(curPos, targetPos)
 
-        if dist <= ARRIVAL_XZ then
-            done   = true
-            result = true
-            return
+        if dist <= ARRIVE_XZ then
+            done = true; result = true; return
         end
 
-        -- Step toward target this frame
-        local maxStep  = SPEED * dt
-        local dir      = (flatTarget - curPos)
-        local stepDist = math.min(dir.Magnitude, maxStep)
-        local newPos   = curPos + dir.Unit * stepDist
+        local dir = flatTarget - curPos
+        if dir.Magnitude < 0.001 then done = true; result = true; return end
 
-        -- Write CFrame — keep original rotation so the character faces the door
-        root.CFrame = CFrame.new(newPos) * (cur - cur.Position)
+        local step    = math.min(dir.Magnitude, SPEED * dt)
+        local newPos  = curPos + dir.Unit * step
+
+        -- CFrame.new(pos) * cf.Rotation: valid Roblox Luau — preserves look direction
+        root.CFrame = CFrame.new(newPos) * curCF.Rotation
     end)
 
-    -- Yield until movement finishes or aborts
-    while not done do
-        task.wait(0.05)
-    end
+    while not done do task.wait(0.05) end
 
     pcall(function() conn:Disconnect() end)
 
-    -- Restore humanoid after movement
-    hum = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
+    root, hum = getChar()
     if hum then
-        hum.WalkSpeed  = prevWalkSpeed
-        hum.JumpHeight = prevJumpHeight
-        hum.JumpPower  = prevJumpPower
+        hum.WalkSpeed  = prevWalk
+        hum.JumpHeight = prevJumpH
+        hum.JumpPower  = prevJumpP
     end
 
     return result
