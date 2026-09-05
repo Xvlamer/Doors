@@ -223,14 +223,20 @@ end
 -- Token: getgenv().XvlamerHub_DailyRunActive (bool)
 -- Set true to start, set false to abort at any point.
 
+-- findDoorTarget:
+-- Targets the EXACT structure visible in the explorer screenshot:
+--   CurrentRooms > 0 > Door (Model) > Door (BasePart)
+-- That inner "Door" BasePart is the highlighted mesh the player must reach.
+-- Falls back through progressively wider searches if the exact path isn't found,
+-- but NEVER returns a position from a part named "Door" that lives at the wrong
+-- depth (e.g. BlockedDoorModel children, Sign children, etc.).
 local function findDoorTarget()
     local currentRooms = workspace:FindFirstChild("CurrentRooms")
     if not currentRooms then return nil end
 
-    -- Room "0" is the first room on Daily floor
+    -- Prefer room "0"; fall back to numerically lowest child
     local room0 = currentRooms:FindFirstChild("0")
     if not room0 then
-        -- fallback: first child numerically
         local children = currentRooms:GetChildren()
         table.sort(children, function(a, b)
             return (tonumber(a.Name) or 999) < (tonumber(b.Name) or 999)
@@ -239,160 +245,355 @@ local function findDoorTarget()
     end
     if not room0 then return nil end
 
-    -- Search for Door by name or class
-    local function searchDoor(model)
-        for _, v in ipairs(model:GetDescendants()) do
-            if v.Name:lower():find("door") and (v:IsA("BasePart") or v:IsA("Model")) then
-                if v:IsA("Model") then
-                    local primary = v.PrimaryPart or v:FindFirstChildOfClass("BasePart")
-                    if primary then return primary.Position end
-                else
-                    return v.Position
-                end
-            end
+    -- ── Pass 1: Exact path  CurrentRooms/0/Door (Model) > Door (BasePart) ──────
+    -- This matches the explorer exactly: room0 > Model named "Door" > Part named "Door"
+    local doorModel = room0:FindFirstChild("Door")
+    if doorModel and doorModel:IsA("Model") then
+        local innerPart = doorModel:FindFirstChild("Door")
+        if innerPart and innerPart:IsA("BasePart") then
+            return innerPart.Position
         end
-        -- fallback: any part named "Door" or containing exit
-        for _, v in ipairs(model:GetDescendants()) do
-            if (v.Name == "Door" or v.Name == "Exit" or v.Name == "DoorFrame")
-                and v:IsA("BasePart") then
+        -- Inner part might be named differently — try PrimaryPart or first BasePart
+        -- that is NOT a blocker/collision stand-in
+        local primary = doorModel.PrimaryPart
+        if primary and primary:IsA("BasePart") then
+            return primary.Position
+        end
+        for _, v in ipairs(doorModel:GetChildren()) do
+            if v:IsA("BasePart")
+                and v.Name ~= "Collision"
+                and v.Name ~= "Hidden"
+                and v.Name ~= "Sign" then
                 return v.Position
             end
         end
-        return nil
     end
 
-    return searchDoor(room0)
+    -- ── Pass 2: Any Model named "Door" anywhere in room0 (one level deeper) ────
+    for _, child in ipairs(room0:GetChildren()) do
+        if child:IsA("Model") and child.Name == "Door" then
+            local inner = child:FindFirstChild("Door")
+            if inner and inner:IsA("BasePart") then return inner.Position end
+            local pp = child.PrimaryPart or child:FindFirstChildOfClass("BasePart")
+            if pp then return pp.Position end
+        end
+    end
+
+    -- ── Pass 3: Deepest BasePart named "Door" that is a descendant of a Model
+    --           named "Door" — handles nested grouping ─────────────────────────
+    for _, v in ipairs(room0:GetDescendants()) do
+        if v:IsA("BasePart") and v.Name == "Door" then
+            local ancestor = v.Parent
+            while ancestor and ancestor ~= room0 do
+                if ancestor.Name == "Door" and ancestor:IsA("Model") then
+                    return v.Position
+                end
+                ancestor = ancestor.Parent
+            end
+        end
+    end
+
+    -- ── Pass 4: Any BasePart named "Door" in room0, excluding obvious non-doors ─
+    for _, v in ipairs(room0:GetDescendants()) do
+        if v:IsA("BasePart") and v.Name == "Door"
+            and v.Parent
+            and v.Parent.Name ~= "Collision"
+            and v.Parent.Name ~= "Sign" then
+            return v.Position
+        end
+    end
+
+    -- ── Pass 5: RoomExit / RoomEntrance as absolute last resort ─────────────────
+    local exitPart = room0:FindFirstChild("RoomExit")
+        or room0:FindFirstChild("RoomEntrance")
+    if exitPart and exitPart:IsA("BasePart") then
+        return exitPart.Position
+    end
+
+    return nil
 end
 
-local function walkToPosition(targetPos, stopToken)
-    local char = P.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum  = char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum or hum.Health <= 0 then return false end
+-- tweenToPosition:
+-- Moves the player to targetPos by directly stepping the HumanoidRootPart CFrame
+-- every Heartbeat at exactly 15 studs/s. This bypasses pathfinding entirely so
+-- there is no "stuck" failure mode. Y is preserved from the root's current value
+-- so the player hugs the floor and never flies. The game sees smooth positional
+-- updates identical to normal walking — no velocity spikes, no teleport delta.
+-- Returns true when XZ distance to target drops to ≤2 studs.
+local function tweenToPosition(targetPos, stopToken)
+    local SPEED        = 15   -- studs per second
+    local ARRIVAL_XZ   = 2.0  -- XZ stud threshold to declare arrival
 
-    -- Lock walkspeed to 15, no jump
-    hum.WalkSpeed  = 15
-    hum.JumpHeight = 0
-    hum.JumpPower  = 0
-
-    local path = PathfindingService:CreatePath({
-        AgentRadius     = 2,
-        AgentHeight     = 5,
-        AgentCanJump    = false,
-        AgentCanClimb   = false,
-        WaypointSpacing = 3,
-        Costs = {
-            Water = math.huge,
-        },
-    })
-
-    local success = pcall(function()
-        path:ComputeAsync(root.Position, targetPos)
-    end)
-
-    if not success or path.Status ~= Enum.PathStatus.Success then
-        -- Direct move fallback — straight line, no obstacles
-        hum:MoveTo(targetPos)
-        local deadline = tick() + 20
-        while tick() < deadline do
-            if getgenv().XvlamerHub_Cancelled or stopToken() then
-                hum:MoveTo(root.Position)
-                return false
-            end
-            local dist = (root.Position - targetPos).Magnitude
-            if dist < 5 then return true end
-            task.wait(0.1)
-        end
-        return false
+    local function getRoot()
+        local c = P.Character
+        if not c then return nil end
+        return c:FindFirstChild("HumanoidRootPart")
     end
 
-    local waypoints = path:GetWaypoints()
-    for _, wp in ipairs(waypoints) do
+    local function hDist(a, b)
+        return Vector2.new(a.X, a.Z):Distance(Vector2.new(b.X, b.Z))
+    end
+
+    local root = getRoot()
+    if not root then return false end
+
+    -- Freeze the humanoid so it doesn't fight the CFrame movement
+    local hum = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
+    local prevWalkSpeed  = hum and hum.WalkSpeed  or 16
+    local prevJumpHeight = hum and hum.JumpHeight or 7.2
+    local prevJumpPower  = hum and hum.JumpPower  or 50
+    if hum then
+        hum.WalkSpeed  = 0
+        hum.JumpHeight = 0
+        hum.JumpPower  = 0
+    end
+
+    local done   = false
+    local result = false
+
+    local conn = RS.Heartbeat:Connect(function(dt)
+        if done then return end
         if getgenv().XvlamerHub_Cancelled or stopToken() then
-            hum:MoveTo(root.Position)
-            return false
+            done   = true
+            result = false
+            return
         end
 
-        -- Skip waypoints that require jumping (player can't jump)
-        if wp.Action == Enum.PathWaypointAction.Jump then
+        root = getRoot()
+        if not root then done = true; result = false; return end
+
+        local cur = root.CFrame
+        local curPos = cur.Position
+
+        -- Recalc hum reference each frame (respawn safety)
+        hum = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
+
+        -- Keep humanoid locked every frame
+        if hum then
+            hum.WalkSpeed  = 0
+            hum.JumpHeight = 0
+            hum.JumpPower  = 0
+        end
+
+        -- XZ-only direction — Y stays at current floor level
+        local flatTarget = Vector3.new(targetPos.X, curPos.Y, targetPos.Z)
+        local dist = hDist(curPos, targetPos)
+
+        if dist <= ARRIVAL_XZ then
+            done   = true
+            result = true
+            return
+        end
+
+        -- Step toward target this frame
+        local maxStep  = SPEED * dt
+        local dir      = (flatTarget - curPos)
+        local stepDist = math.min(dir.Magnitude, maxStep)
+        local newPos   = curPos + dir.Unit * stepDist
+
+        -- Write CFrame — keep original rotation so the character faces the door
+        root.CFrame = CFrame.new(newPos) * (cur - cur.Position)
+    end)
+
+    -- Yield until movement finishes or aborts
+    while not done do
+        task.wait(0.05)
+    end
+
+    pcall(function() conn:Disconnect() end)
+
+    -- Restore humanoid after movement
+    hum = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed  = prevWalkSpeed
+        hum.JumpHeight = prevJumpHeight
+        hum.JumpPower  = prevJumpPower
+    end
+
+    return result
+end
+
+-- getDoorPart:
+-- Returns the actual BasePart from the Door model so we can monitor its CFrame.
+local function getDoorPart()
+    local ok, part = pcall(function()
+        local room0 = workspace:WaitForChild("CurrentRooms", 5):WaitForChild("0", 5)
+        local doorModel = room0:WaitForChild("Door", 5)
+        -- The inner BasePart named "Door" is the one that rotates when opened
+        local inner = doorModel:FindFirstChild("Door")
+        if inner and inner:IsA("BasePart") then return inner end
+        -- Fallback to any non-collision BasePart in the model
+        for _, v in ipairs(doorModel:GetDescendants()) do
+            if v:IsA("BasePart") and v.Name ~= "Collision" and v.Name ~= "Hidden" then
+                return v
+            end
+        end
+        return doorModel:FindFirstChildOfClass("BasePart")
+    end)
+    return ok and part or nil
+end
+
+-- waitForDoorOpen:
+-- Waits until the door's CFrame/rotation actually changes by a meaningful amount
+-- AND the ClientOpen remote has been fired at least once.
+-- Returns true when both conditions are met, false on timeout or abort.
+local function waitForDoorOpen(clientOpenFired, stopToken)
+    local ROTATION_THRESHOLD = 5   -- degrees — any rotation > this = door moving
+    local TIMEOUT            = 30  -- seconds max to wait
+
+    local doorPart = getDoorPart()
+    if not doorPart then return false end
+
+    local initialCF    = doorPart.CFrame
+    local initialAngles = Vector3.new(initialCF:ToEulerAnglesXYZ())
+    local deadline     = tick() + TIMEOUT
+
+    while tick() < deadline do
+        if getgenv().XvlamerHub_Cancelled or stopToken() then return false end
+
+        -- Check clientOpen was fired
+        if not clientOpenFired() then
+            task.wait(0.05)
             continue
         end
 
-        hum:MoveTo(wp.Position)
+        -- Check door has actually moved
+        local ok, cf = pcall(function() return doorPart.CFrame end)
+        if not ok then task.wait(0.05); continue end
 
-        -- Wait until reached or timeout (1 waypoint = max 3s at 15 studs/s)
-        local deadline = tick() + 3
-        while tick() < deadline do
-            if getgenv().XvlamerHub_Cancelled or stopToken() then
-                hum:MoveTo(root.Position)
-                return false
-            end
-            local dist = (Vector3.new(root.Position.X, wp.Position.Y, root.Position.Z)
-                - Vector3.new(wp.Position.X, wp.Position.Y, wp.Position.Z)).Magnitude
-            if dist < 3 then break end
-            task.wait(0.05)
+        local curAngles = Vector3.new(cf:ToEulerAnglesXYZ())
+        local dx = math.abs(math.deg(curAngles.X - initialAngles.X))
+        local dy = math.abs(math.deg(curAngles.Y - initialAngles.Y))
+        local dz = math.abs(math.deg(curAngles.Z - initialAngles.Z))
+
+        -- Also check positional shift in case it slides rather than rotates
+        local posDelta = (cf.Position - initialCF.Position).Magnitude
+
+        if dx > ROTATION_THRESHOLD or dy > ROTATION_THRESHOLD or dz > ROTATION_THRESHOLD
+            or posDelta > 0.5 then
+            return true
         end
+
+        task.wait(0.05)
     end
 
-    -- Final proximity check
-    local finalDist = (root.Position - targetPos).Magnitude
-    return finalDist < 8
+    return false
 end
 
 local function runDailyCompletion()
-    -- Wait for Daily floor to load after teleport
-    local waitDeadline = tick() + 60
+    -- Phase 1: Wait for Ripple/Daily floor confirmed loaded
+    local waitDeadline = tick() + 90
     while not isOnDailyFloor() do
         if getgenv().XvlamerHub_Cancelled or not getgenv().XvlamerHub_DailyRunActive then return end
         if tick() > waitDeadline then return end
         task.wait(0.5)
     end
 
-    -- Extra settle time for room geometry to load
-    task.wait(2)
+    -- Settle: let room geometry fully replicate
+    task.wait(3)
 
     if getgenv().XvlamerHub_Cancelled or not getgenv().XvlamerHub_DailyRunActive then return end
+
+    -- Wait for character to be alive
+    local charWait = tick() + 20
+    while true do
+        if getgenv().XvlamerHub_Cancelled or not getgenv().XvlamerHub_DailyRunActive then return end
+        if tick() > charWait then return end
+        local c = P.Character
+        if c then
+            local h = c:FindFirstChildOfClass("Humanoid")
+            local r = c:FindFirstChild("HumanoidRootPart")
+            if h and r and h.Health > 0 then break end
+        end
+        task.wait(0.2)
+    end
 
     local stopToken = function()
         return not getgenv().XvlamerHub_DailyRunActive
     end
 
-    -- Find the door
+    -- Phase 2: Locate door position
     local targetPos = nil
-    local searchDeadline = tick() + 15
+    local searchDeadline = tick() + 20
     while not targetPos do
         if getgenv().XvlamerHub_Cancelled or stopToken() then return end
-        if tick() > searchDeadline then return end
+        if tick() > searchDeadline then
+            getgenv().XvlamerHub_DailyRunActive = false
+            return
+        end
         targetPos = findDoorTarget()
         if not targetPos then task.wait(0.5) end
     end
 
-    -- Walk to door
-    local reached = walkToPosition(targetPos, stopToken)
-    if not reached then
-        if getgenv().XvlamerHub_Cancelled or stopToken() then return end
-    end
-
     if getgenv().XvlamerHub_Cancelled or stopToken() then return end
 
-    -- Kill the character at the door
-    local char = P.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 then
-            hum.Health = 0
-        end
-    end
-
-    task.wait(1.5)
+    -- Phase 3: Tween the player to the door at 15 studs/s.
+    -- CFrame-stepped every Heartbeat. No pathfinding, no stuck states.
+    -- Arrival = XZ distance ≤ 2 studs.
+    local reached = tweenToPosition(targetPos, stopToken)
 
     if getgenv().XvlamerHub_Cancelled or stopToken() then
         getgenv().XvlamerHub_DailyRunActive = false
         return
     end
 
-    -- Fire lobby remote to leave
+    if not reached then
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
+
+    -- Phase 4: Fire ClientOpen every 0.1s AND wait for the door to physically open.
+    -- clientOpenFired tracks whether at least one successful FireServer call landed.
+    -- waitForDoorOpen watches the door BasePart's CFrame for rotation/position change.
+    -- Kill and leave fire ONLY after both conditions are confirmed.
+    local clientOpenFired_flag = false
+    local clientOpenFired = function() return clientOpenFired_flag end
+
+    local pulseConn_stop = false
+    task.spawn(function()
+        while not pulseConn_stop
+            and not getgenv().XvlamerHub_Cancelled
+            and getgenv().XvlamerHub_DailyRunActive do
+            pcall(function()
+                workspace:WaitForChild("CurrentRooms", 1)
+                    :WaitForChild("0", 1)
+                    :WaitForChild("Door", 1)
+                    :WaitForChild("ClientOpen", 1)
+                    :FireServer()
+                clientOpenFired_flag = true
+            end)
+            task.wait(0.1)
+        end
+    end)
+
+    local doorOpened = waitForDoorOpen(clientOpenFired, stopToken)
+    pulseConn_stop = true  -- stop the pulse regardless of outcome
+
+    if getgenv().XvlamerHub_Cancelled or stopToken() then
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
+
+    if not doorOpened then
+        -- Door never opened — abort, don't kill or leave
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
+
+    -- Phase 5: Door is confirmed open. Kill via replicatesignal, then leave.
+    pcall(function()
+        replicatesignal(game.Players.LocalPlayer.Kill)
+    end)
+
+    task.wait(1)
+
+    if getgenv().XvlamerHub_Cancelled or stopToken() then
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
+
+    -- Phase 6: Queue reload and fire lobby remote
+    queueTeleportLoad()
     pcall(function()
         game:GetService("ReplicatedStorage")
             :WaitForChild("RemotesFolder", 10)
@@ -400,24 +601,86 @@ local function runDailyCompletion()
             :FireServer()
     end)
 
-    -- Done — deactivate so it never re-runs until toggled again
     getgenv().XvlamerHub_DailyRunActive = false
 end
 
--- Background watcher: triggers runDailyCompletion when token is set
+-- ── Save-state key for DailyRunActive persistence across teleports ────────────
+-- Written to XvlamersSaveState.json so that when the script is queued via
+-- queue_on_teleport and re-injected in the Ripple game, it knows to resume.
+local DAILY_ACTIVE_KEY = "XvlamerHub_DailyPending"
+
+local function saveDailyPending(val)
+    pcall(function()
+        -- Piggyback on the existing state table so saveState() writes it
+        state.ToggleState[DAILY_ACTIVE_KEY] = val == true
+        saveState()
+    end)
+end
+
+local function loadDailyPending()
+    return state.ToggleState[DAILY_ACTIVE_KEY] == true
+end
+
+-- ── Background watcher: triggers runDailyCompletion when token is set ─────────
 task.spawn(function()
     local running = false
     while task.wait(0.3) do
         if getgenv().XvlamerHub_Cancelled then break end
         if getgenv().XvlamerHub_DailyRunActive and not running then
             running = true
+            -- Persist so re-injection after teleport knows to resume
+            saveDailyPending(true)
             task.spawn(function()
                 runDailyCompletion()
+                -- Clear pending flag once complete or aborted
+                saveDailyPending(false)
                 running = false
             end)
         end
         if not getgenv().XvlamerHub_DailyRunActive then
             running = false
+        end
+    end
+end)
+
+-- ── Ripple auto-phase watcher ─────────────────────────────────────────────────
+-- Unconditional: every time the script is loaded and Ripple is detected,
+-- DailyRunActive is forced true and the GUI is hidden so the run proceeds
+-- without interference. No flag guard — if it's Ripple, it runs. Period.
+task.spawn(function()
+    -- 4 second boot settle — geometry needs to replicate before floor check is valid
+    task.wait(4)
+
+    -- Resume from previous session if the pending flag was saved
+    if loadDailyPending() and not getgenv().XvlamerHub_DailyRunActive then
+        getgenv().XvlamerHub_DailyRunActive = true
+        pcall(function()
+            if mainRef then mainRef.Visible = false end
+        end)
+    end
+
+    while task.wait(1) do
+        if getgenv().XvlamerHub_Cancelled then break end
+
+        local floor = getCurrentFloor()
+        local inRipple = (floor == "Ripple") or isOnDailyFloor()
+
+        if inRipple then
+            -- Force active every single check — no flag, no guard.
+            if not getgenv().XvlamerHub_DailyRunActive then
+                getgenv().XvlamerHub_DailyRunActive = true
+            end
+            -- Always hide the GUI while in Ripple so the run is unobstructed
+            pcall(function()
+                if mainRef then mainRef.Visible = false end
+            end)
+        else
+            -- Outside Ripple — show GUI if run is not active
+            if not getgenv().XvlamerHub_DailyRunActive then
+                pcall(function()
+                    if mainRef then mainRef.Visible = true end
+                end)
+            end
         end
     end
 end)
@@ -562,9 +825,16 @@ end
 
 local purge
 purge = function()
-    getgenv().XvlamerHub_Cancelled     = true
-    getgenv().XvlamerHub_Executed      = nil
+    getgenv().XvlamerHub_Cancelled      = true
+    getgenv().XvlamerHub_Executed       = nil
     getgenv().XvlamerHub_DailyRunActive = false
+    -- Clear the persisted pending flag so a manual purge doesn't auto-retrigger
+    pcall(function()
+        if state and state.ToggleState then
+            state.ToggleState["XvlamerHub_DailyPending"] = false
+            saveState()
+        end
+    end)
     for name, _ in pairs(FARM_TOKENS) do cancelFarm(name) end
     stopAntiAfk()
     for _, conn in pairs(HubConnections) do
