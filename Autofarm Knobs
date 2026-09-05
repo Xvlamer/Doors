@@ -97,15 +97,19 @@ local function buildOverlay()
     screenGui.Name = "XvlamersKnobOverlay"
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.DisplayOrder = 1
+    -- Set to a very high DisplayOrder to ensure it always renders on top of the hub and other UI elements
+    screenGui.DisplayOrder = 2000000
     screenGui.IgnoreGuiInset = true
 
-    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
-    if ok and cg then
-        screenGui.Parent = cg
+    local ok, parentTarget = pcall(function()
+        return (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui")
+    end)
+    if ok and parentTarget then
+        screenGui.Parent = parentTarget
     else
         screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
+    
     pcall(function()
         if syn and syn.protect_gui then syn.protect_gui(screenGui) end
     end)
@@ -251,7 +255,6 @@ local function runStatsLoop()
 
             if overlayFrame then
                 pcall(function()
-                    overlayFrame.perHour.Text = formatNumber(rate) + 0 .. " / hr" -- fallback format
                     overlayFrame.perHour.Text = formatNumber(rate) .. " / hr"
                 end)
             end
