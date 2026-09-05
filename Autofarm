@@ -1,15 +1,8 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local placeId = game.PlaceId
-local FAKE_BAN_PLACE_ID = 18687417158
 local DOORS_MAIN = 6516141723
 local DOORS_ROOMS = 6839171747
-
-if placeId == FAKE_BAN_PLACE_ID then
-    local kickMsg = "You were banned by this experience or its moderators for 9999 years.\nModeration message:\n\nAppeals are not welcomed and do not even attempt one."
-    game.Players.LocalPlayer:Kick(kickMsg)
-    return
-end
 
 do
     local function tryPersist()
@@ -24,7 +17,10 @@ do
                 queueFunc([[
                     if not game:IsLoaded() then game.Loaded:Wait() end
                     task.wait(1)
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm"))()
+                    local ok, err = pcall(function()
+                        local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
+                        loadstring(src)()
+                    end)
                 ]])
             end)
             return
@@ -220,8 +216,12 @@ local function queueTeleportLoad()
     if queueFunc then
         pcall(function()
             queueFunc([[
-                task.wait(1.5)
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm"))()
+                if not game:IsLoaded() then game.Loaded:Wait() end
+                task.wait(1)
+                local ok, err = pcall(function()
+                    local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
+                    loadstring(src)()
+                end)
             ]])
         end)
     end
