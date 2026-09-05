@@ -24,10 +24,7 @@ do
                 queueFunc([[
                     if not game:IsLoaded() then game.Loaded:Wait() end
                     task.wait(1)
-                    local ok, err = pcall(function()
-                        local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
-                        loadstring(src)()
-                    end)
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm"))()
                 ]])
             end)
             return
@@ -224,9 +221,7 @@ local function queueTeleportLoad()
         pcall(function()
             queueFunc([[
                 task.wait(1.5)
-                pcall(function()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm"))()
-                end)
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm"))()
             ]])
         end)
     end
