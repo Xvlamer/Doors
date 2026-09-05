@@ -72,12 +72,15 @@ local function farmCancelled(name)
     return getgenv().XvlamerHub_Cancelled or getgenv()[token] == true
 end
 
-for name, _ in pairs(FARM_TOKENS) do resetFarmToken(name) end
+for name, _ in pairs(FARM_TOKENS) do
+    resetFarmToken(name)
+end
 
 local mainRef        = nil
 local HubConnections = {}
 local radioToggles   = {}
 local toggleHandlers = {}
+
 getgenv().XvlamerHub_ToggleHandlers = toggleHandlers
 
 local function trackConnection(conn)
@@ -146,10 +149,19 @@ local function getCurrentFloor()
     return (ok and res and res ~= "") and res or "Hotel"
 end
 
+-- Daily floor detection: checks GameData.Floor for "Daily" OR workspace tag
 local function isOnDailyFloor()
     local floor = getCurrentFloor()
     if floor == "Daily" or floor == "Ripple" then return true end
     local ok, res = pcall(function()
+        local currentRooms = workspace:FindFirstChild("CurrentRooms")
+        if currentRooms then
+            for _, child in ipairs(currentRooms:GetChildren()) do
+                if child.Name == "0" or tonumber(child.Name) == 0 then
+                    return true
+                end
+            end
+        end
         local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
         if gd then
             local floorVal = gd:FindFirstChild("Floor")
@@ -157,16 +169,10 @@ local function isOnDailyFloor()
                 local v = tostring(floorVal.Value):lower()
                 if v:find("daily") or v:find("ripple") then return true end
             end
-            local gm = gd:FindFirstChild("Gamemode") or gd:FindFirstChild("Mode")
-            if gm then
-                local v = tostring(gm.Value):lower()
+            local gamemode = gd:FindFirstChild("Gamemode") or gd:FindFirstChild("Mode")
+            if gamemode then
+                local v = tostring(gamemode.Value):lower()
                 if v:find("daily") or v:find("ripple") then return true end
-            end
-        end
-        local currentRooms = workspace:FindFirstChild("CurrentRooms")
-        if currentRooms then
-            for _, child in ipairs(currentRooms:GetChildren()) do
-                if tonumber(child.Name) ~= nil then return true end
             end
         end
         return false
@@ -213,310 +219,178 @@ local function queueTeleportLoad()
     end
 end
 
--- ── Daily Run engine ──────────────────────────────────────────────────────────
+-- ── Daily Run completion engine ────────────────────────────────────────────────
+-- Token: getgenv().XvlamerHub_DailyRunActive (bool)
+-- Set true to start, set false to abort at any point.
 
--- Heartbeat-driven mover: walks the character toward targetPos at exactly
--- WALK_SPEED studs/sec on the XZ plane, leaving Y to physics.
--- Returns true when within ARRIVE_DIST, false if aborted.
-local WALK_SPEED  = 15   -- studs / second
-local ARRIVE_DIST = 4    -- studs from target to count as "arrived"
-local STUCK_TIME  = 3    -- seconds without meaningful progress before giving up
+local function findDoorTarget()
+    local currentRooms = workspace:FindFirstChild("CurrentRooms")
+    if not currentRooms then return nil end
 
-local function heartbeatWalkTo(targetPos, shouldAbort)
+    -- Room "0" is the first room on Daily floor
+    local room0 = currentRooms:FindFirstChild("0")
+    if not room0 then
+        -- fallback: first child numerically
+        local children = currentRooms:GetChildren()
+        table.sort(children, function(a, b)
+            return (tonumber(a.Name) or 999) < (tonumber(b.Name) or 999)
+        end)
+        room0 = children[1]
+    end
+    if not room0 then return nil end
+
+    -- Search for Door by name or class
+    local function searchDoor(model)
+        for _, v in ipairs(model:GetDescendants()) do
+            if v.Name:lower():find("door") and (v:IsA("BasePart") or v:IsA("Model")) then
+                if v:IsA("Model") then
+                    local primary = v.PrimaryPart or v:FindFirstChildOfClass("BasePart")
+                    if primary then return primary.Position end
+                else
+                    return v.Position
+                end
+            end
+        end
+        -- fallback: any part named "Door" or containing exit
+        for _, v in ipairs(model:GetDescendants()) do
+            if (v.Name == "Door" or v.Name == "Exit" or v.Name == "DoorFrame")
+                and v:IsA("BasePart") then
+                return v.Position
+            end
+        end
+        return nil
+    end
+
+    return searchDoor(room0)
+end
+
+local function walkToPosition(targetPos, stopToken)
     local char = P.Character
     if not char then return false end
     local root = char:FindFirstChild("HumanoidRootPart")
     local hum  = char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum then return false end
+    if not root or not hum or hum.Health <= 0 then return false end
 
-    -- Lock humanoid settings
-    hum.WalkSpeed  = WALK_SPEED
+    -- Lock walkspeed to 15, no jump
+    hum.WalkSpeed  = 15
     hum.JumpHeight = 0
     hum.JumpPower  = 0
-    hum.AutoRotate = true
 
-    local flatTarget = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
-
-    local lastPos    = root.Position
-    local stuckTimer = 0
-    local lastDt     = tick()
-
-    local conn
-    local done   = false
-    local result = false
-
-    conn = RS.Heartbeat:Connect(function(dt)
-        if done then return end
-        if shouldAbort() then
-            done   = true
-            result = false
-            hum.WalkSpeed = 16
-            conn:Disconnect()
-            return
-        end
-
-        local char2 = P.Character
-        if not char2 then
-            done = true; result = false
-            conn:Disconnect(); return
-        end
-        local root2 = char2:FindFirstChild("HumanoidRootPart")
-        local hum2  = char2:FindFirstChildOfClass("Humanoid")
-        if not root2 or not hum2 or hum2.Health <= 0 then
-            done = true; result = false
-            conn:Disconnect(); return
-        end
-
-        -- Keep Y grounded to current position (physics handles stair-stepping)
-        flatTarget = Vector3.new(targetPos.X, root2.Position.Y, targetPos.Z)
-
-        local dist = (Vector3.new(root2.Position.X, 0, root2.Position.Z)
-            - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
-
-        if dist <= ARRIVE_DIST then
-            done   = true
-            result = true
-            hum2.WalkSpeed = 16
-            conn:Disconnect()
-            return
-        end
-
-        -- Stuck detection
-        local moved = (root2.Position - lastPos).Magnitude
-        if moved < 0.05 then
-            stuckTimer = stuckTimer + dt
-        else
-            stuckTimer = 0
-            lastPos = root2.Position
-        end
-
-        if stuckTimer >= STUCK_TIME then
-            done   = true
-            result = false
-            hum2.WalkSpeed = 16
-            conn:Disconnect()
-            return
-        end
-
-        -- Move: set humanoid target every frame so it actually walks
-        hum2.WalkSpeed = WALK_SPEED
-        hum2:MoveTo(flatTarget)
-    end)
-
-    -- Spin-wait without blocking the scheduler
-    while not done do
-        task.wait(0.05)
-    end
-
-    return result
-end
-
--- Find all door-candidate parts in the first room
-local function findDoorParts()
-    local results = {}
-    local currentRooms = workspace:FindFirstChild("CurrentRooms")
-    if not currentRooms then return results end
-
-    -- Sort rooms numerically, take the lowest-indexed one
-    local children = currentRooms:GetChildren()
-    table.sort(children, function(a, b)
-        return (tonumber(a.Name) or 9999) < (tonumber(b.Name) or 9999)
-    end)
-    local room0 = children[1]
-    if not room0 then return results end
-
-    local doorKeywords = {"door", "exit", "gate", "doorframe", "doorway"}
-
-    for _, v in ipairs(room0:GetDescendants()) do
-        if v:IsA("BasePart") or v:IsA("MeshPart") or v:IsA("UnionOperation") then
-            local nameLower = v.Name:lower()
-            for _, kw in ipairs(doorKeywords) do
-                if nameLower:find(kw) then
-                    -- Only include parts that are physically reachable on ground level
-                    -- (not ceiling-mounted or floating more than 20 studs up)
-                    table.insert(results, v)
-                    break
-                end
-            end
-        end
-    end
-
-    -- Sort by distance to player
-    local root = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
-    if root then
-        table.sort(results, function(a, b)
-            return (a.Position - root.Position).Magnitude
-                 < (b.Position - root.Position).Magnitude
-        end)
-    end
-
-    return results
-end
-
--- Walk pathfinding waypoints using heartbeatWalkTo per segment
-local function walkPathTo(targetPos, shouldAbort)
-    local char = P.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    -- Build path with conservative agent settings — no jump, max step 1.5 studs
     local path = PathfindingService:CreatePath({
         AgentRadius     = 2,
         AgentHeight     = 5,
         AgentCanJump    = false,
         AgentCanClimb   = false,
-        WaypointSpacing = 4,
+        WaypointSpacing = 3,
+        Costs = {
+            Water = math.huge,
+        },
     })
 
-    local ok = pcall(function()
+    local success = pcall(function()
         path:ComputeAsync(root.Position, targetPos)
     end)
 
-    if not ok or path.Status ~= Enum.PathStatus.Success then
-        -- Pathfinding failed — walk direct at ground level
-        return heartbeatWalkTo(targetPos, shouldAbort)
+    if not success or path.Status ~= Enum.PathStatus.Success then
+        -- Direct move fallback — straight line, no obstacles
+        hum:MoveTo(targetPos)
+        local deadline = tick() + 20
+        while tick() < deadline do
+            if getgenv().XvlamerHub_Cancelled or stopToken() then
+                hum:MoveTo(root.Position)
+                return false
+            end
+            local dist = (root.Position - targetPos).Magnitude
+            if dist < 5 then return true end
+            task.wait(0.1)
+        end
+        return false
     end
 
     local waypoints = path:GetWaypoints()
+    for _, wp in ipairs(waypoints) do
+        if getgenv().XvlamerHub_Cancelled or stopToken() then
+            hum:MoveTo(root.Position)
+            return false
+        end
 
-    for i, wp in ipairs(waypoints) do
-        if shouldAbort() then return false end
-        -- Skip Jump waypoints entirely — player cannot jump
-        if wp.Action == Enum.PathWaypointAction.Jump then continue end
+        -- Skip waypoints that require jumping (player can't jump)
+        if wp.Action == Enum.PathWaypointAction.Jump then
+            continue
+        end
 
-        local reached = heartbeatWalkTo(wp.Position, shouldAbort)
-        if not reached then
-            -- Stuck on a waypoint — try skipping to the next one
-            if i < #waypoints then
-                continue
-            else
+        hum:MoveTo(wp.Position)
+
+        -- Wait until reached or timeout (1 waypoint = max 3s at 15 studs/s)
+        local deadline = tick() + 3
+        while tick() < deadline do
+            if getgenv().XvlamerHub_Cancelled or stopToken() then
+                hum:MoveTo(root.Position)
                 return false
             end
+            local dist = (Vector3.new(root.Position.X, wp.Position.Y, root.Position.Z)
+                - Vector3.new(wp.Position.X, wp.Position.Y, wp.Position.Z)).Magnitude
+            if dist < 3 then break end
+            task.wait(0.05)
         end
     end
 
-    -- Final approach check
-    local finalRoot = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
-    if finalRoot then
-        local finalDist = (Vector3.new(finalRoot.Position.X, 0, finalRoot.Position.Z)
-            - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
-        return finalDist <= ARRIVE_DIST + 4
-    end
-    return false
+    -- Final proximity check
+    local finalDist = (root.Position - targetPos).Magnitude
+    return finalDist < 8
 end
 
--- Main daily run sequence
-local function runDailyCompletion(setGuiHidden)
-    -- Phase 1: wait for daily floor
-    local waitDeadline = tick() + 90
+local function runDailyCompletion()
+    -- Wait for Daily floor to load after teleport
+    local waitDeadline = tick() + 60
     while not isOnDailyFloor() do
-        if not getgenv().XvlamerHub_DailyRunActive or getgenv().XvlamerHub_Cancelled then
-            getgenv().XvlamerHub_DailyRunActive = false
-            setGuiHidden(false)
-            return
-        end
-        if tick() > waitDeadline then
-            getgenv().XvlamerHub_DailyRunActive = false
-            setGuiHidden(false)
-            return
-        end
+        if getgenv().XvlamerHub_Cancelled or not getgenv().XvlamerHub_DailyRunActive then return end
+        if tick() > waitDeadline then return end
         task.wait(0.5)
     end
 
-    -- Hide menu while running in-game
-    setGuiHidden(true)
+    -- Extra settle time for room geometry to load
+    task.wait(2)
 
-    -- Wait for room geometry to fully load
-    task.wait(3)
+    if getgenv().XvlamerHub_Cancelled or not getgenv().XvlamerHub_DailyRunActive then return end
 
-    if not getgenv().XvlamerHub_DailyRunActive or getgenv().XvlamerHub_Cancelled then
-        getgenv().XvlamerHub_DailyRunActive = false
-        setGuiHidden(false)
-        return
-    end
-
-    local shouldAbort = function()
+    local stopToken = function()
         return not getgenv().XvlamerHub_DailyRunActive
-            or getgenv().XvlamerHub_Cancelled
     end
 
-    -- Find door parts
-    local doorParts = {}
-    local searchDeadline = tick() + 20
-    while #doorParts == 0 do
-        if shouldAbort() then
-            setGuiHidden(false)
-            return
-        end
-        if tick() > searchDeadline then
-            getgenv().XvlamerHub_DailyRunActive = false
-            setGuiHidden(false)
-            return
-        end
-        doorParts = findDoorParts()
-        if #doorParts == 0 then task.wait(0.5) end
+    -- Find the door
+    local targetPos = nil
+    local searchDeadline = tick() + 15
+    while not targetPos do
+        if getgenv().XvlamerHub_Cancelled or stopToken() then return end
+        if tick() > searchDeadline then return end
+        targetPos = findDoorTarget()
+        if not targetPos then task.wait(0.5) end
     end
 
-    -- Walk toward closest door part — try each candidate if stuck
-    local reached = false
-    for _, part in ipairs(doorParts) do
-        if shouldAbort() then break end
-        local targetPos = part.Position
-        reached = walkPathTo(targetPos, shouldAbort)
-        if reached then break end
+    -- Walk to door
+    local reached = walkToPosition(targetPos, stopToken)
+    if not reached then
+        if getgenv().XvlamerHub_Cancelled or stopToken() then return end
     end
 
-    if shouldAbort() then
-        setGuiHidden(false)
-        getgenv().XvlamerHub_DailyRunActive = false
-        return
-    end
+    if getgenv().XvlamerHub_Cancelled or stopToken() then return end
 
-    -- Confirm character is near a door before firing anything
+    -- Kill the character at the door
     local char = P.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then
-        getgenv().XvlamerHub_DailyRunActive = false
-        setGuiHidden(false)
-        return
-    end
-
-    -- Check proximity to any door part
-    local nearDoor = false
-    for _, part in ipairs(doorParts) do
-        local dist = (root.Position - part.Position).Magnitude
-        if dist <= 10 then
-            nearDoor = true
-            break
-        end
-    end
-
-    if not nearDoor then
-        -- Try one more direct walk to closest door
-        if #doorParts > 0 then
-            heartbeatWalkTo(doorParts[1].Position, shouldAbort)
-        end
-    end
-
-    if shouldAbort() then
-        setGuiHidden(false)
-        getgenv().XvlamerHub_DailyRunActive = false
-        return
-    end
-
-    task.wait(0.5)
-
-    -- Kill character at door
-    local char2 = P.Character
-    if char2 then
-        local hum = char2:FindFirstChildOfClass("Humanoid")
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
         if hum and hum.Health > 0 then
             hum.Health = 0
         end
     end
 
-    task.wait(2)
+    task.wait(1.5)
+
+    if getgenv().XvlamerHub_Cancelled or stopToken() then
+        getgenv().XvlamerHub_DailyRunActive = false
+        return
+    end
 
     -- Fire lobby remote to leave
     pcall(function()
@@ -526,12 +400,27 @@ local function runDailyCompletion(setGuiHidden)
             :FireServer()
     end)
 
-    task.wait(1)
-
-    -- Done — reset everything, show menu
+    -- Done — deactivate so it never re-runs until toggled again
     getgenv().XvlamerHub_DailyRunActive = false
-    setGuiHidden(false)
 end
+
+-- Background watcher: triggers runDailyCompletion when token is set
+task.spawn(function()
+    local running = false
+    while task.wait(0.3) do
+        if getgenv().XvlamerHub_Cancelled then break end
+        if getgenv().XvlamerHub_DailyRunActive and not running then
+            running = true
+            task.spawn(function()
+                runDailyCompletion()
+                running = false
+            end)
+        end
+        if not getgenv().XvlamerHub_DailyRunActive then
+            running = false
+        end
+    end
+end)
 
 local function runDeathFarm()
     if farmCancelled("Death Farm") then return end
@@ -673,8 +562,8 @@ end
 
 local purge
 purge = function()
-    getgenv().XvlamerHub_Cancelled      = true
-    getgenv().XvlamerHub_Executed       = nil
+    getgenv().XvlamerHub_Cancelled     = true
+    getgenv().XvlamerHub_Executed      = nil
     getgenv().XvlamerHub_DailyRunActive = false
     for name, _ in pairs(FARM_TOKENS) do cancelFarm(name) end
     stopAntiAfk()
@@ -1084,7 +973,7 @@ local function initializeMainHub()
 
     local tabs, pages = {}, {}
 
-    local function addTab(name, id)
+    local function addTab(name, id, scroll)
         local btn = create("TextButton", {
             Size = UDim2.new(0.333, 0, 1, 0),
             Position = UDim2.new((id - 1) * 0.333, 0, 0, 0),
@@ -1120,9 +1009,9 @@ local function initializeMainHub()
         end, 0.2)
     end
 
-    addTab("Info",     1)
-    addTab("AutoFarm", 2)
-    addTab("Player",   3)
+    addTab("Info",     1, false)
+    addTab("AutoFarm", 2, true)
+    addTab("Player",   3, true)
 
     tabs[1].TextColor3 = Color3.fromRGB(255, 255, 255)
     pages[1].Visible   = true
@@ -1382,7 +1271,7 @@ local function initializeMainHub()
         return obj
     end
 
-    -- ── Daily Run button ───────────────────────────────────────────────────────
+    -- ── Daily Run button — plain text toggle style, no icon badge ─────────────
     local function createDailyRunButton(parentPage, order)
         local box = create("TextButton", {
             Size = UDim2.new(1, 0, 0, 36),
@@ -1401,11 +1290,8 @@ local function initializeMainHub()
             TextXAlignment = Enum.TextXAlignment.Left, Parent = box,
         })
 
-        local active = false
-
         onDebouncedClick(box, function()
             if getgenv().XvlamerHub_Cancelled then return end
-            if active then return end
 
             local inLobby = isInLobby()
             local onDaily = isOnDailyFloor()
@@ -1419,26 +1305,10 @@ local function initializeMainHub()
                 return
             end
 
-            active = true
-            lbl.TextColor3 = Color3.fromRGB(108, 92, 231)
-            setMainGuiVisible(false)
-
-            local function guiHiddenSetter(hidden)
-                pcall(function()
-                    if hidden then
-                        setMainGuiVisible(false)
-                    else
-                        setMainGuiVisible(true)
-                        active = false
-                        lbl.TextColor3 = Color3.fromRGB(245, 245, 255)
-                    end
-                end)
-            end
-
-            getgenv().XvlamerHub_DailyRunActive = true
-
             if inLobby then
-                -- Fire elevator then wait for teleport into daily floor
+                queueTeleportLoad()
+                getgenv().XvlamerHub_DailyRunActive = true
+                lbl.TextColor3 = Color3.fromRGB(108, 92, 231)
                 pcall(function()
                     local args = {
                         [1] = {
@@ -1454,10 +1324,17 @@ local function initializeMainHub()
                         :WaitForChild("CreateElevator")
                         :FireServer(unpack(args))
                 end)
+            else
+                getgenv().XvlamerHub_DailyRunActive = true
+                lbl.TextColor3 = Color3.fromRGB(108, 92, 231)
             end
 
+            -- Watch for completion and reset label color
             task.spawn(function()
-                runDailyCompletion(guiHiddenSetter)
+                while getgenv().XvlamerHub_DailyRunActive do
+                    task.wait(0.3)
+                end
+                pcall(function() lbl.TextColor3 = Color3.fromRGB(245, 245, 255) end)
             end)
         end, 0.5)
     end
