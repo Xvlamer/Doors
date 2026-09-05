@@ -5,12 +5,13 @@ local LocalPlayer = Players.LocalPlayer
 
 if getgenv().XvlamerStop_KnobFarm ~= nil then
     getgenv().XvlamerStop_KnobFarm = true
-    task.wait(0.05)
+    task.wait(0.1)
 end
 
 getgenv().XvlamerStop_KnobFarm = false
+getgenv().XvlamerHub_KnobFarmCancelled = false
 
-local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
+local remotesFolder    = ReplicatedStorage:WaitForChild("RemotesFolder", 10)
 local statisticsRemote = remotesFolder and remotesFolder:WaitForChild("Statistics", 10)
 
 local function executeKill()
@@ -26,15 +27,23 @@ local function executeKill()
     end
 end
 
+local function shouldStop()
+    return getgenv().XvlamerStop_KnobFarm == true
+        or getgenv().XvlamerHub_KnobFarmCancelled == true
+        or getgenv().XvlamerHub_Cancelled == true
+end
+
 task.spawn(function()
-    while not getgenv().XvlamerStop_KnobFarm do
+    while not shouldStop() do
         pcall(function()
             executeKill()
             if statisticsRemote then
                 statisticsRemote:FireServer()
             end
         end)
-        -- Removed math.random and optimized the wait interval for maximum speed
         task.wait(0.05)
     end
+
+    getgenv().XvlamerStop_KnobFarm = true
+    getgenv().XvlamerHub_KnobFarmCancelled = true
 end)
