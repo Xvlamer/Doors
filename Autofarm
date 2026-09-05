@@ -4,42 +4,6 @@ local placeId = game.PlaceId
 local DOORS_MAIN = 6516141723
 local DOORS_ROOMS = 6839171747
 
-do
-    local function tryPersist()
-        local queueFunc = (syn and syn.queue_on_teleport)
-            or (typeof(queue_on_teleport) == "function" and queue_on_teleport)
-            or (fluxus and fluxus.queue_on_teleport)
-            or (getgenv and getgenv().queue_on_teleport)
-            or queue_on_teleport
-
-        if queueFunc then
-            pcall(function()
-                queueFunc([[
-                    if not game:IsLoaded() then game.Loaded:Wait() end
-                    task.wait(1)
-                    local ok, err = pcall(function()
-                        local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm")
-                        loadstring(src)()
-                    end)
-                ]])
-            end)
-            return
-        end
-
-        pcall(function()
-            local Players = game:GetService("Players")
-            local lp = Players.LocalPlayer
-            if lp and lp.OnTeleport then
-                lp.OnTeleport:Connect(function(state)
-                    if state == Enum.TeleportState.Started then
-                    end
-                end)
-            end
-        end)
-    end
-    tryPersist()
-end
-
 if placeId ~= DOORS_MAIN and placeId ~= DOORS_ROOMS then
     return
 end
@@ -227,6 +191,44 @@ local function queueTeleportLoad()
     end
 end
 
+-- Ripple Farm Floor Handler Loop
+task.spawn(function()
+    while task.wait(0.5) do
+        if getgenv().XvlamerHub_Cancelled then break end
+        if getgenv().XvlamerHub_RippleFarmActive then
+            local floor = getCurrentFloor()
+            if floor == "Ripple" or (workspace:FindFirstChild("CurrentRooms") and workspace.CurrentRooms:FindFirstChild("0")) then
+                local currentRooms = workspace:FindFirstChild("CurrentRooms")
+                if currentRooms then
+                    local room0 = currentRooms:FindFirstChild("0")
+                    if room0 then
+                        local door = room0:FindFirstChild("Door")
+                        if door then
+                            local char = P.Character
+                            local root = char and char:FindFirstChild("HumanoidRootPart")
+                            local hum = char and char:FindFirstChildOfClass("Humanoid")
+                            if root and hum and hum.Health > 0 then
+                                local targetPos = door:IsA("Model") and door:GetPivot().Position or (door:IsA("BasePart") and door.Position)
+                                if targetPos then
+                                    hum:MoveTo(targetPos)
+                                    if (root.Position - targetPos).Magnitude < 6 then
+                                        getgenv().XvlamerHub_RippleFarmActive = false
+                                        hum.Health = 0
+                                        task.wait(1)
+                                        pcall(function()
+                                            game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder"):WaitForChild("Lobby"):FireServer()
+                                        end)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
 local function runDeathFarm()
     if farmCancelled("Death Farm") then return end
     resetFarmToken("Death Farm")
@@ -246,20 +248,11 @@ local function runKnobFarmLobby()
         local args = {
             [1] = {
                 ["Mods"] = {
-                    [1] = "AmbushMore",
-                    [2] = "AmbushFaster",
-                    [3] = "RushFaster",
-                    [4] = "BackdoorLookman",
-                    [5] = "BackdoorVacuum",
-                    [6] = "BackdoorRush",
-                    [7] = "GloombatMore",
-                    [8] = "GiggleSunglasses",
-                    [9] = "GiggleMost",
-                    [10] = "HideTime",
-                    [11] = "FigureFaster",
-                    [12] = "EyesFour",
-                    [13] = "RushQuiet",
-                    [14] = "FiredampMost"
+                    [1] = "AmbushMore", [2] = "AmbushFaster", [3] = "RushFaster",
+                    [4] = "BackdoorLookman", [5] = "BackdoorVacuum", [6] = "BackdoorRush",
+                    [7] = "GloombatMore", [8] = "GiggleSunglasses", [9] = "GiggleMost",
+                    [10] = "HideTime", [11] = "FigureFaster", [12] = "EyesFour",
+                    [13] = "RushQuiet", [14] = "FiredampMost"
                 },
                 ["Settings"] = {},
                 ["Destination"] = "Mines",
@@ -634,8 +627,6 @@ end
 local function initializeMainHub()
     if getgenv().XvlamerHub_Cancelled then return end
 
-    queueTeleportLoad()
-
     local setMainGuiVisible = function(_) end
 
     local sg = create("ScreenGui", {
@@ -802,9 +793,13 @@ local function initializeMainHub()
 
         local page
         if scroll == false then
-            page = create("Frame", {
+            page = create("ScrollingFrame", {
                 Size = UDim2.new(1, -20, 1, -8), Position = UDim2.new(0, 10, 0, 0),
-                BackgroundTransparency = 1, Visible = false, Parent = tabContent,
+                BackgroundTransparency = 1, CanvasSize = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollBarThickness = 2,
+                ScrollBarImageColor3 = Color3.fromRGB(70, 70, 95),
+                Visible = false, Parent = tabContent,
             })
         else
             page = create("ScrollingFrame", {
@@ -836,10 +831,9 @@ local function initializeMainHub()
     end
 
     addTab("Info",     1, false)
-    addTab("AutoFarm", 2, false)
+    addTab("AutoFarm", 2, true)
     addTab("Player",   3, true)
 
-    pages[3].Size      = UDim2.new(1, -20, 1, -8)
     tabs[1].TextColor3 = Color3.fromRGB(255, 255, 255)
     pages[1].Visible   = true
 
@@ -1040,10 +1034,8 @@ local function initializeMainHub()
                 if not isValidFloor then
                     showPopupModal(
                         "XvlamersInvalidFloorWarning", "⚠️ RESTRICTED LOCATION",
-                        "Knob Farm can only be executed while in the Lobby, Hotel, or Mines. Please return to the Lobby or a supported floor to continue.",
-                        "", "OK",
-                        function() end,
-                        function() end
+                        "Knob Farm can only be executed while in the Lobby, Hotel, or Mines.",
+                        "", "OK", function() end, function() end
                     )
                     turnOff()
                     return
@@ -1062,9 +1054,7 @@ local function initializeMainHub()
                         showPopupModal(
                             "XvlamersZeroGoldWarning", "⚠️ 0 GOLD",
                             "You have 0 gold. Collect more gold before starting Knob Farm.",
-                            "", "OK",
-                            function() end,
-                            function() end
+                            "", "OK", function() end, function() end
                         )
                         turnOff()
                         return
@@ -1077,7 +1067,7 @@ local function initializeMainHub()
             if name == "Death Farm" then
                 showPopupModal(
                     "XvlamersDeathFarmWarning", "⚠️ DEATH FARM",
-                    "Death farm uses advanced techniques for the most precision and speed and you must re open Roblox to completely stop it.",
+                    "Death farm uses advanced techniques and you must re open Roblox to completely stop it.",
                     "Cancel", "Proceed",
                     function() turnOff() end,
                     function() turnOn()  end
@@ -1092,9 +1082,7 @@ local function initializeMainHub()
                     showPopupModal(
                         "XvlamersInvalidStardustFloor", "⚠️ RESTRICTED LOCATION",
                         "Stardust Farm must be ran in Archives to work.",
-                        "", "OK",
-                        function() end,
-                        function() end
+                        "", "OK", function() end, function() end
                     )
                     turnOff()
                     return
@@ -1103,7 +1091,7 @@ local function initializeMainHub()
                 if isInLobby() then
                     showPopupModal(
                         "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
-                        "Would you like to start the Stardust Farm? Do not touch your device while it is in action.",
+                        "Would you like to start the Stardust Farm? Do not touch your device while active.",
                         "Cancel", "Proceed",
                         function() turnOff() end,
                         function() turnOn()  end
@@ -1128,9 +1116,68 @@ local function initializeMainHub()
         return obj
     end
 
+    -- 4th Item: Click Detector Button for Ripple Farm
+    local function createClickButton(name, parentPage, order, callback)
+        local box = create("TextButton", {
+            Size = UDim2.new(1, 0, 0, 36),
+            BackgroundColor3 = Color3.fromRGB(18, 18, 24),
+            Text = "", AutoButtonColor = false, Active = true,
+            LayoutOrder = order, Parent = parentPage,
+        })
+        create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = box })
+        create("UIStroke",  { Color = Color3.fromRGB(45, 45, 60), Transparency = 0.2, Thickness = 1, Parent = box })
+        create("TextLabel", {
+            Size = UDim2.new(1, -70, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+            BackgroundTransparency = 1, Active = false,
+            Font = Enum.Font.GothamBold, Text = name,
+            TextColor3 = Color3.fromRGB(245, 245, 255), TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = box,
+        })
+
+        local btnTag = create("TextLabel", {
+            Size = UDim2.new(0, 52, 0, 20), Position = UDim2.new(1, -60, 0.5, -10),
+            BackgroundColor3 = THEME_PURPLE, BackgroundTransparency = 0.2,
+            Font = Enum.Font.GothamBold, Text = "RUN", TextColor3 = Color3.fromRGB(255, 255, 255),
+            TextSize = 10, Parent = box,
+        })
+        create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = btnTag })
+
+        onDebouncedClick(box, function()
+            if getgenv().XvlamerHub_Cancelled then return end
+            pcall(callback)
+        end, 0.2)
+    end
+
     createToggle("Knob Farm",     pages[2], true,  false, 1)
     createToggle("Death Farm",    pages[2], true,  false, 2)
     createToggle("Stardust Farm", pages[2], true,  false, 3)
+
+    -- 4th Autofarm button (Click Detector)
+    createClickButton("Ripple Farm", pages[2], 4, function()
+        if isInLobby() then
+            local args = {
+                [1] = {
+                    ["Mods"] = {},
+                    ["Settings"] = {},
+                    ["Destination"] = "Daily",
+                    ["FriendsOnly"] = false,
+                    ["MaxPlayers"] = "1"
+                }
+            }
+            queueTeleportLoad()
+            getgenv().XvlamerHub_RippleFarmActive = true
+            pcall(function()
+                game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder"):WaitForChild("CreateElevator"):FireServer(unpack(args))
+            end)
+        else
+            getgenv().XvlamerHub_RippleFarmActive = true
+            showPopupModal(
+                "XvlamersRippleActive", "⚠️ RIPPLE FARM",
+                "Ripple Farm activated! Will pathfind to Door in room 0 when on Ripple floor.",
+                "", "OK", function() end, function() end
+            )
+        end
+    end)
 
     createToggle("Noclip",        pages[3], false, true,  1)
     createToggle("Noclip SPAM",   pages[3], false, true,  2)
@@ -1171,71 +1218,23 @@ local function initializeMainHub()
                     isValidFloor = inLobby or currentFloor == "Archives"
                 end
 
-                if not isValidFloor and fname ~= "Stardust Farm" then
-                    h.setOff(); continue
-                elseif not isValidFloor and fname == "Stardust Farm" then
+                if not isValidFloor then
                     h.setOff(); continue
                 end
 
-                if fname == "Knob Farm" then
-                    if not isValidFloor then
-                        h.setOff()
-                    elseif inLobby then
-                        showPopupModal(
-                            "XvlamersRestore_" .. fname:gsub(" ", ""),
-                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
-                            fname .. " was active when you left. Would you like to resume it?",
-                            "Cancel", "Resume",
-                            function() h.setOff() end,
-                            function()
-                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
-                            end
-                        )
-                    else
-                        h.setOff()
-                    end
-                elseif fname == "Stardust Farm" then
-                    if not isValidFloor then
-                        h.setOff()
-                    elseif inLobby then
-                        showPopupModal(
-                            "XvlamersRestore_" .. fname:gsub(" ", ""),
-                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
-                            fname .. " was active when you left. Would you like to resume it?",
-                            "Cancel", "Resume",
-                            function() h.setOff() end,
-                            function()
-                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
-                            end
-                        )
-                    else
-                        showPopupModal(
-                            "XvlamersRestoreStardust",
-                            "⚠️ " .. fname .. " WAS LEFT ON",
-                            fname .. " was active when you left. Auto-resuming in 5 seconds.",
-                            "Cancel", "Resume",
-                            function() h.setOff() end,
-                            function()
-                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
-                            end,
-                            5
-                        )
-                    end
+                if inLobby then
+                    showPopupModal(
+                        "XvlamersRestore_" .. fname:gsub(" ", ""),
+                        "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                        fname .. " was active when you left. Would you like to resume it?",
+                        "Cancel", "Resume",
+                        function() h.setOff() end,
+                        function()
+                            if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                        end
+                    )
                 else
-                    if inLobby then
-                        showPopupModal(
-                            "XvlamersRestore_" .. fname:gsub(" ", ""),
-                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
-                            fname .. " was active when you left. Would you like to resume it?",
-                            "Cancel", "Resume",
-                            function() h.setOff() end,
-                            function()
-                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
-                            end
-                        )
-                    else
-                        h.setOff()
-                    end
+                    h.setOff()
                 end
 
                 task.wait(0.3)
