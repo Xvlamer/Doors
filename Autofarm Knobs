@@ -53,6 +53,28 @@ local function getKnobValue()
 end
 
 local overlayGui, overlayFrame
+local hiddenGuis = {}
+
+local function hideGameUIs()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return end
+
+    for _, gui in ipairs(pg:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Name ~= "XvlamersKnobOverlay" and gui.Enabled then
+            hiddenGuis[gui] = true
+            gui.Enabled = false
+        end
+    end
+end
+
+local function restoreGameUIs()
+    for gui, _ in pairs(hiddenGuis) do
+        if gui and gui.Parent then
+            gui.Enabled = true
+        end
+    end
+    table.clear(hiddenGuis)
+end
 
 local function formatNumber(n)
     local formatted = tostring(math.floor(n))
@@ -92,7 +114,7 @@ local function buildOverlay()
     backdrop.Size = UDim2.new(1, 0, 1, 0)
     backdrop.Position = UDim2.new(0, 0, 0, 0)
     backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    backdrop.BackgroundTransparency = 0.35
+    backdrop.BackgroundTransparency = 0
     backdrop.BorderSizePixel = 0
     backdrop.ZIndex = 1
     backdrop.Parent = screenGui
@@ -194,6 +216,8 @@ local function runStatsLoop()
             lastRateUpdate = 0
         end
 
+        hideGameUIs()
+
         local now = os.clock()
         local currentKnobs = getKnobValue()
 
@@ -250,11 +274,14 @@ task.spawn(function()
                 statisticsRemote:FireServer()
             end
         end)
-        task.wait(0.05)
+        task.wait(0.01)
     end
 
     getgenv().XvlamerStop_KnobFarm = true
     getgenv().XvlamerHub_KnobFarmCancelled = true
+    
+    restoreGameUIs()
+
     pcall(function()
         if overlayGui then
             overlayGui:Destroy()
