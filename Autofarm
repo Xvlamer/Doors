@@ -11,7 +11,6 @@ if placeId == FAKE_BAN_PLACE_ID then
     return
 end
 
--- ── Persistence: survive teleports by hooking the game-loaded signal ──────────
 do
     local function tryPersist()
         local queueFunc = (syn and syn.queue_on_teleport)
@@ -33,15 +32,12 @@ do
             return
         end
 
-        -- Fallback: hook ScriptContext.Error or Players.LocalPlayer.OnTeleport
         pcall(function()
             local Players = game:GetService("Players")
             local lp = Players.LocalPlayer
             if lp and lp.OnTeleport then
                 lp.OnTeleport:Connect(function(state)
                     if state == Enum.TeleportState.Started then
-                        -- queue_on_teleport not available but we tried above
-                        -- nothing more we can do without executor support
                     end
                 end)
             end
@@ -92,9 +88,6 @@ if getgenv().XvlamerHub_Executed == game.JobId then return end
 getgenv().XvlamerHub_Executed = game.JobId
 getgenv().XvlamerHub_Cancelled = false
 
--- ── Per-farm cancel tokens ─────────────────────────────────────────────────────
--- Each farm gets its own token in getgenv() so the loaded child script
--- can poll it and self-terminate without touching the hub's global cancel flag.
 local FARM_TOKENS = {
     ["Knob Farm"]     = "XvlamerHub_KnobFarmCancelled",
     ["Death Farm"]    = "XvlamerHub_DeathFarmCancelled",
@@ -124,7 +117,6 @@ local function farmCancelled(name)
     return getgenv().XvlamerHub_Cancelled or getgenv()[token] == true
 end
 
--- Reset all tokens on fresh load
 for name, _ in pairs(FARM_TOKENS) do
     resetFarmToken(name)
 end
@@ -133,6 +125,8 @@ local mainRef        = nil
 local HubConnections = {}
 local radioToggles   = {}
 local toggleHandlers = {}
+
+getgenv().XvlamerHub_ToggleHandlers = toggleHandlers
 
 local function trackConnection(conn)
     if conn then table.insert(HubConnections, conn) end
@@ -235,8 +229,6 @@ local function queueTeleportLoad()
         end)
     end
 end
-
--- ── Farm runners — each checks its own cancel token ───────────────────────────
 
 local function runDeathFarm()
     if farmCancelled("Death Farm") then return end
@@ -384,7 +376,6 @@ local purge
 purge = function()
     getgenv().XvlamerHub_Cancelled = true
     getgenv().XvlamerHub_Executed  = nil
-    -- Kill all farm tokens so any running loop exits on next poll
     for name, _ in pairs(FARM_TOKENS) do
         cancelFarm(name)
     end
@@ -425,7 +416,6 @@ end
 getgenv().XvlamerHub_RunningInstance = purge
 purge()
 getgenv().XvlamerHub_Cancelled = false
--- Re-reset tokens after purge reset them
 for name, _ in pairs(FARM_TOKENS) do
     resetFarmToken(name)
 end
@@ -959,6 +949,9 @@ local function initializeMainHub()
                 setVisual(false)
                 setToggleSaved(name, false)
                 cancelFarm(name)
+                if name == "Knob Farm" then
+                    setMainGuiVisible(true)
+                end
             end,
         }
 
@@ -970,17 +963,22 @@ local function initializeMainHub()
             on = false
             setVisual(false)
             setToggleSaved(name, false)
-            -- Set the cancel token so the running farm script exits on next poll
             cancelFarm(name)
+            if name == "Knob Farm" then
+                setMainGuiVisible(true)
+            end
         end
 
         local function turnOn()
             if getgenv().XvlamerHub_Cancelled then return end
-            -- Clear the cancel token before launching so the new instance runs clean
             resetFarmToken(name)
             on = true
             setVisual(true)
             setToggleSaved(name, true)
+
+            if name == "Knob Farm" then
+                setMainGuiVisible(false)
+            end
 
             if isRadio then
                 for _, r in ipairs(radioToggles) do
@@ -1043,7 +1041,7 @@ local function initializeMainHub()
                         "Knob Farm can only be executed while in the Lobby, Hotel, or Mines. Please return to the Lobby or a supported floor to continue.",
                         "", "OK",
                         function() end,
-                        function() end  -- OK just dismisses, toggle stays off
+                        function() end
                     )
                     turnOff()
                     return
@@ -1058,14 +1056,13 @@ local function initializeMainHub()
                         function() turnOn()  end
                     )
                 else
-                    -- In-game: gold gate — OK only, no proceed path
                     if getGoldValue() <= 0 then
                         showPopupModal(
                             "XvlamersZeroGoldWarning", "⚠️ 0 GOLD",
                             "You have 0 gold. Collect more gold before starting Knob Farm.",
                             "", "OK",
                             function() end,
-                            function() end  -- OK dismisses only, toggle stays off
+                            function() end
                         )
                         turnOff()
                         return
