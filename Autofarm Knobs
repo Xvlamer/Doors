@@ -66,12 +66,7 @@ end
 
 local function buildOverlay()
     pcall(function()
-        if getgenv().XvlamersKnobOverlay then 
-            getgenv().XvlamersKnobOverlay:Destroy() 
-        end
-        if overlayGui then 
-            overlayGui:Destroy() 
-        end
+        if overlayGui then overlayGui:Destroy() end
     end)
 
     local screenGui = Instance.new("ScreenGui")
@@ -87,13 +82,11 @@ local function buildOverlay()
     else
         screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
-    
     pcall(function()
         if syn and syn.protect_gui then syn.protect_gui(screenGui) end
     end)
 
     overlayGui = screenGui
-    getgenv().XvlamersKnobOverlay = screenGui
 
     local backdrop = Instance.new("Frame")
     backdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -174,76 +167,76 @@ local function buildOverlay()
         return val
     end
 
+    local currentLabel = makeStat(60, "CURRENT KNOBS")
+    local earnedLabel = makeStat(126, "KNOBS EARNED THIS SESSION")
+    local perHourLabel = makeStat(192, "KNOBS PER HOUR")
+
     overlayFrame = {
-        current = makeStat(60, "CURRENT KNOBS"),
-        earned = makeStat(126, "KNOBS EARNED THIS SESSION"),
-        perHour = makeStat(192, "KNOBS PER HOUR")
+        current = currentLabel,
+        earned = earnedLabel,
+        perHour = perHourLabel,
     }
 end
 
 local function runStatsLoop()
     local startKnobs = getKnobValue()
-    local rateHistory = {}
-    local currentRate = 0
-    local lastRateUpdate = os.clock()
+    local samples = {}
+    
+    table.insert(samples, { t = os.clock(), k = startKnobs })
+    
+    local lastRateUpdate = 0
+    local lastKnownKnobs = -1
 
-    task.spawn(function()
-        while not shouldStop() do
-            if overlayGui == nil or overlayGui.Parent == nil then
-                buildOverlay()
-            end
-
-            local now = os.clock()
-            local currentKnobs = getKnobValue()
-
-            table.insert(rateHistory, {t = now, k = currentKnobs})
-
-            local cutoff = now - 30
-            while #rateHistory > 0 and rateHistory[1].t < cutoff do
-                table.remove(rateHistory, 1)
-            end
-
-            if now - lastRateUpdate >= 5 then
-                if #rateHistory > 1 then
-                    local oldest = rateHistory[1]
-                    local newest = rateHistory[#rateHistory]
-                    local dt = newest.t - oldest.t
-                    local dk = newest.k - oldest.k
-                    
-                    if dt > 0 then
-                        currentRate = (dk / dt) * 3600
-                    end
-                end
-
-                if overlayFrame then
-                    pcall(function()
-                        overlayFrame.perHour.Text = formatNumber(currentRate) .. " / hr"
-                    end)
-                end
-                lastRateUpdate = now
-            end
-            
-            task.wait(0.1)
+    while not shouldStop() do
+        if not overlayGui or not overlayGui.Parent then
+            buildOverlay()
+            lastKnownKnobs = -1
+            lastRateUpdate = 0
         end
-    end)
 
-    task.spawn(function()
-        local lastKnobs = -1
-        while not shouldStop() do
-            local currentKnobs = getKnobValue()
-            if currentKnobs ~= lastKnobs then
-                local earned = math.max(0, currentKnobs - startKnobs)
-                if overlayFrame then
-                    pcall(function()
-                        overlayFrame.current.Text = formatNumber(currentKnobs)
-                        overlayFrame.earned.Text = "+" .. formatNumber(earned)
-                    end)
-                end
-                lastKnobs = currentKnobs
+        local now = os.clock()
+        local currentKnobs = getKnobValue()
+
+        if currentKnobs ~= lastKnownKnobs then
+            local earned = math.max(0, currentKnobs - startKnobs)
+            if overlayFrame then
+                pcall(function()
+                    overlayFrame.current.Text = formatNumber(currentKnobs)
+                    overlayFrame.earned.Text = "+" .. formatNumber(earned)
+                end)
             end
-            task.wait(0.05)
+            lastKnownKnobs = currentKnobs
         end
-    end)
+
+        table.insert(samples, { t = now, k = currentKnobs })
+
+        while #samples > 0 and (now - samples[1].t) > 60 do
+            table.remove(samples, 1)
+        end
+
+        if now - lastRateUpdate >= 5 then
+            local rate = 0
+            if #samples >= 2 then
+                local oldest = samples[1]
+                local newest = samples[#samples]
+                local dt = newest.t - oldest.t
+                local dk = math.max(0, newest.k - oldest.k)
+                
+                if dt > 0 then
+                    rate = (dk / dt) * 3600
+                end
+            end
+
+            if overlayFrame then
+                pcall(function()
+                    overlayFrame.perHour.Text = formatNumber(rate) .. " / hr"
+                end)
+            end
+            lastRateUpdate = now
+        end
+
+        task.wait(0.1)
+    end
 end
 
 buildOverlay()
@@ -257,21 +250,16 @@ task.spawn(function()
                 statisticsRemote:FireServer()
             end
         end)
-        task.wait()
+        task.wait(0.05)
     end
 
     getgenv().XvlamerStop_KnobFarm = true
     getgenv().XvlamerHub_KnobFarmCancelled = true
-    
     pcall(function()
         if overlayGui then
             overlayGui:Destroy()
             overlayGui = nil
             overlayFrame = nil
-        end
-        if getgenv().XvlamersKnobOverlay then
-            getgenv().XvlamersKnobOverlay:Destroy()
-            getgenv().XvlamersKnobOverlay = nil
         end
     end)
 end)
