@@ -1084,6 +1084,20 @@ local function initializeMainHub()
             end
 
             if name == "Stardust Farm" then
+                local floor = getCurrentFloor()
+                local isValidFloor = isInLobby() or floor == "Archives"
+                if not isValidFloor then
+                    showPopupModal(
+                        "XvlamersInvalidStardustFloor", "⚠️ RESTRICTED LOCATION",
+                        "Stardust Farm must be ran in Archives to work.",
+                        "", "OK",
+                        function() end,
+                        function() end
+                    )
+                    turnOff()
+                    return
+                end
+
                 if isInLobby() then
                     showPopupModal(
                         "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
@@ -1151,8 +1165,13 @@ local function initializeMainHub()
                 local inLobby      = isInLobby()
                 local currentFloor = getCurrentFloor()
                 local isValidFloor = inLobby or currentFloor == "Hotel" or currentFloor == "Mines"
+                if fname == "Stardust Farm" then
+                    isValidFloor = inLobby or currentFloor == "Archives"
+                end
 
                 if not isValidFloor and fname ~= "Stardust Farm" then
+                    h.setOff(); continue
+                elseif not isValidFloor and fname == "Stardust Farm" then
                     h.setOff(); continue
                 end
 
@@ -1174,7 +1193,9 @@ local function initializeMainHub()
                         h.setOff()
                     end
                 elseif fname == "Stardust Farm" then
-                    if inLobby then
+                    if not isValidFloor then
+                        h.setOff()
+                    elseif inLobby then
                         showPopupModal(
                             "XvlamersRestore_" .. fname:gsub(" ", ""),
                             "⚠️ " .. fname:upper() .. " WAS LEFT ON",
