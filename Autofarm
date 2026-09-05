@@ -1,157 +1,137 @@
-local queueteleport = queue_on_teleport or syn.queue_on_teleport or fluxus and fluxus.queue_on_teleport
-if queueteleport then
-    queueteleport('loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Hub"))()')
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local placeId = game.PlaceId
+local FAKE_BAN_PLACE_ID = 18687417158
+local DOORS_MAIN = 6516141723
+local DOORS_ROOMS = 6839171747
+
+if placeId == FAKE_BAN_PLACE_ID then
+    local kickMsg = "You were banned by this experience or its moderators for 9999 years.\nModeration message:\n\nAppeals are not welcomed and do not even attempt one."
+    game.Players.LocalPlayer:Kick(kickMsg)
+    return
 end
 
-pcall(function()
-    if getgenv().Xvlamer_VClipConn then
-        getgenv().Xvlamer_VClipConn:Disconnect()
-        getgenv().Xvlamer_VClipConn = nil
-    end
-    if getgenv().Xvlamer_FloatConn then
-        getgenv().Xvlamer_FloatConn:Disconnect()
-        getgenv().Xvlamer_FloatConn = nil
-    end
-    if getgenv().Xvlamer_SpamConn then
-        pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
-        getgenv().Xvlamer_SpamConn = nil
-    end
-    getgenv().Xvlamer_VClipActive = false
-    getgenv().Xvlamer_SpamActive = false
-end)
+-- ── Persistence: survive teleports by hooking the game-loaded signal ──────────
+do
+    local function tryPersist()
+        local queueFunc = (syn and syn.queue_on_teleport)
+            or (typeof(queue_on_teleport) == "function" and queue_on_teleport)
+            or (fluxus and fluxus.queue_on_teleport)
+            or (getgenv and getgenv().queue_on_teleport)
 
-local isfile = isfile or function(f) local s, _ = pcall(readfile, f) return s end
-local readfile = readfile or function() return "" end
+        if queueFunc then
+            pcall(function()
+                queueFunc([[
+                    if not game:IsLoaded() then game.Loaded:Wait() end
+                    task.wait(1)
+                    local ok, err = pcall(function()
+                        local src = game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Main")
+                        loadstring(src)()
+                    end)
+                ]])
+            end)
+            return
+        end
+
+        -- Fallback: hook ScriptContext.Error or Players.LocalPlayer.OnTeleport
+        pcall(function()
+            local Players = game:GetService("Players")
+            local lp = Players.LocalPlayer
+            if lp and lp.OnTeleport then
+                lp.OnTeleport:Connect(function(state)
+                    if state == Enum.TeleportState.Started then
+                        -- queue_on_teleport not available but we tried above
+                        -- nothing more we can do without executor support
+                    end
+                end)
+            end
+        end)
+    end
+    tryPersist()
+end
+
+if placeId ~= DOORS_MAIN and placeId ~= DOORS_ROOMS then
+    return
+end
+
+local isfile    = isfile    or function() return false end
+local readfile  = readfile  or function() return "" end
 local writefile = writefile or function() end
-local makefolder = makefolder or function() end
-local isfolder = isfolder or function() return true end
-local getgenv = getgenv or function() return _G end
-local gethui = gethui or function() return nil end
-local getconnections = getconnections
-local firesignal = firesignal
+local getgenv   = getgenv   or function() return _G end
+local gethui    = gethui    or function() return nil end
 
 local safeUI
-local s, h = pcall(function() return gethui() end)
-if s and h then 
-    safeUI = h 
-else 
-    local s2, cg = pcall(function() return game:GetService("CoreGui") end)
-    if s2 and cg then 
-        safeUI = cg 
-    else 
-        safeUI = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui", 5) or game:GetService("CoreGui")
-    end 
+do
+    local ok, h = pcall(function() return gethui() end)
+    if ok and h then
+        safeUI = h
+    else
+        local ok2, cg = pcall(function() return game:GetService("CoreGui") end)
+        if ok2 and cg then
+            safeUI = cg
+        else
+            safeUI = game:GetService("Players").LocalPlayer
+                :WaitForChild("PlayerGui", 5)
+                or game:GetService("CoreGui")
+        end
+    end
 end
 
-local P = game:GetService("Players").LocalPlayer
-local TS = game:GetService("TweenService")
-local UIS = game:GetService("UserInputService")
-local RS = game:GetService("RunService")
+local P    = game:GetService("Players").LocalPlayer
+local TS   = game:GetService("TweenService")
+local UIS  = game:GetService("UserInputService")
+local RS   = game:GetService("RunService")
 local Http = game:GetService("HttpService")
-local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
-local VU = game:GetService("VirtualUser")
-local VIM = game:GetService("VirtualInputManager")
 
-local mainRef = nil
-
-local guiName = "XvlamersHub"
-local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
-local CORRECT_KEY = "x7K9mP2vL4qW8zR1tY3b"
+local guiName      = "XvlamersHub"
+local isMobile     = UIS.TouchEnabled and not UIS.KeyboardEnabled
+local CORRECT_KEY  = "x7K9mP2vL4qW8zR1tY3b"
 local THEME_PURPLE = Color3.fromRGB(108, 92, 231)
 
-local cachedLobbyStatus = nil
-local cachedFloor = nil
+if getgenv().XvlamerHub_Executed == game.JobId then return end
+getgenv().XvlamerHub_Executed = game.JobId
+getgenv().XvlamerHub_Cancelled = false
 
-local function loadAndRunUrl(url)
-    local success, response = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if not success then
-        warn("[HttpError]: Failed to fetch URL ->", url, response)
-        return false
+-- ── Per-farm cancel tokens ─────────────────────────────────────────────────────
+-- Each farm gets its own token in getgenv() so the loaded child script
+-- can poll it and self-terminate without touching the hub's global cancel flag.
+local FARM_TOKENS = {
+    ["Knob Farm"]     = "XvlamerHub_KnobFarmCancelled",
+    ["Death Farm"]    = "XvlamerHub_DeathFarmCancelled",
+    ["Stardust Farm"] = "XvlamerHub_StardustFarmCancelled",
+    ["Noclip"]        = "XvlamerHub_NoclipCancelled",
+    ["Noclip SPAM"]   = "XvlamerHub_NoclipSpamCancelled",
+    ["Optimizations"] = "XvlamerHub_OptimizationsCancelled",
+}
+
+local function cancelFarm(name)
+    local token = FARM_TOKENS[name]
+    if token then
+        getgenv()[token] = true
     end
-    if response:match("404: Not Found") or response:match("<!DOCTYPE html>") then
-        warn("[GitHub Error]: The raw URL returned an HTML page or 404 for ->", url)
-        return false
-    end
-    local fn, syntaxError = loadstring(response)
-    if not fn then
-        warn("[SyntaxError]: Failed to compile script ->", url, syntaxError)
-        return false
-    end
-    local runSuccess, runError = pcall(fn)
-    if not runSuccess then
-        warn("[RuntimeError]: Script crashed during execution ->", url, runError)
-        return false
-    end
-    return true
 end
 
-local function isInGame()
-    local success, result = pcall(function()
-        return game:IsLoaded() and P
-    end)
-    return success and result
-end
-
-local function isInLobby()
-    if cachedLobbyStatus ~= nil then return cachedLobbyStatus end
-    local success, result = pcall(function()
-        return game.PlaceId == 6516141723 or (Workspace:FindFirstChild("Lobby") ~= nil)
-    end)
-    if success then
-        cachedLobbyStatus = result
+local function resetFarmToken(name)
+    local token = FARM_TOKENS[name]
+    if token then
+        getgenv()[token] = false
     end
-    return cachedLobbyStatus or false
 end
 
-local function getFloor()
-    if cachedFloor ~= nil and cachedFloor ~= "" then return cachedFloor end
-    local floorVal = ""
-    pcall(function()
-        local rs = game:GetService("ReplicatedStorage")
-        if rs and rs:FindFirstChild("GameData") and rs.GameData:FindFirstChild("Floor") then
-            floorVal = rs.GameData.Floor.Value
-        end
-    end)
-    if floorVal ~= "" then
-        cachedFloor = floorVal
-    end
-    return floorVal
+local function farmCancelled(name)
+    local token = FARM_TOKENS[name]
+    if not token then return getgenv().XvlamerHub_Cancelled end
+    return getgenv().XvlamerHub_Cancelled or getgenv()[token] == true
 end
 
-local function getGoldValue()
-    local goldVal = 0
-    pcall(function()
-        if P then
-            local g = P:FindFirstChild("Gold")
-            if not g and P:FindFirstChild("leaderstats") then
-                g = P.leaderstats:FindFirstChild("Gold")
-            end
-            if not g then
-                for _, desc in pairs(P:GetDescendants()) do
-                    if desc.Name == "Gold" and (desc:IsA("IntValue") or desc:IsA("NumberValue")) then
-                        g = desc
-                        break
-                    end
-                end
-            end
-            if g and (g:IsA("IntValue") or g:IsA("NumberValue")) then
-                goldVal = g.Value
-            end
-        end
-    end)
-    return goldVal
+-- Reset all tokens on fresh load
+for name, _ in pairs(FARM_TOKENS) do
+    resetFarmToken(name)
 end
 
-if getgenv().XvlamerHub_RunningInstance then
-    pcall(function() getgenv().XvlamerHub_RunningInstance() end)
-end
-
+local mainRef        = nil
 local HubConnections = {}
-local activeThreads = {}
-local radioToggles = {}
+local radioToggles   = {}
 local toggleHandlers = {}
 
 local function trackConnection(conn)
@@ -159,31 +139,317 @@ local function trackConnection(conn)
     return conn
 end
 
-pcall(function()
-    local queueteleport = queue_on_teleport or syn.queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
-    if queueteleport then
-        local scriptCode = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Hub"))()'
-        trackConnection(game:GetService("TeleportService").TeleportInit:Connect(function()
-            pcall(function()
-                queueteleport(scriptCode)
-            end)
-        end))
+local state = getgenv().XvlamerHub_SavedState or {
+    KeyExpiry   = 0,
+    ToggleState = {},
+}
+getgenv().XvlamerHub_SavedState = state
+
+local stateFile = "XvlamersSaveState.json"
+
+local function saveState()
+    pcall(function()
+        writefile(stateFile, Http:JSONEncode({
+            KeyExpiry   = state.KeyExpiry,
+            ToggleState = state.ToggleState,
+        }))
+    end)
+end
+
+do
+    local ok, raw = pcall(function()
+        if isfile(stateFile) then return readfile(stateFile) end
+    end)
+    if ok and raw and raw ~= "" then
+        local ok2, decoded = pcall(function() return Http:JSONDecode(raw) end)
+        if ok2 and type(decoded) == "table" then
+            if decoded.KeyExpiry   then state.KeyExpiry   = decoded.KeyExpiry   end
+            if decoded.ToggleState and type(decoded.ToggleState) == "table" then
+                state.ToggleState = decoded.ToggleState
+            end
+        end
     end
-end)
+end
+
+local function setToggleSaved(name, val)
+    state.ToggleState[name] = val == true
+    pcall(saveState)
+end
+
+local function isInLobby()
+    local ok, res = pcall(function()
+        local lobby = game:GetService("Workspace"):FindFirstChild("Lobby")
+        if not lobby then return false end
+        return #lobby:GetChildren() > 0
+    end)
+    return ok and res or false
+end
+
+local function getCurrentFloor()
+    if isInLobby() then return "Lobby" end
+    local ok, res = pcall(function()
+        local gameData = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+        if gameData then
+            local floorVal = gameData:FindFirstChild("Floor")
+            if floorVal and (floorVal:IsA("StringValue") or floorVal:IsA("ValueBase")) then
+                local val = tostring(floorVal.Value)
+                if val ~= "" then return val end
+            end
+        end
+    end)
+    return (ok and res and res ~= "") and res or "Hotel"
+end
+
+local function getGoldValue()
+    local gold = 0
+    pcall(function()
+        local g = P:FindFirstChild("Gold")
+        if not g and P:FindFirstChild("leaderstats") then
+            g = P.leaderstats:FindFirstChild("Gold")
+        end
+        if not g then
+            for _, d in pairs(P:GetDescendants()) do
+                if d.Name == "Gold" and (d:IsA("IntValue") or d:IsA("NumberValue")) then
+                    g = d; break
+                end
+            end
+        end
+        if g then gold = g.Value end
+    end)
+    return gold
+end
+
+local function queueTeleportLoad()
+    local queueFunc = (syn and syn.queue_on_teleport)
+        or (typeof(queue_on_teleport) == "function" and queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+        or (getgenv and getgenv().queue_on_teleport)
+    if queueFunc then
+        pcall(function()
+            queueFunc([[
+                task.wait(1.5)
+                pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Main"))()
+                end)
+            ]])
+        end)
+    end
+end
+
+-- ── Farm runners — each checks its own cancel token ───────────────────────────
+
+local function runDeathFarm()
+    if farmCancelled("Death Farm") then return end
+    resetFarmToken("Death Farm")
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://api.luarmor.net/files/v3/loaders/187f19b3cab5144ba87f91792383c3a4.lua"
+            ))()
+        end)
+    end)
+end
+
+local function runKnobFarmLobby()
+    if farmCancelled("Knob Farm") then return end
+    queueTeleportLoad()
+    pcall(function()
+        local args = {
+            [1] = {
+                ["Mods"] = {
+                    [1]  = "ItemSpawnNone",   [2]  = "DupeMost",
+                    [3]  = "LeastHidingSpots",[4]  = "GloombatMore",
+                    [5]  = "GiggleSunglasses",[6]  = "GiggleMost",
+                    [7]  = "ScreechFaster",   [8]  = "HideTime",
+                    [9]  = "FigureFaster",    [10] = "RushQuiet",
+                    [11] = "EntitiesMoster",  [12] = "FiredampMost",
+                },
+                ["Settings"]    = {},
+                ["Destination"] = "Mines",
+                ["FriendsOnly"] = false,
+                ["MaxPlayers"]  = "1",
+            }
+        }
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("RemotesFolder")
+            :WaitForChild("CreateElevator")
+            :FireServer(unpack(args))
+    end)
+end
+
+local function runKnobFarmGame()
+    if farmCancelled("Knob Farm") then return end
+    resetFarmToken("Knob Farm")
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs"
+            ))()
+        end)
+    end)
+end
+
+local function runStardustFarmLobby()
+    if farmCancelled("Stardust Farm") then return end
+    queueTeleportLoad()
+    pcall(function()
+        local args = {
+            [1] = {
+                ["Mods"]        = {},
+                ["Settings"]    = {},
+                ["Destination"] = "Archives",
+                ["FriendsOnly"] = false,
+                ["MaxPlayers"]  = "1",
+            }
+        }
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("RemotesFolder")
+            :WaitForChild("CreateElevator")
+            :FireServer(unpack(args))
+    end)
+end
+
+local function runStardustFarmGame()
+    if farmCancelled("Stardust Farm") then return end
+    resetFarmToken("Stardust Farm")
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust"
+            ))()
+        end)
+    end)
+end
+
+local function runNoclip()
+    if farmCancelled("Noclip") then return end
+    resetFarmToken("Noclip")
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Noclip"
+            ))()
+        end)
+    end)
+end
+
+local function runNoclipSpam()
+    if farmCancelled("Noclip SPAM") then return end
+    resetFarmToken("Noclip SPAM")
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Noclip%20SPAM"
+            ))()
+        end)
+    end)
+end
+
+local function runOptimizations()
+    if farmCancelled("Optimizations") then return end
+    resetFarmToken("Optimizations")
+    task.spawn(function()
+        pcall(function()
+            loadstring(game:HttpGet(
+                "https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Optimizations"
+            ))()
+        end)
+    end)
+end
+
+local antiAfkConn = nil
+local function startAntiAfk()
+    if antiAfkConn or getgenv().XvlamerHub_Cancelled then return end
+    pcall(function()
+        local VU = game:GetService("VirtualUser")
+        antiAfkConn = trackConnection(
+            P.Idled:Connect(function()
+                if getgenv().XvlamerHub_Cancelled then return end
+                VU:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                task.wait(0.1)
+                VU:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
+        )
+    end)
+end
+
+local function stopAntiAfk()
+    if antiAfkConn then
+        pcall(function() antiAfkConn:Disconnect() end)
+        antiAfkConn = nil
+    end
+end
+
+local purge
+purge = function()
+    getgenv().XvlamerHub_Cancelled = true
+    getgenv().XvlamerHub_Executed  = nil
+    -- Kill all farm tokens so any running loop exits on next poll
+    for name, _ in pairs(FARM_TOKENS) do
+        cancelFarm(name)
+    end
+    stopAntiAfk()
+    for _, conn in pairs(HubConnections) do
+        if conn and typeof(conn) == "RBXScriptConnection" then
+            pcall(function() conn:Disconnect() end)
+        end
+    end
+    table.clear(HubConnections)
+    table.clear(toggleHandlers)
+    table.clear(radioToggles)
+    mainRef = nil
+
+    local function destroyOwned(parent)
+        if not parent then return end
+        for _, v in pairs(parent:GetChildren()) do
+            if v.Name == guiName
+                or v.Name == "XvlamersMobileToggle"
+                or v.Name == "XvlamersKeySystem"
+                or v.Name:match("^Xvlamers") then
+                pcall(function() v:Destroy() end)
+            end
+        end
+    end
+    pcall(function() destroyOwned(game:GetService("CoreGui")) end)
+    pcall(function() destroyOwned(gethui()) end)
+    pcall(function() destroyOwned(P:FindFirstChild("PlayerGui")) end)
+
+    if getgenv().XvlamerHub_RunningInstance == purge then
+        getgenv().XvlamerHub_RunningInstance = nil
+    end
+end
+
+if getgenv().XvlamerHub_RunningInstance then
+    pcall(function() getgenv().XvlamerHub_RunningInstance() end)
+end
+getgenv().XvlamerHub_RunningInstance = purge
+purge()
+getgenv().XvlamerHub_Cancelled = false
+-- Re-reset tokens after purge reset them
+for name, _ in pairs(FARM_TOKENS) do
+    resetFarmToken(name)
+end
+
+local function create(className, props)
+    local ok, inst = pcall(function()
+        local i = Instance.new(className)
+        for k, v in pairs(props) do i[k] = v end
+        return i
+    end)
+    return ok and inst or Instance.new("Frame")
+end
 
 local function onDebouncedClick(btn, callback, cooldown)
-    cooldown = cooldown or 0.25
-    local lastTick = 0
-    
+    cooldown = cooldown or 0
+    local last = 0
     local function trigger()
+        if getgenv().XvlamerHub_Cancelled then return end
         local now = tick()
-        if now - lastTick < cooldown then return end
-        lastTick = now
+        if now - last < cooldown then return end
+        last = now
         pcall(callback)
     end
-
     trackConnection(btn.MouseButton1Click:Connect(trigger))
-    
     if isMobile then
         pcall(function() trackConnection(btn.Activated:Connect(trigger)) end)
         pcall(function() trackConnection(btn.TouchTap:Connect(trigger)) end)
@@ -192,563 +458,181 @@ end
 
 local function isModalOpen()
     for _, v in pairs(safeUI:GetChildren()) do
-        if v:IsA("ScreenGui") and (v.Name == "XvlamersExitWarning" or v.Name == "XvlamersStartupAutofarmPrompt" or v.Name == "XvlamersDeathFarmWarning" or v.Name == "XvlamersModifiersPrompt" or v.Name == "XvlamersZeroGoldWarning" or v.Name == "XvlamersStardustFarmWarning" or v.Name == "XvlamersKnobFloorWarning" or v.Name == "XvlamersStardustFloorWarning") then
+        if v:IsA("ScreenGui")
+            and v.Name:match("^Xvlamers")
+            and v.Name ~= guiName
+            and v.Name ~= "XvlamersMobileToggle" then
             return true
         end
     end
     return false
 end
 
-local function purgePhantomGUIs()
-    pcall(function()
-        local pg = P:FindFirstChild("PlayerGui")
-        if pg then
-            for _, v in pairs(pg:GetChildren()) do
-                if v:IsA("ScreenGui") and not v.Name:match("Xvlamers") then
-                    local hasPhantom = false
-                    for _, desc in pairs(v:GetDescendants()) do
-                        if desc:IsA("TextLabel") and desc.Text and desc.Text:match("You must run this in%-game") then
-                            hasPhantom = true
-                            break
-                        end
-                    end
-                    if hasPhantom then v:Destroy() end
-                end
-            end
-        end
-    end)
-end
-
-if getgenv().XvlamerStop_PhantomPurge == nil then
-    getgenv().XvlamerStop_PhantomPurge = false
-else
-    getgenv().XvlamerStop_PhantomPurge = true
-    task.wait(0.05)
-    getgenv().XvlamerStop_PhantomPurge = false
-end
-
-task.spawn(function()
-    while not getgenv().XvlamerStop_PhantomPurge do
-        pcall(purgePhantomGUIs)
-        task.wait(3.0)
-    end
-end)
-
-getgenv().XvlamerHub_SavedState = getgenv().XvlamerHub_SavedState or {
-    ActiveFarm = nil, 
-    UnlockFps = false, 
-    AntiAFK = false, 
-    Optimizations = false,
-    KeyExpiry = 0
-}
-state = getgenv().XvlamerHub_SavedState
-
-local stateFile = "XvlamersSaveState.json"
-
-local function saveState()
-    pcall(function() 
-        local farmToSave = state.ActiveFarm
-        if farmToSave == "Knob Farm" then
-            farmToSave = nil
-        end
-        local saveData = {
-            ActiveFarm = farmToSave,
-            UnlockFps = state.UnlockFps,
-            AntiAFK = state.AntiAFK,
-            Optimizations = state.Optimizations,
-            KeyExpiry = state.KeyExpiry
-        }
-        local encoded = Http:JSONEncode(saveData)
-        writefile(stateFile, encoded)
-    end)
-end
-
-local readSuccess, readData = pcall(function() 
-    if isfile(stateFile) then 
-        return readfile(stateFile) 
-    end 
-end)
-
-local pendingStartupFarm = nil
-if readSuccess and readData and readData ~= "" then
-    local decodeSuccess, decoded = pcall(function() return Http:JSONDecode(readData) end)
-    if decodeSuccess and type(decoded) == "table" then 
-        if decoded.ActiveFarm ~= nil and decoded.ActiveFarm ~= "Knob Farm" then pendingStartupFarm = decoded.ActiveFarm end
-        if decoded.UnlockFps ~= nil then state.UnlockFps = decoded.UnlockFps end
-        if decoded.AntiAFK ~= nil then state.AntiAFK = decoded.AntiAFK end
-        if decoded.Optimizations ~= nil then state.Optimizations = decoded.Optimizations end
-        if decoded.KeyExpiry ~= nil then state.KeyExpiry = decoded.KeyExpiry end
-    end
-end
-
-local Optimizer = {}
-do
-    local Terrain = Workspace:FindFirstChildOfClass("Terrain")
-
-    local function applyOptimization(instance)
-        pcall(function()
-            if instance:IsA("BasePart") and not instance:IsA("Terrain") then
-                instance.Material = Enum.Material.SmoothPlastic
-                instance.CastShadow = false
-                if instance:IsA("MeshPart") then
-                    instance.TextureID = ""
-                end
-            elseif instance:IsA("SpecialMesh") then
-                instance.TextureId = ""
-            elseif instance:IsA("Decal") or instance:IsA("Texture") or instance:IsA("SurfaceAppearance") then
-                instance:Destroy()
-            elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam") or instance:IsA("Fire") or instance:IsA("Smoke") or instance:IsA("Sparkles") then
-                instance.Enabled = false
-            end
-        end)
-    end
-
-    function Optimizer.Toggle(stateVal)
-        getgenv().Xvlamer_OptActive = stateVal and true or false
-
-        if getgenv().Xvlamer_OptConn then
-            getgenv().Xvlamer_OptConn:Disconnect()
-            getgenv().Xvlamer_OptConn = nil
-        end
-
-        if not getgenv().Xvlamer_OptActive then
-            return
-        end
-
-        pcall(function()
-            Lighting.GlobalShadows = false
-            Lighting.FogEnd = 9e9
-            Lighting.FogStart = 9e9
-            Lighting.Brightness = 1
-            Lighting.ClockTime = 14
-            Lighting.Ambient = Color3.fromRGB(90, 90, 90)
-            Lighting.OutdoorAmbient = Color3.fromRGB(90, 90, 90)
-            
-            for _, v in ipairs(Lighting:GetDescendants()) do
-                if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
-                    v.Enabled = false
-                end
-            end
-        end)
-
-        pcall(function()
-            if Terrain then
-                Terrain.WaterWaveSize = 0
-                Terrain.WaterWaveSpeed = 0
-                Terrain.WaterReflectance = 0
-                Terrain.WaterTransparency = 1
-                Terrain.Decoration = false
-            end
-        end)
-
-        for _, v in ipairs(Workspace:GetDescendants()) do
-            applyOptimization(v)
-        end
-
-        getgenv().Xvlamer_OptConn = Workspace.DescendantAdded:Connect(function(instance)
-            if getgenv().Xvlamer_OptActive then
-                task.defer(applyOptimization, instance)
-            end
-        end)
-    end
-
-    function Optimizer.Disable()
-        Optimizer.Toggle(false)
-    end
-end
-
-local NoclipModule = {}
-do
-    local floatY = nil
-
-    local function cleanupVClip()
-        if getgenv().Xvlamer_VClipConn then
-            getgenv().Xvlamer_VClipConn:Disconnect()
-            getgenv().Xvlamer_VClipConn = nil
-        end
-        if getgenv().Xvlamer_FloatConn then
-            getgenv().Xvlamer_FloatConn:Disconnect()
-            getgenv().Xvlamer_FloatConn = nil
-        end
-        if getgenv().Xvlamer_SpamConn then
-            pcall(function() task.cancel(getgenv().Xvlamer_SpamConn) end)
-            getgenv().Xvlamer_SpamConn = nil
-        end
-        
-        floatY = nil
-        local char = P.Character
-        if char then
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = true
-                end
-            end
-        end
-    end
-
-    function NoclipModule.Toggle(stateVal)
-        cleanupVClip()
-
-        getgenv().Xvlamer_VClipActive = stateVal and true or false
-        getgenv().Xvlamer_SpamActive = false
-
-        if not getgenv().Xvlamer_VClipActive then
-            return
-        end
-
-        floatY = nil
-
-        getgenv().Xvlamer_FloatConn = RS.Heartbeat:Connect(function(dt)
-            local char = P.Character
-            if not char then return end
-
-            if isInLobby() then
-                for _, v in ipairs(char:GetDescendants()) do
-                    if v:IsA("BasePart") and not v.CanCollide then
-                        v.CanCollide = true
-                    end
-                end
-                return
-            end
-
-            local rootPart = char:FindFirstChild("HumanoidRootPart")
-            if not rootPart then return end
-            
-            local pos = rootPart.Position
-            if floatY == nil then
-                floatY = pos.Y
-            end
-            
-            local look = rootPart.CFrame.LookVector
-            local dir = Vector3.new(look.X, 0, look.Z)
-            if dir.Magnitude > 0 then
-                dir = dir.Unit
-            else
-                dir = Vector3.new(0, 0, -1)
-            end
-            
-            local newX = pos.X + (dir.X * 1 * dt)
-            local newZ = pos.Z + (dir.Z * 1 * dt)
-            
-            rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
-            rootPart.AssemblyLinearVelocity = Vector3.zero
-            rootPart.AssemblyAngularVelocity = Vector3.zero
-        end)
-
-        getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
-            local char = P.Character
-            if not char then return end
-            if isInLobby() then return end
-
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") and v.CanCollide then
-                    v.CanCollide = false
-                end
-            end
-        end)
-    end
-
-    function NoclipModule.ToggleSpam(stateVal)
-        cleanupVClip()
-
-        getgenv().Xvlamer_SpamActive = stateVal and true or false
-        getgenv().Xvlamer_VClipActive = false
-
-        if not getgenv().Xvlamer_SpamActive then
-            return
-        end
-
-        floatY = nil
-
-        getgenv().Xvlamer_VClipConn = RS.Stepped:Connect(function()
-            local char = P.Character
-            if not char then return end
-            if isInLobby() then return end
-
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") and v.CanCollide then
-                    v.CanCollide = false
-                end
-            end
-        end)
-
-        getgenv().Xvlamer_SpamConn = task.spawn(function()
-            while getgenv().Xvlamer_SpamActive do
-                local activeTimer = 0
-                local floatConn
-                floatConn = RS.Heartbeat:Connect(function(dt)
-                    activeTimer = activeTimer + dt
-                    local char = P.Character
-                    if not char then return end
-                    if isInLobby() then return end
-
-                    local rootPart = char:FindFirstChild("HumanoidRootPart")
-                    if not rootPart then return end
-                    
-                    local pos = rootPart.Position
-                    if floatY == nil then
-                        floatY = pos.Y
-                    end
-                    
-                    local look = rootPart.CFrame.LookVector
-                    local dir = Vector3.new(look.X, 0, look.Z)
-                    if dir.Magnitude > 0 then
-                        dir = dir.Unit
-                    else
-                        dir = Vector3.new(0, 0, -1)
-                    end
-                    
-                    local newX = pos.X + (dir.X * 1 * dt)
-                    local newZ = pos.Z + (dir.Z * 1 * dt)
-                    
-                    rootPart.CFrame = CFrame.new(newX, floatY, newZ) * (rootPart.CFrame - pos)
-                    rootPart.AssemblyLinearVelocity = Vector3.zero
-                    rootPart.AssemblyAngularVelocity = Vector3.zero
-                end)
-
-                task.wait((0.25 * 0.75) / 3)
-                if floatConn then floatConn:Disconnect() end
-
-                task.wait((0.25 * 0.75) / 3)
-            end
-        end)
-    end
-
-    function NoclipModule.Disable()
-        cleanupVClip()
-        getgenv().Xvlamer_VClipActive = false
-        getgenv().Xvlamer_SpamActive = false
-    end
-end
-
-if getgenv().Xvlamer_RespawnConn then
-    getgenv().Xvlamer_RespawnConn:Disconnect()
-    getgenv().Xvlamer_RespawnConn = nil
-end
-
-getgenv().Xvlamer_RespawnConn = P.CharacterAdded:Connect(function(newChar)
-    if getgenv().Xvlamer_VClipActive then
-        task.wait(0.3)
-        NoclipModule.Toggle(true)
-    elseif getgenv().Xvlamer_SpamActive then
-        task.wait(0.3)
-        NoclipModule.ToggleSpam(true)
-    else
-        NoclipModule.Disable()
-    end
-end)
-
-local antiAfkConn = nil
-local function setAntiAFK(enabled, dontSave)
-    state.AntiAFK = enabled
-    if not dontSave then pcall(saveState) end
-    if enabled then
-        pcall(function()
-            if getconnections then for _, conn in pairs(getconnections(P.Idled)) do conn:Disable() end end
-        end)
-        if not antiAfkConn then
-            antiAfkConn = trackConnection(P.Idled:Connect(function()
-                pcall(function()
-                    if VU then VU:CaptureController(); VU:ClickButton2(Vector2.new()) end
-                end)
-            end))
-        end
-    else
-        pcall(function()
-            if getconnections then for _, conn in pairs(getconnections(P.Idled)) do conn:Enable() end end
-        end)
-        if antiAfkConn then pcall(function() antiAfkConn:Disconnect() end); antiAfkConn = nil end
-    end
-end
-
-local originalFps = 60
-pcall(function()
-    if typeof(getfpscap) == "function" then
-        local cap = getfpscap()
-        if cap and cap > 0 and cap < 9999 then originalFps = cap end
-    end
-end)
-
-local function setUnlockFPS(enabled, dontSave)
-    state.UnlockFps = enabled
-    if not dontSave then pcall(saveState) end
-    if enabled then
-        pcall(function()
-            if typeof(setfpscap) == "function" then setfpscap(9999)
-            elseif typeof(set_fps_cap) == "function" then setfpscap(9999)
-            elseif typeof(setfps) == "function" then setfps(9999) end
-        end)
-        pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = 9999 end)
-        pcall(function() settings().Rendering.FramerateLimit = 9999 end)
-    else
-        pcall(function()
-            if typeof(setfpscap) == "function" then setfpscap(originalFps)
-            elseif typeof(set_fps_cap) == "function" then setfpscap(originalFps) end
-        end)
-        pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = originalFps end)
-        pcall(function() settings().Rendering.FramerateLimit = originalFps end)
-    end
-end
-
-local purge = function() end
-purge = function()
-    getgenv().XvlamerStop_PhantomPurge = true
-    pcall(function() if getconnections then for _, conn in pairs(getconnections(P.Idled)) do conn:Enable() end end end)
-    if antiAfkConn then pcall(function() antiAfkConn:Disconnect() end); antiAfkConn = nil end
-
-    pcall(function()
-        if typeof(setfpscap) == "function" then setfpscap(originalFps) end
-    end)
-    pcall(function() UserSettings():GetService("UserGameSettings").SavedMaxFps = originalFps end)
-    pcall(function() settings().Rendering.FramerateLimit = originalFps end)
-
-    if Optimizer and type(Optimizer.Disable) == "function" then pcall(function() Optimizer.Disable() end) end
-    if NoclipModule and type(NoclipModule.Disable) == "function" then pcall(function() NoclipModule.Disable() end) end
-    getgenv().XvlamerStop_KnobFarm = true
-    getgenv().XvlamerStop_DeathFarm = true
-    getgenv().XvlamerStop_StardustFarm = true
-    getgenv().XvlamerStop_Noclip = true
-    getgenv().XvlamerStop_NoclipSpam = true
-    
-    for _, thread in pairs(activeThreads) do if thread then pcall(function() task.cancel(thread) end) end end
-    table.clear(activeThreads)
-    
-    for i = 1, #HubConnections do
-        local conn = HubConnections[i]
-        if conn and typeof(conn) == "RBXScriptConnection" then pcall(function() conn:Disconnect() end) end
-    end
-    table.clear(HubConnections)
-    table.clear(toggleHandlers)
-    table.clear(radioToggles)
-
-    mainRef = nil
-
-    local function checkAndDestroy(parent)
-        if parent then for _, v in pairs(parent:GetChildren()) do if v.Name == guiName or v.Name == "XvlamersMobileToggle" or v.Name:match("Xvlamers") then pcall(function() v:Destroy() end) end end end
-    end
-    pcall(function() checkAndDestroy(game:GetService("CoreGui")) end)
-    pcall(function() checkAndDestroy(gethui()) end)
-    pcall(function() checkAndDestroy(P:FindFirstChild("PlayerGui")) end)
-    
-    if getgenv().XvlamerHub_RunningInstance == purge then getgenv().XvlamerHub_RunningInstance = nil end
-end
-
-getgenv().XvlamerHub_RunningInstance = purge
-purge()
-
-local function create(c, p) 
-    local success, inst = pcall(function()
-        local i = Instance.new(c)
-        for k, v in pairs(p) do i[k] = v end
-        return i
-    end)
-    if success then return inst end
-    return Instance.new("Frame")
-end
-
-local function makeUniversalDraggable(guiFrame)
+local function makeUniversalDraggable(frame)
     local dragging, dragInput, dragStart, startPos
-    trackConnection(guiFrame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            local mousePos = UIS:GetMouseLocation()
-            local objects = safeUI:GetGuiObjectsAtPosition(mousePos.X, mousePos.Y)
-            local isRestricted = false
+    trackConnection(frame.InputBegan:Connect(function(input)
+        if getgenv().XvlamerHub_Cancelled then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local mp      = UIS:GetMouseLocation()
+            local objects = safeUI:GetGuiObjectsAtPosition(mp.X, mp.Y)
+            local blocked = false
             for _, obj in ipairs(objects) do
-                if obj == guiFrame then break end
-                if obj:IsA("TextButton") or obj:IsA("TextBox") or obj:IsA("ImageButton") then isRestricted = true; break end
+                if obj == frame then break end
+                if obj:IsA("TextButton") or obj:IsA("TextBox") or obj:IsA("ImageButton") then
+                    blocked = true; break
+                end
             end
-            if not isRestricted then
-                dragging = true; dragStart = input.Position; startPos = guiFrame.Position
-                local endConn
-                endConn = input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false; if endConn then pcall(function() endConn:Disconnect() end) end end end)
-                trackConnection(endConn)
+            if not blocked then
+                dragging  = true
+                dragStart = input.Position
+                startPos  = frame.Position
+                local ec
+                ec = input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                        pcall(function() ec:Disconnect() end)
+                    end
+                end)
+                trackConnection(ec)
             end
         end
     end))
-    trackConnection(UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end))
-    trackConnection(UIS.InputChanged:Connect(function(input) if input == dragInput and dragging then local delta = input.Position - dragStart; guiFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end))
+    trackConnection(UIS.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end))
+    trackConnection(UIS.InputChanged:Connect(function(input)
+        if input == dragInput and dragging and not getgenv().XvlamerHub_Cancelled then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end))
 end
 
-local function showPopupModal(modalName, titleText, messageText, cancelText, confirmText, onCancel, onConfirm, countdownSeconds)
+local function showPopupModal(
+    modalName, titleText, messageText,
+    cancelText, confirmText,
+    onCancel, onConfirm,
+    countdownSeconds
+)
+    if getgenv().XvlamerHub_Cancelled then return end
     pcall(function()
-        purgePhantomGUIs()
-        local wasMainVisible = mainRef and mainRef.Visible or false
+        local wasVisible = mainRef and mainRef.Visible or false
         if mainRef then mainRef.Visible = false end
 
-        local warnGui = Instance.new("ScreenGui")
-        warnGui.Name = modalName; warnGui.ResetOnSpawn = false; warnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; warnGui.DisplayOrder = 1000000; warnGui.Parent = safeUI
+        local wGui = Instance.new("ScreenGui")
+        wGui.Name            = modalName
+        wGui.ResetOnSpawn    = false
+        wGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+        wGui.DisplayOrder    = 1000000
+        wGui.Parent          = safeUI
 
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 340, 0, 185); frame.Position = UDim2.new(0.5, 0, 0.5, 0); frame.AnchorPoint = Vector2.new(0.5, 0.5)
-        frame.BackgroundColor3 = Color3.fromRGB(13, 13, 17); frame.BorderSizePixel = 0; frame.ClipsDescendants = true; frame.Parent = warnGui
+        frame.Size             = UDim2.new(0, 340, 0, 185)
+        frame.Position         = UDim2.new(0.5, 0, 0.5, 0)
+        frame.AnchorPoint      = Vector2.new(0.5, 0.5)
+        frame.BackgroundColor3 = Color3.fromRGB(13, 13, 17)
+        frame.BorderSizePixel  = 0
+        frame.ClipsDescendants = true
+        frame.Parent           = wGui
         Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
-        local warnStroke = Instance.new("UIStroke", frame); warnStroke.Color = THEME_PURPLE; warnStroke.Transparency = 0.3; warnStroke.Thickness = 1.5
+        local stroke = Instance.new("UIStroke", frame)
+        stroke.Color        = THEME_PURPLE
+        stroke.Transparency = 0.3
+        stroke.Thickness    = 1.5
 
         local titleLbl = Instance.new("TextLabel", frame)
-        titleLbl.Size = UDim2.new(1, -30, 0, 24)
-        titleLbl.Position = UDim2.new(0, 15, 0, 16)
+        titleLbl.Size               = UDim2.new(1, -30, 0, 24)
+        titleLbl.Position           = UDim2.new(0, 15, 0, 16)
         titleLbl.BackgroundTransparency = 1
-        titleLbl.Font = Enum.Font.GothamBold
-        titleLbl.Text = titleText
-        titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        titleLbl.TextSize = 14
-        titleLbl.TextXAlignment = Enum.TextXAlignment.Center
+        titleLbl.Font               = Enum.Font.GothamBold
+        titleLbl.Text               = titleText
+        titleLbl.TextColor3         = Color3.fromRGB(255, 255, 255)
+        titleLbl.TextSize           = 14
+        titleLbl.TextXAlignment     = Enum.TextXAlignment.Center
 
         local msgLbl = Instance.new("TextLabel", frame)
-        msgLbl.Size = UDim2.new(1, -36, 0, 84)
-        msgLbl.Position = UDim2.new(0, 18, 0, 46)
+        msgLbl.Size                 = UDim2.new(1, -36, 0, 84)
+        msgLbl.Position             = UDim2.new(0, 18, 0, 46)
         msgLbl.BackgroundTransparency = 1
-        msgLbl.Font = Enum.Font.GothamBold
-        msgLbl.Text = messageText
-        msgLbl.TextColor3 = Color3.fromRGB(215, 215, 230)
-        msgLbl.TextSize = 13
-        msgLbl.TextWrapped = true
-        msgLbl.TextXAlignment = Enum.TextXAlignment.Center
-        msgLbl.TextYAlignment = Enum.TextYAlignment.Center
+        msgLbl.Font                 = Enum.Font.GothamBold
+        msgLbl.Text                 = messageText
+        msgLbl.TextColor3           = Color3.fromRGB(215, 215, 230)
+        msgLbl.TextSize             = 13
+        msgLbl.TextWrapped          = true
+        msgLbl.TextXAlignment       = Enum.TextXAlignment.Center
+        msgLbl.TextYAlignment       = Enum.TextYAlignment.Center
 
         local cBtn, cfBtn
+
         if cancelText ~= "" then
-            cBtn = Instance.new("TextButton", frame); cBtn.Size = UDim2.new(0.46, -6, 0, 40); cBtn.Position = UDim2.new(0, 15, 1, -52); cBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 33); cBtn.Font = Enum.Font.GothamBold; cBtn.Text = cancelText; cBtn.TextColor3 = Color3.fromRGB(200, 200, 215); cBtn.TextSize = 13; Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 9)
-            cfBtn = Instance.new("TextButton", frame); cfBtn.Size = UDim2.new(0.46, -6, 0, 40); cfBtn.Position = UDim2.new(0.54, -1, 1, -52); cfBtn.BackgroundColor3 = THEME_PURPLE; cfBtn.Font = Enum.Font.GothamBold; cfBtn.Text = countdownSeconds and string.format("%s (%d)", confirmText or "Proceed", countdownSeconds) or (confirmText or "Confirm"); cfBtn.TextColor3 = Color3.fromRGB(255, 255, 255); cfBtn.TextSize = 13; Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 9)
+            cBtn = Instance.new("TextButton", frame)
+            cBtn.Size             = UDim2.new(0.46, -6, 0, 40)
+            cBtn.Position         = UDim2.new(0, 15, 1, -52)
+            cBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 33)
+            cBtn.Font             = Enum.Font.GothamBold
+            cBtn.Text             = cancelText
+            cBtn.TextColor3       = Color3.fromRGB(200, 200, 215)
+            cBtn.TextSize         = 13
+            Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 9)
+
+            cfBtn = Instance.new("TextButton", frame)
+            cfBtn.Size            = UDim2.new(0.46, -6, 0, 40)
+            cfBtn.Position        = UDim2.new(0.54, -1, 1, -52)
+            cfBtn.BackgroundColor3 = THEME_PURPLE
+            cfBtn.Font            = Enum.Font.GothamBold
+            cfBtn.Text            = countdownSeconds
+                and string.format("%s (%d)", confirmText or "Proceed", countdownSeconds)
+                or  (confirmText or "Confirm")
+            cfBtn.TextColor3      = Color3.fromRGB(255, 255, 255)
+            cfBtn.TextSize        = 13
+            Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 9)
         else
-            cfBtn = Instance.new("TextButton", frame); cfBtn.Size = UDim2.new(1, -30, 0, 40); cfBtn.Position = UDim2.new(0, 15, 1, -52); cfBtn.BackgroundColor3 = THEME_PURPLE; cfBtn.Font = Enum.Font.GothamBold; cfBtn.Text = confirmText or "OK"; cfBtn.TextColor3 = Color3.fromRGB(255, 255, 255); cfBtn.TextSize = 13; Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 9)
+            cfBtn = Instance.new("TextButton", frame)
+            cfBtn.Size            = UDim2.new(1, -30, 0, 40)
+            cfBtn.Position        = UDim2.new(0, 15, 1, -52)
+            cfBtn.BackgroundColor3 = THEME_PURPLE
+            cfBtn.Font            = Enum.Font.GothamBold
+            cfBtn.Text            = confirmText or "OK"
+            cfBtn.TextColor3      = Color3.fromRGB(255, 255, 255)
+            cfBtn.TextSize        = 13
+            Instance.new("UICorner", cfBtn).CornerRadius = UDim.new(0, 9)
         end
 
         local activeCountdown = true
-        local isClosingModal = false
-        local popupConns = {}
-        local function trackPopupConn(conn)
-            if conn then table.insert(popupConns, conn) end
-            return conn
-        end
+        local closing         = false
 
-        local function closeModalAndRun(callback)
-            if isClosingModal then return end
-            isClosingModal = true
+        local function close(cb)
+            if closing then return end
+            closing         = true
             activeCountdown = false
             pcall(function()
-                for _, conn in ipairs(popupConns) do
-                    if conn then pcall(function() conn:Disconnect() end) end
-                end
-                table.clear(popupConns)
-                warnGui:Destroy()
-                if mainRef then mainRef.Visible = wasMainVisible end
-                if callback then callback() end
+                wGui:Destroy()
+                if mainRef and not getgenv().XvlamerHub_Cancelled then mainRef.Visible = wasVisible end
+                if cb and not getgenv().XvlamerHub_Cancelled then cb() end
             end)
         end
 
-        if cBtn then onDebouncedClick(cBtn, function() closeModalAndRun(onCancel) end, 0.2) end
-        onDebouncedClick(cfBtn, function() closeModalAndRun(onConfirm) end, 0.2)
+        if cBtn then
+            onDebouncedClick(cBtn, function() close(onCancel) end, 0.2)
+        end
+        onDebouncedClick(cfBtn, function() close(onConfirm) end, 0.2)
 
         if countdownSeconds and countdownSeconds > 0 then
             task.spawn(function()
                 for i = countdownSeconds - 1, 0, -1 do
                     task.wait(1)
-                    if not activeCountdown or not warnGui.Parent then break end
+                    if getgenv().XvlamerHub_Cancelled or not activeCountdown or not wGui.Parent then break end
                     cfBtn.Text = string.format("%s (%d)", confirmText or "Proceed", i)
                 end
-                if activeCountdown and warnGui.Parent then
-                    closeModalAndRun(onConfirm)
+                if not getgenv().XvlamerHub_Cancelled and activeCountdown and wGui.Parent then
+                    close(onConfirm)
                 end
             end)
         end
@@ -756,748 +640,695 @@ local function showPopupModal(modalName, titleText, messageText, cancelText, con
 end
 
 local function initializeMainHub()
-    local mGui = nil
-    local setMainGuiVisible = function(visible) end
+    if getgenv().XvlamerHub_Cancelled then return end
 
-    local sg = create("ScreenGui", {Name=guiName, ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=99999, IgnoreGuiInset=true, Parent=safeUI})
+    queueTeleportLoad()
+
+    local setMainGuiVisible = function(_) end
+
+    local sg = create("ScreenGui", {
+        Name            = guiName,
+        ResetOnSpawn    = false,
+        ZIndexBehavior  = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder    = 99999,
+        IgnoreGuiInset  = true,
+        Parent          = safeUI,
+    })
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(sg) end end)
 
-    local targetWidth = isMobile and 260 or 320
-    local targetHeight = isMobile and 205 or 210
+    local W = isMobile and 260 or 320
+    local H = isMobile and 205 or 210
 
     local main = create("Frame", {
-        Size=UDim2.new(0, targetWidth, 0, targetHeight), 
-        Position=UDim2.new(0.5, 0, 0.5, 0), 
-        AnchorPoint=Vector2.new(0.5, 0.5), 
-        BackgroundColor3=Color3.fromRGB(11, 11, 15), 
-        BorderSizePixel=0, 
-        BackgroundTransparency=0, 
-        ClipsDescendants=true,
-        Visible=true, 
-        Parent=sg
+        Size               = UDim2.new(0, W, 0, H),
+        Position           = UDim2.new(0.5, 0, 0.5, 0),
+        AnchorPoint        = Vector2.new(0.5, 0.5),
+        BackgroundColor3   = Color3.fromRGB(11, 11, 15),
+        BorderSizePixel    = 0,
+        ClipsDescendants   = true,
+        Visible            = true,
+        Parent             = sg,
     })
     mainRef = main
-    create("UICorner", {CornerRadius=UDim.new(0,14), Parent=main})
-    create("UIStroke", {Color=THEME_PURPLE, Thickness=1.5, Transparency=0, Parent=main})
-
+    create("UICorner", { CornerRadius = UDim.new(0, 14), Parent = main })
+    create("UIStroke",  { Color = THEME_PURPLE, Thickness = 1.5, Transparency = 0, Parent = main })
     makeUniversalDraggable(main)
 
-    setMainGuiVisible = function(visible) 
-        pcall(function() 
+    setMainGuiVisible = function(visible)
+        pcall(function()
+            if getgenv().XvlamerHub_Cancelled then return end
             if visible and isModalOpen() then return end
             main.Visible = visible
-        end) 
+        end)
     end
 
-    trackConnection(UIS.InputBegan:Connect(function(input) 
-        if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then 
-            if not isModalOpen() then 
-                setMainGuiVisible(not main.Visible) 
+    trackConnection(UIS.InputBegan:Connect(function(input)
+        if getgenv().XvlamerHub_Cancelled then return end
+        if input.KeyCode == Enum.KeyCode.LeftAlt
+            or input.KeyCode == Enum.KeyCode.RightAlt then
+            if not isModalOpen() then
+                setMainGuiVisible(not main.Visible)
             end
-        end 
+        end
     end))
 
     if isMobile then
-        mGui = create("ScreenGui", {Name="XvlamersMobileToggle", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=1000000, Parent=safeUI})
+        local mGui = create("ScreenGui", {
+            Name           = "XvlamersMobileToggle",
+            ResetOnSpawn   = false,
+            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+            DisplayOrder   = 1000000,
+            Parent         = safeUI,
+        })
         pcall(function() if syn and syn.protect_gui then syn.protect_gui(mGui) end end)
 
-        local mBtn = create("TextButton", {Size=UDim2.new(0,44,0,44), Position=UDim2.new(0.5,-22,0,5), BackgroundColor3=Color3.fromRGB(13,13,17), Text="XV", TextColor3=Color3.fromRGB(255,255,255), Font=Enum.Font.GothamBold, TextSize=14, Parent=mGui})
-        create("UICorner", {CornerRadius=UDim.new(1,0), Parent=mBtn})
-        create("UIStroke", {Color=THEME_PURPLE, Transparency=0.2, Thickness=2, Parent=mBtn})
-
-        trackConnection(mBtn.MouseEnter:Connect(function() pcall(function() TS:Create(mBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(24, 24, 32)}):Play() end) end))
-        trackConnection(mBtn.MouseLeave:Connect(function() pcall(function() TS:Create(mBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(13, 13, 17)}):Play() end) end))
+        local mBtn = create("TextButton", {
+            Size             = UDim2.new(0, 44, 0, 44),
+            Position         = UDim2.new(0.5, -22, 0, 8),
+            BackgroundColor3 = Color3.fromRGB(13, 13, 17),
+            Text             = "XV",
+            TextColor3       = Color3.fromRGB(255, 255, 255),
+            Font             = Enum.Font.GothamBold,
+            TextSize         = 14,
+            Parent           = mGui,
+        })
+        create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = mBtn })
+        create("UIStroke",  { Color = THEME_PURPLE, Transparency = 0.2, Thickness = 2, Parent = mBtn })
 
         local mDragging, mDragInput, mDragStart, mStartPos, hasDragged
         trackConnection(mBtn.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                mDragging = true; hasDragged = false; mDragStart = input.Position; mStartPos = mBtn.Position
-                local endConn; endConn = input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then mDragging = false; if endConn then pcall(function() endConn:Disconnect() end) end end end)
-                trackConnection(endConn)
+            if getgenv().XvlamerHub_Cancelled then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                mDragging  = true
+                hasDragged = false
+                mDragStart = input.Position
+                mStartPos  = mBtn.Position
+                local ec
+                ec = input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        mDragging = false
+                        pcall(function() ec:Disconnect() end)
+                    end
+                end)
+                trackConnection(ec)
             end
         end))
-        trackConnection(UIS.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then mDragInput = input end end))
-        trackConnection(UIS.InputChanged:Connect(function(input) 
-            if input == mDragInput and mDragging then 
-                local delta = input.Position - mDragStart
-                if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then hasDragged = true end
-                mBtn.Position = UDim2.new(mStartPos.X.Scale, mStartPos.X.Offset + delta.X, mStartPos.Y.Scale, mStartPos.Y.Offset + delta.Y) 
-            end 
+        trackConnection(UIS.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch then
+                mDragInput = input
+            end
         end))
-
-        onDebouncedClick(mBtn, function() 
+        trackConnection(UIS.InputChanged:Connect(function(input)
+            if input == mDragInput and mDragging and not getgenv().XvlamerHub_Cancelled then
+                local d = input.Position - mDragStart
+                if math.abs(d.X) > 5 or math.abs(d.Y) > 5 then hasDragged = true end
+                mBtn.Position = UDim2.new(
+                    mStartPos.X.Scale, mStartPos.X.Offset + d.X,
+                    mStartPos.Y.Scale, mStartPos.Y.Offset + d.Y
+                )
+            end
+        end))
+        onDebouncedClick(mBtn, function()
             if hasDragged then return end
-            setMainGuiVisible(not main.Visible) 
+            setMainGuiVisible(not main.Visible)
         end, 0.2)
     end
 
-    local top = create("Frame", {Size=UDim2.new(1,0,0,38), BackgroundColor3=Color3.fromRGB(16, 16, 22), BorderSizePixel=0, Parent=main})
-    create("UICorner", {CornerRadius=UDim.new(0,14), Parent=top})
-    create("TextLabel", {Size=UDim2.new(1,-80,1,0), Position=UDim2.new(0,12,0,0), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="Xvlamer's Hub", TextColor3=Color3.fromRGB(255,255,255), TextSize=12, TextXAlignment=Enum.TextXAlignment.Left, Parent=top})
-    
-    local minBtn = create("TextButton", {Size=UDim2.new(0,24,0,24), Position=UDim2.new(1,-62,0.5,-12), BackgroundColor3=Color3.fromRGB(25, 25, 33), Font=Enum.Font.GothamBold, Text="-", TextColor3=Color3.fromRGB(255,255,255), TextSize=12, Parent=top}); create("UICorner", {CornerRadius=UDim.new(0,7), Parent=minBtn})
-    local closeBtn = create("TextButton", {Size=UDim2.new(0,24,0,24), Position=UDim2.new(1,-32,0.5,-12), BackgroundColor3=THEME_PURPLE, Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(255,255,255), TextSize=10, Parent=top}); create("UICorner", {CornerRadius=UDim.new(0,7), Parent=closeBtn})
+    local top = create("Frame", {
+        Size             = UDim2.new(1, 0, 0, 38),
+        BackgroundColor3 = Color3.fromRGB(16, 16, 22),
+        BorderSizePixel  = 0,
+        Parent           = main,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 14), Parent = top })
+    create("TextLabel", {
+        Size = UDim2.new(1, -80, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        Text = "Xvlamer's Hub", TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = top,
+    })
 
-    local tabRow = create("Frame", {Size=UDim2.new(1,-16,0,30), Position=UDim2.new(0,8,0,44), BackgroundColor3=Color3.fromRGB(15, 15, 21), BorderSizePixel=0, Parent=main})
-    create("UICorner", {CornerRadius=UDim.new(0,8), Parent=tabRow})
+    local minBtn = create("TextButton", {
+        Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -62, 0.5, -12),
+        BackgroundColor3 = Color3.fromRGB(25, 25, 33),
+        Font = Enum.Font.GothamBold, Text = "-",
+        TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 12, Parent = top,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = minBtn })
 
-    local tabContent = create("Frame", {Size=UDim2.new(1,0,1,-80), Position=UDim2.new(0,0,0,80), BackgroundTransparency=1, Parent=main})
+    local closeBtn = create("TextButton", {
+        Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -32, 0.5, -12),
+        BackgroundColor3 = THEME_PURPLE,
+        Font = Enum.Font.GothamBold, Text = "✕",
+        TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 10, Parent = top,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = closeBtn })
+
+    local tabRow = create("Frame", {
+        Size = UDim2.new(1, -16, 0, 30), Position = UDim2.new(0, 8, 0, 44),
+        BackgroundColor3 = Color3.fromRGB(15, 15, 21), BorderSizePixel = 0, Parent = main,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = tabRow })
+
+    local tabContent = create("Frame", {
+        Size = UDim2.new(1, 0, 1, -80), Position = UDim2.new(0, 0, 0, 80),
+        BackgroundTransparency = 1, Parent = main,
+    })
 
     local tabs, pages = {}, {}
-    local function addTab(name, id, useScrolling)
-        local btn = create("TextButton", {Size=UDim2.new(0.333,0,1,0), Position=UDim2.new((id-1)*0.333,0,0,0), BackgroundTransparency=1, AutoButtonColor=false, Font=Enum.Font.GothamBold, Text=name, TextColor3=Color3.fromRGB(150, 150, 170), TextSize=11, Parent=tabRow})
+
+    local function addTab(name, id, scroll)
+        local btn = create("TextButton", {
+            Size = UDim2.new(0.333, 0, 1, 0),
+            Position = UDim2.new((id - 1) * 0.333, 0, 0, 0),
+            BackgroundTransparency = 1, AutoButtonColor = false,
+            Font = Enum.Font.GothamBold, Text = name,
+            TextColor3 = Color3.fromRGB(150, 150, 170), TextSize = 11, Parent = tabRow,
+        })
 
         local page
-        if useScrolling == false then
-            page = create("Frame", {Size=UDim2.new(1,-20,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Visible=false, Parent=tabContent})
-            create("UIListLayout", {Padding=UDim.new(0,4), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
-            create("UIPadding", {PaddingTop = UDim.new(0,2), PaddingBottom = UDim.new(0,2), Parent=page})
+        if scroll == false then
+            page = create("Frame", {
+                Size = UDim2.new(1, -20, 1, -8), Position = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1, Visible = false, Parent = tabContent,
+            })
         else
-            page = create("ScrollingFrame", {Size=UDim2.new(1,-20,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, ScrollBarThickness=2, ScrollBarImageColor3=Color3.fromRGB(70, 70, 95), Visible=false, Parent=tabContent})
-            create("UIListLayout", {Padding=UDim.new(0,4), SortOrder=Enum.SortOrder.LayoutOrder, Parent=page})
-            create("UIPadding", {PaddingTop = UDim.new(0,2), PaddingBottom = UDim.new(0,2), Parent=page})
+            page = create("ScrollingFrame", {
+                Size = UDim2.new(1, -20, 1, -8), Position = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1, CanvasSize = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollBarThickness = 2,
+                ScrollBarImageColor3 = Color3.fromRGB(70, 70, 95),
+                Visible = false, Parent = tabContent,
+            })
         end
-        tabs[id] = btn; pages[id] = page
-        
-        local function selectTab()
-            pcall(function()
-                for i, t in ipairs(tabs) do 
-                    local active = (i == id)
-                    TS:Create(t, TweenInfo.new(0.15), { TextColor3 = active and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 170) }):Play()
-                end
-                for i, p in ipairs(pages) do p.Visible = (i==id) end 
-            end)
-        end
-        onDebouncedClick(btn, selectTab, 0.2)
-    end
-    addTab("Info", 1, true); addTab("AutoFarm", 2, false); addTab("Player", 3, true)
-    pages[3].Size = UDim2.new(1, -20, 1, -8)
-    tabs[1].TextColor3 = Color3.fromRGB(255,255,255)
-    pages[1].Visible = true
 
-    create("TextLabel", {Size=UDim2.new(1,0,0,110), BackgroundTransparency=1, TextWrapped=true, Font=Enum.Font.Gotham, Text="Welcome to Xvlamer's Hub.\n\nThis control panel operates local automation routines safely and efficiently.\n\n• Navigate to AutoFarm to execute tasks.\n• Adjust player parameters under the Player tab.\n• Use LeftAlt or RightAlt (or the mobile toggle button) to open or hide this menu.", TextColor3=Color3.fromRGB(180, 180, 195), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, TextYAlignment=Enum.TextYAlignment.Top, Parent=pages[1]})
+        create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = page })
+        create("UIPadding",    { PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 2), Parent = page })
+
+        tabs[id]  = btn
+        pages[id] = page
+
+        onDebouncedClick(btn, function()
+            for i, t in ipairs(tabs) do
+                TS:Create(t, TweenInfo.new(0.15), {
+                    TextColor3 = i == id
+                        and Color3.fromRGB(255, 255, 255)
+                        or  Color3.fromRGB(150, 150, 170)
+                }):Play()
+            end
+            for i, p in ipairs(pages) do p.Visible = (i == id) end
+        end, 0.2)
+    end
+
+    addTab("Info",     1, false)
+    addTab("AutoFarm", 2, false)
+    addTab("Player",   3, true)
+
+    pages[3].Size      = UDim2.new(1, -20, 1, -8)
+    tabs[1].TextColor3 = Color3.fromRGB(255, 255, 255)
+    pages[1].Visible   = true
+
+    local infoCard = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 92),
+        BackgroundColor3 = Color3.fromRGB(18, 18, 24),
+        BorderSizePixel = 0, LayoutOrder = 1, Parent = pages[1],
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = infoCard })
+    create("UIStroke",  { Color = Color3.fromRGB(45, 45, 60), Transparency = 0.2, Thickness = 1, Parent = infoCard })
+    create("TextLabel", {
+        Size = UDim2.new(1, -16, 1, -10), Position = UDim2.new(0, 8, 0, 5),
+        BackgroundTransparency = 1, TextWrapped = true,
+        Font = Enum.Font.GothamBold,
+        Text = "• Use AutoFarm to execute tasks safely.\n• Adjust player parameters under the Player tab.\n• Press LeftAlt / RightAlt (or the mobile button) to toggle menu visibility.",
+        TextColor3 = Color3.fromRGB(210, 210, 225), TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center,
+        Parent = infoCard,
+    })
+
+    local floorStatusLbl = create("TextLabel", {
+        Size = UDim2.new(0, 150, 0, 20), Position = UDim2.new(0, 2, 1, -20),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        Text = "Floor: Checking...", TextColor3 = Color3.fromRGB(210, 210, 225),
+        TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, Parent = pages[1],
+    })
+
+    task.spawn(function()
+        while task.wait(0.5) do
+            if getgenv().XvlamerHub_Cancelled or not floorStatusLbl or not floorStatusLbl.Parent then break end
+            floorStatusLbl.Text = "Floor: " .. getCurrentFloor()
+        end
+    end)
 
     local isMin = false
-    local function toggleMinimize()
-        pcall(function()
-            isMin = not isMin; 
-            tabRow.Visible = not isMin; 
-            tabContent.Visible = not isMin; 
-            TS:Create(main, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Size = isMin and UDim2.new(0,targetWidth,0,38) or UDim2.new(0,targetWidth,0,targetHeight)}):Play()
-            minBtn.Text = isMin and "+" or "-" 
-        end)
-    end
-    onDebouncedClick(minBtn, toggleMinimize, 0.2)
+    onDebouncedClick(minBtn, function()
+        isMin = not isMin
+        tabRow.Visible     = not isMin
+        tabContent.Visible = not isMin
+        TS:Create(main, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {
+            Size = isMin and UDim2.new(0, W, 0, 38) or UDim2.new(0, W, 0, H)
+        }):Play()
+        minBtn.Text = isMin and "+" or "-"
+    end, 0.2)
 
-    local function stopThread(key)
-        pcall(function()
-            if key == "Knob Farm" then getgenv().XvlamerStop_KnobFarm = true
-            elseif key == "Death Farm" then getgenv().XvlamerStop_DeathFarm = true
-            elseif key == "Stardust Farm" then 
-                getgenv().XvlamerStop_StardustFarm = true
-                if mainRef then mainRef.Visible = true end
-            elseif key == "Noclip" then 
-                getgenv().XvlamerStop_Noclip = true
-                NoclipModule.Toggle(false)
-            elseif key == "Noclip SPAM" then
-                getgenv().XvlamerStop_NoclipSpam = true
-                NoclipModule.ToggleSpam(false)
-            end
-            
-            if activeThreads[key] then
-                pcall(function() task.cancel(activeThreads[key]) end)
-                activeThreads[key] = nil
-            end
-        end)
-    end
-
-    local function handleExitClick()
+    onDebouncedClick(closeBtn, function()
         showPopupModal(
-            "XvlamersExitWarning",
-            "⚠️ EXIT",
+            "XvlamersExitWarning", "⚠️ EXIT",
             "Close Hub and stop all active automations?",
-            "Cancel",
-            "Exit",
+            "Cancel", "Exit",
             function() end,
-            function() pcall(function() purge() end) end
+            function() pcall(purge) end
         )
-    end
-    onDebouncedClick(closeBtn, handleExitClick, 0.2)
+    end, 0.2)
 
-    local function runThread(key)
-        stopThread(key)
-        if key == "Knob Farm" then
-            if not isInLobby() then
-                getgenv().XvlamerStop_KnobFarm = false
-                activeThreads[key] = task.spawn(function()
-                    loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Knobs")
-                end)
-            end
-        elseif key == "Death Farm" then
-            getgenv().XvlamerStop_DeathFarm = false
-            activeThreads[key] = task.spawn(function()
-                loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Deaths")
-            end)
-        elseif key == "Stardust Farm" then
-            getgenv().XvlamerStop_StardustFarm = false
-            activeThreads[key] = task.spawn(function()
-                local wasMainVisible = mainRef and mainRef.Visible or false
-                if mainRef then mainRef.Visible = false end
+    local noclipRadioGroup = {}
 
-                local function restoreGui()
-                    if mainRef then mainRef.Visible = wasMainVisible end
-                end
+    local function createToggle(name, parentPage, isRadio, isNoclipRadio, order)
+        local box = create("TextButton", {
+            Size = UDim2.new(1, 0, 0, 36),
+            BackgroundColor3 = Color3.fromRGB(18, 18, 24),
+            Text = "", AutoButtonColor = false, Active = true,
+            LayoutOrder = order, Parent = parentPage,
+        })
+        create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = box })
+        create("UIStroke",  { Color = Color3.fromRGB(45, 45, 60), Transparency = 0.2, Thickness = 1, Parent = box })
+        create("TextLabel", {
+            Size = UDim2.new(1, -70, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+            BackgroundTransparency = 1, Active = false,
+            Font = Enum.Font.GothamBold, Text = name,
+            TextColor3 = Color3.fromRGB(245, 245, 255), TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = box,
+        })
 
-                local function clickBtn(btn)
-                    if not btn then return end
-                    
-                    if isMobile then
-                        pcall(function()
-                            local evts = {"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "TouchTap"}
-                            for _, ev in ipairs(evts) do
-                                if firesignal then pcall(function() firesignal(btn[ev]) end) end
-                                if getconnections then
-                                    pcall(function()
-                                        for _, c in ipairs(getconnections(btn[ev])) do c:Fire() end
-                                    end)
-                                end
-                            end
-                        end)
-                        
-                        pcall(function() 
-                            if typeof(btn.Activate) == "function" then btn:Activate() end 
-                        end)
-                        
-                        pcall(function()
-                            local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
-                            local x, y = pos.X, pos.Y
-                            local yInset = y + 36 
-                            
-                            if VIM then
-                                VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-                                task.wait(0.01)
-                                VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-                                
-                                VIM:SendMouseButtonEvent(x, yInset, 0, true, game, 1)
-                                task.wait(0.01)
-                                VIM:SendMouseButtonEvent(x, yInset, 0, false, game, 1)
+        local tBg = create("Frame", {
+            Size = UDim2.new(0, 34, 0, 18), Position = UDim2.new(1, -46, 0.5, -9),
+            BackgroundColor3 = Color3.fromRGB(35, 35, 46), Active = false, Parent = box,
+        })
+        create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = tBg })
 
-                                if typeof(VIM.SendTouchEvent) == "function" then
-                                    VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, y))
-                                    task.wait(0.01)
-                                    VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, y))
-                                    
-                                    VIM:SendTouchEvent(0, Enum.UserInputState.Begin, Vector2.new(x, yInset))
-                                    task.wait(0.01)
-                                    VIM:SendTouchEvent(0, Enum.UserInputState.End, Vector2.new(x, yInset))
-                                end
-                            end
-                        end)
-                    else
-                        pcall(function()
-                            if firesignal then
-                                pcall(function() firesignal(btn.MouseButton1Click) end)
-                                pcall(function() firesignal(btn.Activated) end)
-                            end
-                            if getconnections then
-                                pcall(function()
-                                    for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
-                                    for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
-                                end)
-                            end
-                        end)
-                        
-                        pcall(function()
-                            if typeof(btn.Activate) == "function" then
-                                btn:Activate()
-                            end
-                        end)
-                    end
-                end
+        local tCirc = create("Frame", {
+            Size = UDim2.new(0, 14, 0, 14), Position = UDim2.new(0, 2, 0.5, -7),
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+            BorderSizePixel = 0, Active = false, Parent = tBg,
+        })
+        create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = tCirc })
 
-                local function getBtn(pathFn, fallbackName)
-                    local found = nil
-                    pcall(function() found = pathFn() end)
-                    if not found and fallbackName then
-                        pcall(function()
-                            for _, desc in ipairs(P.PlayerGui.MainUI.LobbyFrame:GetDescendants()) do
-                                if desc.Name == fallbackName then found = desc; break end
-                            end
-                        end)
-                    end
-                    return found
-                end
+        local on = state.ToggleState[name] == true
 
-                local function isCreateElevatorVisible()
-                    local res = false
-                    pcall(function()
-                        res = P.PlayerGui.MainUI.LobbyFrame.CreateElevator.Visible
-                    end)
-                    return res
-                end
-
-                while not getgenv().XvlamerStop_StardustFarm and not isCreateElevatorVisible() do
-                    local playBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.BottomButtons.MainPlayButton end, "MainPlayButton")
-                    if playBtn then clickBtn(playBtn) end
-                    
-                    local waited = 0
-                    while waited < 1.5 and not isCreateElevatorVisible() and not getgenv().XvlamerStop_StardustFarm do
-                        task.wait(0.1)
-                        waited = waited + 0.1
-                    end
-                end
-
-                if getgenv().XvlamerStop_StardustFarm then
-                    restoreGui()
-                    return
-                end
-
-                while not getgenv().XvlamerStop_StardustFarm and isCreateElevatorVisible() do
-                    local roomsBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.SidePanel.Frames.Floors.List.Rooms end, "Rooms")
-                    if roomsBtn then clickBtn(roomsBtn) end
-                    task.wait(0.2)
-                    
-                    local confirmBtn = getBtn(function() return P.PlayerGui.MainUI.LobbyFrame.CreateElevator.List.Confirm end, "Confirm")
-                    if confirmBtn then clickBtn(confirmBtn) end
-                    
-                    local waited = 0
-                    while waited < 2.0 and isCreateElevatorVisible() and not getgenv().XvlamerStop_StardustFarm do
-                        task.wait(0.1)
-                        waited = waited + 0.1
-                    end
-                end
-
-                if getgenv().XvlamerStop_StardustFarm then
-                    restoreGui()
-                    return
-                end
-
-                restoreGui()
-                loadAndRunUrl("https://raw.githubusercontent.com/Xvlamer/Doors/refs/heads/main/Autofarm%20Stardust")
-            end)
-        elseif key == "Noclip" then
-            getgenv().XvlamerStop_Noclip = false
-            activeThreads[key] = task.spawn(function()
-                NoclipModule.Toggle(true)
-            end)
-        elseif key == "Noclip SPAM" then
-            getgenv().XvlamerStop_NoclipSpam = false
-            activeThreads[key] = task.spawn(function()
-                NoclipModule.ToggleSpam(true)
-            end)
-        end
-    end
-
-    local function createToggle(name, parentPage, isRadio, stateKey, order, customHeight)
-        local toggleHeight = customHeight or 36
-        local box = create("TextButton", {Size=UDim2.new(1,0,0,toggleHeight), BackgroundColor3=Color3.fromRGB(18, 18, 24), Text="", AutoButtonColor=false, Active=true, LayoutOrder=order, Parent=parentPage})
-        create("UICorner", {CornerRadius=UDim.new(0,9), Parent=box}); create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=box})
-        
-        create("TextLabel", {Size=UDim2.new(1,-70,1,0), Position=UDim2.new(0,12,0,0), BackgroundTransparency=1, Active=false, Font=Enum.Font.GothamBold, Text=name, TextColor3=Color3.fromRGB(245, 245, 255), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, Parent=box})
-        
-        local tBg = create("Frame", {Size=UDim2.new(0,34,0,18), Position=UDim2.new(1,-46,0.5,-9), BackgroundColor3=Color3.fromRGB(35, 35, 46), Active=false, Parent=box})
-        create("UICorner", {CornerRadius=UDim.new(1,0), Parent=tBg})
-        local tCirc = create("Frame", {Size=UDim2.new(0,14,0,14), Position=UDim2.new(0,2,0.5,-7), BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0, Active=false, Parent=tBg})
-        create("UICorner", {CornerRadius=UDim.new(1,0), Parent=tCirc})
-        
-        local on = false
-        local function setVisual(onState)
+        local function setVisual(v)
+            if getgenv().XvlamerHub_Cancelled then return end
             pcall(function()
-                TS:Create(tBg, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = onState and THEME_PURPLE or Color3.fromRGB(35, 35, 46)}):Play()
-                TS:Create(tCirc, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = onState and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7)}):Play()
+                TS:Create(tBg, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    BackgroundColor3 = v and THEME_PURPLE or Color3.fromRGB(35, 35, 46)
+                }):Play()
+                TS:Create(tCirc, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Position = v and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+                }):Play()
             end)
         end
 
-        local toggleObj = {
-            name = name, 
-            set = setVisual, 
-            get = function() return on end, 
-            setOff = function(v) 
-                on = v
-                setVisual(v)
-                if isRadio then
-                    if state.ActiveFarm == name then
-                        state.ActiveFarm = nil
-                        pcall(saveState)
-                    end
-                elseif stateKey then
-                    if state[stateKey] then
-                        state[stateKey] = false
-                        pcall(saveState)
-                    end
-                end
-                if name == "Noclip" or name == "Noclip SPAM" then
-                    NoclipModule.Disable()
-                elseif not isRadio and not stateKey then
-                    stopThread(name)
-                end
-            end
+        setVisual(on)
+
+        local obj = {
+            name   = name,
+            get    = function() return on end,
+            setOff = function()
+                on = false
+                setVisual(false)
+                setToggleSaved(name, false)
+                cancelFarm(name)
+            end,
         }
-        if isRadio then table.insert(radioToggles, toggleObj) end
 
-        local function updateState(newState, skipWarning)
-            on = newState
-            setVisual(on)
-            
-            if isRadio then
-                if on then
-                    if name == "Knob Farm" and not skipWarning then
-                        if isInLobby() then
-                            setVisual(false)
-                            on = false
-                            if state.ActiveFarm == name then
-                                state.ActiveFarm = nil
-                                pcall(saveState)
-                            end
-                            showPopupModal(
-                                "XvlamersModifiersPrompt",
-                                "⚠️ 150% MODIFIERS",
-                                "Use 150% Modifiers in the mines and collect the most gold for maximum Knobs.",
-                                "",
-                                "Proceed",
-                                function() end,
-                                function()
-                                    setVisual(false)
-                                    on = false
-                                    if state.ActiveFarm == name then
-                                        state.ActiveFarm = nil
-                                        pcall(saveState)
-                                    end
-                                end
-                            )
-                            return
-                        else
-                            local currentFloor = getFloor()
-                            if currentFloor ~= "Hotel" and currentFloor ~= "Mines" then
-                                setVisual(false)
-                                on = false
-                                if state.ActiveFarm == name then
-                                    state.ActiveFarm = nil
-                                    pcall(saveState)
-                                end
-                                showPopupModal(
-                                    "XvlamersKnobFloorWarning",
-                                    "⚠️ WRONG LOCATION",
-                                    "Knob Farm must be run in either the Mines or Hotel. We recommend 150% modifiers in the Mines.",
-                                    "",
-                                    "Proceed",
-                                    function() end,
-                                    function() end
-                                )
-                                return
-                            elseif getGoldValue() <= 0 then
-                                setVisual(false)
-                                on = false
-                                if state.ActiveFarm == name then
-                                    state.ActiveFarm = nil
-                                    pcall(saveState)
-                                end
-                                showPopupModal(
-                                    "XvlamersZeroGoldWarning",
-                                    "⚠️ 0 GOLD",
-                                    "You have 0 gold collect more to start.",
-                                    "",
-                                    "Proceed",
-                                    function() end,
-                                    function()
-                                        setVisual(false)
-                                        on = false
-                                        if state.ActiveFarm == name then
-                                            state.ActiveFarm = nil
-                                            pcall(saveState)
-                                        end
-                                    end
-                                )
-                                return
-                            else
-                                for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                                state.ActiveFarm = name
-                                pcall(saveState)
-                                runThread(name)
-                            end
-                        end
-                    elseif name == "Death Farm" and not skipWarning then
-                        setVisual(false)
-                        on = false
-                        showPopupModal(
-                            "XvlamersDeathFarmWarning",
-                            "⚠️ DEATH FARM",
-                            "Death farm uses advanced techniques for the most precision and speed and you must re open Roblox to completely stop it.",
-                            "Cancel",
-                            "Proceed",
-                            function()
-                                setVisual(false)
-                                on = false
-                                if state.ActiveFarm == name then
-                                    state.ActiveFarm = nil
-                                    pcall(saveState)
-                                end
-                            end,
-                            function()
-                                for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                                setVisual(true)
-                                on = true
-                                state.ActiveFarm = name
-                                pcall(saveState)
-                                runThread(name)
-                            end
-                        )
-                    elseif name == "Stardust Farm" and not skipWarning then
-                        setVisual(false)
-                        on = false
-                        
-                        if not isInLobby() then
-                            local currentFloor = getFloor()
-                            if currentFloor ~= "Rooms" then
-                                if state.ActiveFarm == name then
-                                    state.ActiveFarm = nil
-                                    pcall(saveState)
-                                end
-                                showPopupModal(
-                                    "XvlamersStardustFloorWarning",
-                                    "⚠️ WRONG LOCATION",
-                                    "You must run Stardust Farm inside of the Rooms.",
-                                    "",
-                                    "Proceed",
-                                    function() end,
-                                    function() end
-                                )
-                                return
-                            end
-                        end
+        if isRadio       then table.insert(radioToggles,     obj) end
+        if isNoclipRadio then table.insert(noclipRadioGroup, obj) end
+        toggleHandlers[name] = obj
 
-                        showPopupModal(
-                            "XvlamersStardustFarmWarning",
-                            "⚠️ STARDUST FARM",
-                            "Would you like to start the Stardust Farm? Do not touch your device while it is in action.",
-                            "Cancel",
-                            "Proceed",
-                            function()
-                                setVisual(false)
-                                on = false
-                                if state.ActiveFarm == name then
-                                    state.ActiveFarm = nil
-                                    pcall(saveState)
-                                end
-                            end,
-                            function()
-                                for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                                setVisual(true)
-                                on = true
-                                state.ActiveFarm = name
-                                pcall(saveState)
-                                runThread(name)
-                            end
-                        )
-                    else
-                        for _, r in ipairs(radioToggles) do if r.name ~= name and r.get() then r.setOff(false) end end
-                        if name ~= "Knob Farm" then
-                            state.ActiveFarm = name
-                            pcall(saveState)
-                        end
-                        runThread(name)
-                    end
-                else
-                    if state.ActiveFarm == name then state.ActiveFarm = nil; pcall(saveState) end
-                    stopThread(name)
-                end
-            else
-                if stateKey then state[stateKey] = on; pcall(saveState) end
-                if stateKey == "Optimizations" then Optimizer.Toggle(on)
-                elseif stateKey == "AntiAFK" then setAntiAFK(on)
-                elseif stateKey == "UnlockFps" then setUnlockFPS(on)
-                elseif name == "Noclip" then
-                    if on then
-                        local spamToggle = toggleHandlers["Noclip SPAM"]
-                        if spamToggle and spamToggle.get() then
-                            spamToggle.setOff(false)
-                        end
-                        NoclipModule.Toggle(true)
-                    else
-                        NoclipModule.Disable()
-                    end
-                elseif name == "Noclip SPAM" then
-                    if on then
-                        local noclipToggle = toggleHandlers["Noclip"]
-                        if noclipToggle and noclipToggle.get() then
-                            noclipToggle.setOff(false)
-                        end
-                        NoclipModule.ToggleSpam(true)
-                    else
-                        NoclipModule.Disable()
-                    end
-                else 
-                    if on then runThread(name) else stopThread(name) end 
-                end
-            end
+        local function turnOff()
+            on = false
+            setVisual(false)
+            setToggleSaved(name, false)
+            -- Set the cancel token so the running farm script exits on next poll
+            cancelFarm(name)
         end
 
-        toggleObj.update = updateState
-        if isRadio then toggleHandlers[name] = toggleObj elseif stateKey then toggleHandlers[stateKey] = toggleObj else toggleHandlers[name] = toggleObj end
-
-        onDebouncedClick(box, function()
-            updateState(not on)
-        end, 0.2)
-
-        if stateKey and state[stateKey] == true then
+        local function turnOn()
+            if getgenv().XvlamerHub_Cancelled then return end
+            -- Clear the cancel token before launching so the new instance runs clean
+            resetFarmToken(name)
             on = true
             setVisual(true)
-            if stateKey == "Optimizations" then Optimizer.Toggle(true)
-            elseif stateKey == "AntiAFK" then setAntiAFK(true, true)
-            elseif stateKey == "UnlockFps" then setUnlockFPS(true, true) end
+            setToggleSaved(name, true)
+
+            if isRadio then
+                for _, r in ipairs(radioToggles) do
+                    if r.name ~= name and r.get() then r.setOff() end
+                end
+            end
+            if isNoclipRadio then
+                for _, r in ipairs(noclipRadioGroup) do
+                    if r.name ~= name and r.get() then r.setOff() end
+                end
+            end
+
+            if name == "Knob Farm" then
+                task.spawn(function()
+                    if farmCancelled("Knob Farm") then return end
+                    if isInLobby() then
+                        runKnobFarmLobby()
+                    else
+                        runKnobFarmGame()
+                    end
+                end)
+            elseif name == "Death Farm" then
+                task.spawn(runDeathFarm)
+            elseif name == "Stardust Farm" then
+                task.spawn(function()
+                    if farmCancelled("Stardust Farm") then return end
+                    if isInLobby() then
+                        runStardustFarmLobby()
+                    else
+                        runStardustFarmGame()
+                    end
+                end)
+            elseif name == "Noclip" then
+                task.spawn(runNoclip)
+            elseif name == "Noclip SPAM" then
+                task.spawn(runNoclipSpam)
+            elseif name == "Optimizations" then
+                task.spawn(runOptimizations)
+            elseif name == "Anti-AFK" then
+                startAntiAfk()
+            end
+        end
+
+        obj.turnOnSilent = turnOn
+
+        local function handleClick()
+            if getgenv().XvlamerHub_Cancelled then return end
+            if on then
+                if name == "Anti-AFK" then stopAntiAfk() end
+                turnOff()
+                return
+            end
+
+            if name == "Knob Farm" then
+                local floor = getCurrentFloor()
+                local isValidFloor = isInLobby() or floor == "Hotel" or floor == "Mines"
+                if not isValidFloor then
+                    showPopupModal(
+                        "XvlamersInvalidFloorWarning", "⚠️ RESTRICTED LOCATION",
+                        "Knob Farm can only be executed while in the Lobby, Hotel, or Mines. Please return to the Lobby or a supported floor to continue.",
+                        "", "OK",
+                        function() end,
+                        function() end  -- OK just dismisses, toggle stays off
+                    )
+                    turnOff()
+                    return
+                end
+
+                if isInLobby() then
+                    showPopupModal(
+                        "XvlamersModifiersPrompt", "⚠️ 150% MODIFIERS",
+                        "Use 150% Modifiers in the mines and collect the most gold for maximum Knobs.",
+                        "Cancel", "Proceed",
+                        function() turnOff() end,
+                        function() turnOn()  end
+                    )
+                else
+                    -- In-game: gold gate — OK only, no proceed path
+                    if getGoldValue() <= 0 then
+                        showPopupModal(
+                            "XvlamersZeroGoldWarning", "⚠️ 0 GOLD",
+                            "You have 0 gold. Collect more gold before starting Knob Farm.",
+                            "", "OK",
+                            function() end,
+                            function() end  -- OK dismisses only, toggle stays off
+                        )
+                        turnOff()
+                        return
+                    end
+                    turnOn()
+                end
+                return
+            end
+
+            if name == "Death Farm" then
+                showPopupModal(
+                    "XvlamersDeathFarmWarning", "⚠️ DEATH FARM",
+                    "Death farm uses advanced techniques for the most precision and speed and you must re open Roblox to completely stop it.",
+                    "Cancel", "Proceed",
+                    function() turnOff() end,
+                    function() turnOn()  end
+                )
+                return
+            end
+
+            if name == "Stardust Farm" then
+                if isInLobby() then
+                    showPopupModal(
+                        "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
+                        "Would you like to start the Stardust Farm? Do not touch your device while it is in action.",
+                        "Cancel", "Proceed",
+                        function() turnOff() end,
+                        function() turnOn()  end
+                    )
+                else
+                    showPopupModal(
+                        "XvlamersStardustFarmWarning", "⚠️ STARDUST FARM",
+                        "Stardust Farm resuming. Auto-confirming in 5 seconds if no response.",
+                        "Cancel", "Proceed",
+                        function() turnOff() end,
+                        function() turnOn()  end,
+                        5
+                    )
+                end
+                return
+            end
+
+            turnOn()
+        end
+
+        onDebouncedClick(box, handleClick, 0)
+        return obj
+    end
+
+    createToggle("Knob Farm",     pages[2], true,  false, 1)
+    createToggle("Death Farm",    pages[2], true,  false, 2)
+    createToggle("Stardust Farm", pages[2], true,  false, 3)
+
+    createToggle("Noclip",        pages[3], false, true,  1)
+    createToggle("Noclip SPAM",   pages[3], false, true,  2)
+    createToggle("Optimizations", pages[3], false, false, 3)
+    createToggle("Anti-AFK",      pages[3], false, false, 4)
+
+    local farmsLeftOn = {}
+    for _, fname in ipairs({"Knob Farm", "Death Farm", "Stardust Farm"}) do
+        if state.ToggleState[fname] == true then
+            table.insert(farmsLeftOn, fname)
         end
     end
 
-    createToggle("Knob Farm", pages[2], true, nil, 1, 36)
-    createToggle("Death Farm", pages[2], true, nil, 2, 36)
-    createToggle("Stardust Farm", pages[2], true, nil, 3, 36)
-
-    createToggle("Noclip", pages[3], false, nil, 1, 36)
-    createToggle("Noclip SPAM", pages[3], false, nil, 2, 36)
-    createToggle("Optimizations", pages[3], false, "Optimizations", 3, 36)
-    createToggle("Unlock fps", pages[3], false, "UnlockFps", 4, 36)
-    createToggle("Anti-AFK", pages[3], false, "AntiAFK", 5, 36)
-
-    local hotkeyDebounce = false
-    trackConnection(UIS.InputBegan:Connect(function(input, gpe)
-        if gpe or UIS:GetFocusedTextBox() then return end
-        
-        if input.KeyCode == Enum.KeyCode.V then
-            if not hotkeyDebounce then
-                hotkeyDebounce = true
-                local noclipToggle = toggleHandlers["Noclip"]
-                if noclipToggle and type(noclipToggle.update) == "function" and type(noclipToggle.get) == "function" then
-                    noclipToggle.update(not noclipToggle.get())
-                end
-                task.wait(0.15)
-                hotkeyDebounce = false
-            end
-        elseif input.KeyCode == Enum.KeyCode.B then
-            if not hotkeyDebounce then
-                hotkeyDebounce = true
-                local spamToggle = toggleHandlers["Noclip SPAM"]
-                if spamToggle and type(spamToggle.update) == "function" and type(spamToggle.get) == "function" then
-                    spamToggle.update(not spamToggle.get())
-                end
-                task.wait(0.15)
-                hotkeyDebounce = false
+    task.spawn(function()
+        task.wait(0.5)
+        if getgenv().XvlamerHub_Cancelled then return end
+        for _, tname in ipairs({"Noclip", "Noclip SPAM", "Optimizations", "Anti-AFK"}) do
+            if state.ToggleState[tname] == true then
+                local h = toggleHandlers[tname]
+                if h and h.turnOnSilent then h.turnOnSilent() end
             end
         end
-    end))
-end
+    end)
 
-local function showStartupAutofarmPrompt(onComplete)
-    if pendingStartupFarm then
-        local savedStartupFarm = pendingStartupFarm
-        pendingStartupFarm = nil
-        
-        if savedStartupFarm ~= "Stardust Farm" then
-            if onComplete then onComplete(nil) end
-            return
-        end
-        
-        local countdown = (savedStartupFarm == "Stardust Farm") and (isInLobby() and 5 or 3) or nil
-        
-        showPopupModal(
-            "XvlamersStartupAutofarmPrompt",
-            string.format("⚙️ %s", string.upper(savedStartupFarm)),
-            string.format("Would you like to proceed with the %s or cancel it?", savedStartupFarm),
-            "Cancel",
-            "Proceed",
-            function()
-                if onComplete then onComplete(nil) end
-            end,
-            function()
-                if onComplete then onComplete(savedStartupFarm) end
-            end,
-            countdown
-        )
-    else
-        if onComplete then onComplete(nil) end
+    if #farmsLeftOn > 0 then
+        task.spawn(function()
+            task.wait(0.8)
+            if getgenv().XvlamerHub_Cancelled then return end
+            for _, fname in ipairs(farmsLeftOn) do
+                if getgenv().XvlamerHub_Cancelled then break end
+                local h = toggleHandlers[fname]
+                if not h then continue end
+
+                local inLobby      = isInLobby()
+                local currentFloor = getCurrentFloor()
+                local isValidFloor = inLobby or currentFloor == "Hotel" or currentFloor == "Mines"
+
+                if not isValidFloor and fname ~= "Stardust Farm" then
+                    h.setOff(); continue
+                end
+
+                if fname == "Knob Farm" then
+                    if not isValidFloor then
+                        h.setOff()
+                    elseif inLobby then
+                        showPopupModal(
+                            "XvlamersRestore_" .. fname:gsub(" ", ""),
+                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                            fname .. " was active when you left. Would you like to resume it?",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end
+                        )
+                    else
+                        h.setOff()
+                    end
+                elseif fname == "Stardust Farm" then
+                    if inLobby then
+                        showPopupModal(
+                            "XvlamersRestore_" .. fname:gsub(" ", ""),
+                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                            fname .. " was active when you left. Would you like to resume it?",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end
+                        )
+                    else
+                        showPopupModal(
+                            "XvlamersRestoreStardust",
+                            "⚠️ " .. fname .. " WAS LEFT ON",
+                            fname .. " was active when you left. Auto-resuming in 5 seconds.",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end,
+                            5
+                        )
+                    end
+                else
+                    if inLobby then
+                        showPopupModal(
+                            "XvlamersRestore_" .. fname:gsub(" ", ""),
+                            "⚠️ " .. fname:upper() .. " WAS LEFT ON",
+                            fname .. " was active when you left. Would you like to resume it?",
+                            "Cancel", "Resume",
+                            function() h.setOff() end,
+                            function()
+                                if not getgenv().XvlamerHub_Cancelled and h.turnOnSilent then h.turnOnSilent() end
+                            end
+                        )
+                    else
+                        h.setOff()
+                    end
+                end
+
+                task.wait(0.3)
+                repeat task.wait(0.1) until getgenv().XvlamerHub_Cancelled or not isModalOpen()
+            end
+        end)
     end
 end
 
 local function startKeySystem()
-    local keyGui = create("ScreenGui", {Name="XvlamersKeySystem", ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999, Parent=safeUI})
+    if getgenv().XvlamerHub_Cancelled then return end
+    local keyGui = create("ScreenGui", {
+        Name           = "XvlamersKeySystem",
+        ResetOnSpawn   = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder   = 999,
+        Parent         = safeUI,
+    })
     pcall(function() if syn and syn.protect_gui then syn.protect_gui(keyGui) end end)
 
     local keyFrame = create("Frame", {
-        Size=UDim2.new(0, 320, 0, 145), 
-        Position=UDim2.new(0.5, 0, 0.5, 0), 
-        AnchorPoint=Vector2.new(0.5, 0.5), 
-        BackgroundColor3=Color3.fromRGB(11, 11, 15), 
-        BorderSizePixel=0, 
-        BackgroundTransparency=0, 
-        ClipsDescendants=true,
-        Parent=keyGui
+        Size               = UDim2.new(0, 320, 0, 145),
+        Position           = UDim2.new(0.5, 0, 0.5, 0),
+        AnchorPoint        = Vector2.new(0.5, 0.5),
+        BackgroundColor3   = Color3.fromRGB(11, 11, 15),
+        BorderSizePixel    = 0,
+        ClipsDescendants   = true,
+        Parent             = keyGui,
     })
-    create("UICorner", {CornerRadius=UDim.new(0, 14), Parent=keyFrame})
-    create("UIStroke", {Color=THEME_PURPLE, Transparency=0.15, Thickness=1.5, Parent=keyFrame})
-
+    create("UICorner", { CornerRadius = UDim.new(0, 14), Parent = keyFrame })
+    create("UIStroke",  { Color = THEME_PURPLE, Transparency = 0.15, Thickness = 1.5, Parent = keyFrame })
     makeUniversalDraggable(keyFrame)
 
-    _G.XvlamerHub_CloseKeySystem = function() 
-        pcall(function() 
-            keyGui:Destroy() 
-        end) 
+    _G.XvlamerHub_CloseKeySystem = function()
+        pcall(function() keyGui:Destroy() end)
     end
 
-    local closeKeyBtn = create("TextButton", {Size=UDim2.new(0, 24, 0, 24), Position=UDim2.new(1, -32, 0, 12), BackgroundColor3=Color3.fromRGB(20, 20, 28), Font=Enum.Font.GothamBold, Text="✕", TextColor3=Color3.fromRGB(180, 180, 200), TextSize=10, Parent=keyFrame})
-    create("UICorner", {CornerRadius=UDim.new(0, 7), Parent=closeKeyBtn})
+    local closeKeyBtn = create("TextButton", {
+        Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -32, 0, 12),
+        BackgroundColor3 = Color3.fromRGB(20, 20, 28),
+        Font = Enum.Font.GothamBold, Text = "✕",
+        TextColor3 = Color3.fromRGB(180, 180, 200), TextSize = 10, Parent = keyFrame,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = closeKeyBtn })
     onDebouncedClick(closeKeyBtn, function() _G.XvlamerHub_CloseKeySystem() end, 0.2)
 
-    create("TextLabel", {Size=UDim2.new(1, -40, 0, 12), Position=UDim2.new(0, 15, 0, 12), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="AUTHENTICATION", TextColor3=THEME_PURPLE, TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
-    create("TextLabel", {Size=UDim2.new(1, -40, 0, 16), Position=UDim2.new(0, 15, 0, 24), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="You must get the key from the script owner.", TextColor3=Color3.fromRGB(245, 245, 255), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
+    create("TextLabel", {
+        Size = UDim2.new(1, -40, 0, 12), Position = UDim2.new(0, 15, 0, 12),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        Text = "AUTHENTICATION", TextColor3 = THEME_PURPLE, TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left, Parent = keyFrame,
+    })
+    create("TextLabel", {
+        Size = UDim2.new(1, -40, 0, 16), Position = UDim2.new(0, 15, 0, 24),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        Text = "You must get the key from the script owner.",
+        TextColor3 = Color3.fromRGB(245, 245, 255), TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left, Parent = keyFrame,
+    })
 
-    local errorLbl = create("TextLabel", {Size=UDim2.new(1, -30, 0, 14), Position=UDim2.new(0, 15, 0, 42), BackgroundTransparency=1, Font=Enum.Font.GothamBold, Text="", TextColor3=Color3.fromRGB(255, 85, 85), TextSize=10, TextXAlignment=Enum.TextXAlignment.Left, Parent=keyFrame})
+    local errorLbl = create("TextLabel", {
+        Size = UDim2.new(1, -30, 0, 14), Position = UDim2.new(0, 15, 0, 42),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        Text = "", TextColor3 = Color3.fromRGB(255, 85, 85), TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left, Parent = keyFrame,
+    })
 
-    local textBoxBg = create("Frame", {Size=UDim2.new(1, -30, 0, 32), Position=UDim2.new(0, 15, 0, 62), BackgroundColor3=Color3.fromRGB(15, 15, 22), Parent=keyFrame})
-    create("UICorner", {CornerRadius=UDim.new(0, 9), Parent=textBoxBg})
-    create("UIStroke", {Color=Color3.fromRGB(45, 45, 60), Transparency=0.2, Thickness=1, Parent=textBoxBg})
+    local tbBg = create("Frame", {
+        Size = UDim2.new(1, -30, 0, 32), Position = UDim2.new(0, 15, 0, 62),
+        BackgroundColor3 = Color3.fromRGB(15, 15, 22), Parent = keyFrame,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = tbBg })
+    create("UIStroke",  { Color = Color3.fromRGB(45, 45, 60), Transparency = 0.2, Thickness = 1, Parent = tbBg })
 
-    local keyInput = create("TextBox", {Size=UDim2.new(1, -16, 1, 0), Position=UDim2.new(0, 8, 0, 0), BackgroundTransparency=1, Font=Enum.Font.GothamBold, PlaceholderText="Enter key here...", Text="", TextColor3=Color3.fromRGB(255, 255, 255), PlaceholderColor3=Color3.fromRGB(110, 110, 135), TextSize=11, ClearTextOnFocus=false, Parent=textBoxBg})
+    local keyInput = create("TextBox", {
+        Size = UDim2.new(1, -16, 1, 0), Position = UDim2.new(0, 8, 0, 0),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        PlaceholderText = "Enter key here...", Text = "",
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        PlaceholderColor3 = Color3.fromRGB(110, 110, 135),
+        TextSize = 11, ClearTextOnFocus = false, Parent = tbBg,
+    })
 
-    local confirmBtn = create("TextButton", {Size=UDim2.new(1, -30, 0, 32), Position=UDim2.new(0, 15, 0, 102), BackgroundColor3=THEME_PURPLE, Font=Enum.Font.GothamBold, Text="Confirm", TextColor3=Color3.fromRGB(255, 255, 255), TextSize=11, AutoButtonColor=false, Parent=keyFrame})
-    create("UICorner", {CornerRadius=UDim.new(0, 9), Parent=confirmBtn})
+    local confirmBtn = create("TextButton", {
+        Size = UDim2.new(1, -30, 0, 32), Position = UDim2.new(0, 15, 0, 102),
+        BackgroundColor3 = THEME_PURPLE, Font = Enum.Font.GothamBold,
+        Text = "Confirm", TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 11, AutoButtonColor = false, Parent = keyFrame,
+    })
+    create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = confirmBtn })
 
-    local function handleKeyConfirm()
+    onDebouncedClick(confirmBtn, function()
         if keyInput.Text == CORRECT_KEY then
             state.KeyExpiry = os.time() + 86400
             pcall(saveState)
             _G.XvlamerHub_CloseKeySystem()
-            
             initializeMainHub()
-            showStartupAutofarmPrompt(function(resumedFarm)
-                if resumedFarm then
-                    local toggleObj = toggleHandlers[resumedFarm]
-                    if toggleObj and type(toggleObj.update) == "function" then
-                        toggleObj.update(true, true)
-                    end
-                end
-            end)
         else
             errorLbl.Text = "Incorrect key! Verify with the script owner."
         end
-    end
-    onDebouncedClick(confirmBtn, handleKeyConfirm, 0.2)
+    end, 0.2)
 end
 
 local passedKey = select(1, ...)
-local globalKey = getgenv().Key or _G.Key or getgenv().XvlamerKey or (rawget(_G, "Key"))
+local globalKey = getgenv().Key or _G.Key or getgenv().XvlamerKey
 
-if (passedKey == CORRECT_KEY) or (globalKey == CORRECT_KEY) or (state.KeyExpiry and os.time() < state.KeyExpiry) then
+if  (passedKey == CORRECT_KEY)
+ or (globalKey == CORRECT_KEY)
+ or (state.KeyExpiry and os.time() < state.KeyExpiry)
+then
     state.KeyExpiry = os.time() + 86400
     pcall(saveState)
-    
     initializeMainHub()
-    showStartupAutofarmPrompt(function(resumedFarm)
-        if resumedFarm then
-            local toggleObj = toggleHandlers[resumedFarm]
-            if toggleObj and type(toggleObj.update) == "function" then
-                toggleObj.update(true, true)
-            end
-        end
-    end)
 else
     startKeySystem()
 end
