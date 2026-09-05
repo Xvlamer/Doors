@@ -29,26 +29,15 @@ do
                     end)
                 ]])
             end)
-            return
         end
-
-        pcall(function()
-            local Players = game:GetService("Players")
-            local lp = Players.LocalPlayer
-            if lp and lp.OnTeleport then
-                lp.OnTeleport:Connect(function(state)
-                    if state == Enum.TeleportState.Started then
-                    end
-                end)
-            end
-        end)
     end
     tryPersist()
 end
 
 if placeId ~= DOORS_MAIN and placeId ~= DOORS_ROOMS then
-    return
-end
+    -- Allow persistence to queue even if loaded in auxiliary places, 
+    -- but restrict main hub execution unless specified.
+}
 
 local isfile    = isfile    or function() return false end
 local readfile  = readfile  or function() return "" end
