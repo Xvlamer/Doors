@@ -1,1 +1,764 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
 
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local currentRoomsFolder = Workspace:WaitForChild("CurrentRooms")
+local miscFolder = Workspace:WaitForChild("Misc")
+local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder")
+local cartControlRemote = remotesFolder:WaitForChild("CartControl")
+local playerUserId = tostring(player.UserId)
+
+Lighting.Ambient = Color3.new(1, 1, 1)
+Lighting.ColorShift_Bottom = Color3.new(1, 1, 1)
+Lighting.ColorShift_Top = Color3.new(1, 1, 1)
+Lighting.Brightness = 3
+Lighting.GlobalShadows = false
+Lighting.FogEnd = 100000
+Lighting.FogStart = 100000
+
+local SPEED_WALK = 20
+local SPEED_AC = 100
+local SPEED_SWITCH = 25
+local SPEED_NOCLIP = 2
+local GRAB_INTERVAL = 0.05
+local DOOR_FIRE_INTERVAL = 0.05
+local DOOR_TIMEOUT = 25
+local CHAIR_SEARCH_LIMIT = 30
+local ARRIVE_DIST = 1.5
+local CHAIR_ROOMS = {[10]=true,[20]=true,[30]=true,[40]=true}
+
+local WP1 = CFrame.new(251.042633, -0.174223781, -39.4570351, 0.99865216, 0.00258172257, -0.0518378392, 0.000143666432, 0.998620749, 0.0525028333, 0.0519018881, -0.0524395108, 0.997274339)
+local WP2 = CFrame.new(222.109955, -0.188600898, -73.2570419, 0.581981838, -0.0934531838, 0.807814121, -0.00017296632, 0.993360579, 0.115043029, -0.813201785, -0.0670926794, 0.578101695)
+
+local anticheatOn = false
+local activeChair = nil
+local allChairs = {}
+local currentRoom = 0
+local scriptRunning = false
+local anchorConn = nil
+local reseatConn = nil
+local tweenConn = nil
+local noclipConn = nil
+
+do
+    local old = playerGui:FindFirstChild("ACStatusGui")
+    if old then old:Destroy() end
+end
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "ACStatusGui"
+sg.ResetOnSpawn = false
+sg.IgnoreGuiInset = true
+sg.DisplayOrder = 999
+sg.Parent = playerGui
+
+local hud = Instance.new("TextLabel")
+hud.Size = UDim2.new(0,130,0,16)
+hud.Position = UDim2.new(0,6,1,-22)
+hud.BackgroundTransparency = 1
+hud.TextSize = 11
+hud.Font = Enum.Font.Code
+hud.TextXAlignment = Enum.TextXAlignment.Left
+hud.TextYAlignment = Enum.TextYAlignment.Center
+hud.Text = "AntiCheat: Off"
+hud.TextColor3 = Color3.fromRGB(220,50,50)
+hud.ZIndex = 10
+hud.Active = false
+hud.Selectable = false
+hud.Parent = sg
+
+local function setHudOn() hud.Text = "AntiCheat: On" hud.TextColor3 = Color3.fromRGB(50,220,80) end
+local function setHudOff() hud.Text = "AntiCheat: Off" hud.TextColor3 = Color3.fromRGB(220,50,50) end
+local function getChar() return player.Character end
+local function getRoot() local c = getChar() return c and c:FindFirstChild("HumanoidRootPart") end
+
+local function disableSpecificCollisions(obj)
+    if obj:IsA("BasePart") then
+        local n = obj.Name
+        if n == "ArchivesCubicleRight" or n == "ArchivesCubicleLeft" or n == "ArchivesTrashcan" or n == "PottedPlant_Archives_Large" or n:match("^ArchivesDesk") or n == "Main" or n == "Door" or n == "PaperPlane" or n:match("^Door") then
+            obj.CanCollide = false
+            obj.CanTouch = false
+            obj.CanQuery = false
+        end
+    end
+end
+
+for _, obj in ipairs(Workspace:GetDescendants()) do disableSpecificCollisions(obj) end
+Workspace.DescendantAdded:Connect(disableSpecificCollisions)
+
+noclipConn = RunService.Stepped:Connect(function()
+    if anticheatOn then
+        local c = getChar()
+        if c then
+            for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+local function isCancelled()
+    return getgenv().XvlamerHub_StardustFarmCancelled == true
+        or getgenv().XvlamerHub_Cancelled == true
+        or not scriptRunning
+end
+
+local function tweenToPos(targetPos, speed, stopDist)
+    if typeof(targetPos) == "CFrame" then targetPos = targetPos.Position end
+    if tweenConn then tweenConn:Disconnect() tweenConn = nil end
+    if isCancelled() then return false end
+    stopDist = stopDist or ARRIVE_DIST
+    speed = speed or (anticheatOn and SPEED_AC or SPEED_WALK)
+    
+    local done = false
+    local result = false
+    tweenConn = RunService.Heartbeat:Connect(function(dt)
+        if done then return end
+        if isCancelled() then done = true result = false return end
+        local root = getRoot()
+        if not root then done = true result = false return end
+        local cur = root.Position
+        local diff = targetPos - cur
+        local dist = diff.Magnitude
+        if dist <= stopDist then done = true result = true return end
+        local moveAmt = math.min(dist, speed * dt)
+        root.CFrame = CFrame.new(cur + diff.Unit * moveAmt) * root.CFrame.Rotation
+    end)
+    while not done do task.wait(0.05) end
+    if tweenConn then tweenConn:Disconnect() tweenConn = nil end
+    return result
+end
+
+local function safeFirePrompt(prompt)
+    if not prompt or not prompt.Parent then return end
+    pcall(fireproximityprompt, prompt)
+end
+
+local function findPromptInModel(model)
+    for _,d in ipairs(model:GetDescendants()) do
+        if d:IsA("ProximityPrompt") then return d end
+    end
+end
+
+local function getChairPos(chair)
+    local b = chair:FindFirstChild("Base")
+    if b and b:IsA("BasePart") then return b.Position end
+    local pp = chair.PrimaryPart
+    if pp then return pp.Position end
+    return chair:GetPivot().Position
+end
+
+local function getCartPrompt(chair)
+    local att = chair:FindFirstChild("Attachment")
+    if not att then return nil end
+    local cp = att:FindFirstChild("CartPrompt")
+    if cp and cp:IsA("ProximityPrompt") then return cp end
+    return nil
+end
+
+local function getSeatPrompt(chair)
+    local col = chair:FindFirstChild("Collider")
+    if not col then return nil end
+    local sp = col:FindFirstChild("SeatPrompt")
+    if sp and sp:IsA("ProximityPrompt") then return sp end
+    return nil
+end
+
+local function getGrabPosition(chair)
+    local att = chair:FindFirstChild("Attachment")
+    if att and att:IsA("Attachment") then
+        local cf = att.WorldCFrame
+        return cf.Position + cf.LookVector * (-2)
+    end
+    return getChairPos(chair)
+end
+
+local function lockChairParts(chair)
+    for _,p in ipairs(chair:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.CanCollide = false
+            p.CanTouch = false
+            p.CanQuery = false
+            p.Transparency = 1
+            p.Massless = true
+            p.CustomPhysicalProperties = PhysicalProperties.new(0,0,0,0,0)
+        end
+    end
+end
+
+local function disableChairPrompts(chair)
+    for _,d in ipairs(chair:GetDescendants()) do
+        if d:IsA("ProximityPrompt") then d.Enabled = false end
+    end
+end
+
+local function enableAllPrompts()
+    for c in pairs(allChairs) do
+        if c and c.Parent then
+            for _,d in ipairs(c:GetDescendants()) do
+                if d:IsA("ProximityPrompt") then d.Enabled = true end
+            end
+        end
+    end
+end
+
+local function stopAnchor()
+    if anchorConn then anchorConn:Disconnect() anchorConn = nil end
+    if reseatConn then reseatConn:Disconnect() reseatConn = nil end
+    anticheatOn = false
+    setHudOff()
+    enableAllPrompts()
+    activeChair = nil
+end
+
+local function doSeatCycle(seatPrompt)
+    local char = getChar()
+    if char then char:SetAttribute("SeatedInSeat", false) end
+    task.wait(0.05)
+    pcall(function() fireproximityprompt(seatPrompt) end)
+    task.wait(0.05)
+    char = getChar()
+    if char then char:SetAttribute("SeatedInSeat", false) end
+end
+
+local function anchorToPlayer(chair, seatPrompt)
+    if anchorConn then anchorConn:Disconnect() anchorConn = nil end
+    if reseatConn then reseatConn:Disconnect() reseatConn = nil end
+    activeChair = chair
+
+    task.spawn(function()
+        while activeChair == chair and not isCancelled() do
+            pcall(function() cartControlRemote:FireServer() end)
+            task.wait(0.05)
+        end
+    end)
+
+    anchorConn = RunService.RenderStepped:Connect(function()
+        if not chair or not chair.Parent then stopAnchor() return end
+        local c = getChar()
+        local root = c and c:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        chair:PivotTo(root.CFrame * CFrame.new(0,-2,0))
+
+        if chair:GetAttribute("CartHitConnected") == true then
+            chair:SetAttribute("CartHitConnected", false)
+        end
+
+        local seated = c:GetAttribute("SeatedInSeat")
+        if seated == false then
+            setHudOn()
+            anticheatOn = true
+        else
+            setHudOff()
+            anticheatOn = false
+        end
+        if seated == true then
+            c:SetAttribute("SeatedInSeat", false)
+        end
+    end)
+
+    reseatConn = RunService.Heartbeat:Connect(function()
+        if not chair or not chair.Parent then return end
+        if tostring(chair:GetAttribute("LastPusherId")) ~= playerUserId then return end
+        local c = getChar()
+        if not c then return end
+        if c:GetAttribute("SeatedInSeat") == nil then
+            task.spawn(function() doSeatCycle(seatPrompt) end)
+        end
+    end)
+end
+
+local function hookCharacter(character)
+    character:GetAttributeChangedSignal("SeatedInSeat"):Connect(function()
+        if activeChair and character:GetAttribute("SeatedInSeat") == true then
+            character:SetAttribute("SeatedInSeat", false)
+        end
+    end)
+end
+if player.Character then hookCharacter(player.Character) end
+player.CharacterAdded:Connect(hookCharacter)
+
+local function grabAndBypass(chair)
+    if isCancelled() then return false end
+    local cartPrompt = getCartPrompt(chair)
+    local seatPrompt = getSeatPrompt(chair)
+    if not cartPrompt or not seatPrompt then return false end
+
+    local grabStart = tick()
+    local owned = false
+    while tick() - grabStart < 8 do
+        if isCancelled() then return false end
+        safeFirePrompt(cartPrompt)
+        pcall(function() cartControlRemote:FireServer() end)
+        task.wait(GRAB_INTERVAL)
+        if tostring(chair:GetAttribute("LastPusherId")) == playerUserId then
+            owned = true break
+        end
+    end
+    if not owned then return false end
+
+    pcall(function() cartControlRemote:FireServer() end)
+    task.wait(0.15)
+    if isCancelled() then return false end
+
+    lockChairParts(chair)
+    disableChairPrompts(chair)
+    doSeatCycle(seatPrompt)
+    anchorToPlayer(chair, seatPrompt)
+
+    local ws = tick()
+    local confirmed = false
+    while tick() - ws < 5 do
+        if isCancelled() then return false end
+        local c = getChar()
+        if c and c:GetAttribute("SeatedInSeat") == false then
+            confirmed = true
+            break
+        end
+        task.wait(0.1)
+    end
+    
+    task.wait(1)
+    return confirmed and anticheatOn
+end
+
+local function hookChair(chair)
+    if chair.Name ~= "ArchivesOfficeChair" then return end
+    if allChairs[chair] then return end
+    allChairs[chair] = true
+    chair.AncestryChanged:Connect(function()
+        if not chair.Parent then
+            allChairs[chair] = nil
+            if activeChair == chair then stopAnchor() end
+        end
+    end)
+end
+
+local function scanFolder(folder)
+    for _,d in ipairs(folder:GetDescendants()) do
+        if d.Name == "ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
+    end
+    folder.DescendantAdded:Connect(function(d)
+        if d.Name == "ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
+    end)
+end
+scanFolder(miscFolder)
+scanFolder(currentRoomsFolder)
+
+local function findNearestChair(exclude)
+    local root = getRoot()
+    if not root then return nil end
+    local best = nil 
+    local bestDist = math.huge
+    local function check(d)
+        if d.Name ~= "ArchivesOfficeChair" or not d:IsA("Model") then return end
+        if exclude and d == exclude then return end
+        local dist = (root.Position - getChairPos(d)).Magnitude
+        if dist < bestDist then bestDist = dist best = d end
+    end
+    for _,d in ipairs(miscFolder:GetDescendants()) do check(d) end
+    for i = 0, 50 do
+        local rf = currentRoomsFolder:FindFirstChild(tostring(i))
+        if rf then for _,d in ipairs(rf:GetDescendants()) do check(d) end end
+    end
+    return best
+end
+
+local function acquireFirstChair()
+    if isCancelled() then return false end
+    tweenToPos(WP1, SPEED_WALK, 1.5)
+    if isCancelled() then return false end
+    tweenToPos(WP2, SPEED_WALK, 1.5)
+    if isCancelled() then return false end
+
+    local chair = findNearestChair(nil)
+    local ss = tick()
+    while not chair do
+        if isCancelled() then return false end
+        if tick() - ss > CHAIR_SEARCH_LIMIT then return false end
+        task.wait(0.3)
+        chair = findNearestChair(nil)
+    end
+
+    local grabPos = getGrabPosition(chair)
+    local root = getRoot()
+    if root then
+        root.CFrame = CFrame.new(grabPos) * root.CFrame.Rotation
+    end
+    task.wait(0.2)
+
+    return grabAndBypass(chair)
+end
+
+local function switchChair()
+    local ss = tick()
+    local newChair = findNearestChair(activeChair)
+    while not newChair do
+        if isCancelled() then return false end
+        if tick() - ss > CHAIR_SEARCH_LIMIT then break end
+        task.wait(0.3)
+        newChair = findNearestChair(activeChair)
+    end
+    if not newChair then return false end
+
+    local cartPrompt = getCartPrompt(newChair)
+    local seatPrompt = getSeatPrompt(newChair)
+    if not cartPrompt or not seatPrompt then return false end
+
+    local grabPos = getGrabPosition(newChair)
+    tweenToPos(grabPos, SPEED_SWITCH, 1.5)
+    if isCancelled() then return false end
+
+    stopAnchor()
+    pcall(function() cartControlRemote:FireServer() end)
+    task.wait(0.15)
+
+    local grabStart = tick()
+    local owned = false
+    while tick() - grabStart < 8 do
+        if isCancelled() then return false end
+        safeFirePrompt(cartPrompt)
+        pcall(function() cartControlRemote:FireServer() end)
+        task.wait(GRAB_INTERVAL)
+        if tostring(newChair:GetAttribute("LastPusherId")) == playerUserId then
+            owned = true break
+        end
+    end
+    if not owned then return false end
+
+    pcall(function() cartControlRemote:FireServer() end)
+    task.wait(0.15)
+    if isCancelled() then return false end
+
+    lockChairParts(newChair)
+    disableChairPrompts(newChair)
+    doSeatCycle(seatPrompt)
+    anchorToPlayer(newChair, seatPrompt)
+
+    local ws = tick()
+    local confirmed = false
+    while tick() - ws < 5 do
+        if isCancelled() then return false end
+        local c = getChar()
+        if c and c:GetAttribute("SeatedInSeat") == false then
+            confirmed = true
+            break
+        end
+        task.wait(0.1)
+    end
+    
+    task.wait(1)
+    return confirmed and anticheatOn
+end
+
+local function acquireAnyChair()
+    if isCancelled() then return false end
+    local ss = tick()
+    local chair = findNearestChair(nil)
+    local useNoclip = false
+    while not chair do
+        if isCancelled() then return false end
+        if tick() - ss > CHAIR_SEARCH_LIMIT then useNoclip = true break end
+        task.wait(0.3)
+        chair = findNearestChair(nil)
+    end
+    if not chair then return false end
+    
+    local grabPos = getGrabPosition(chair)
+    if useNoclip then
+        tweenToPos(grabPos, SPEED_NOCLIP, 1.5)
+    else
+        tweenToPos(grabPos, SPEED_SWITCH, 1.5)
+    end
+    if isCancelled() then return false end
+    
+    return grabAndBypass(chair)
+end
+
+local function getRoomFolder(n) return currentRoomsFolder:FindFirstChild(tostring(n)) end
+
+local function detectCurrentRoom()
+    for i = 50, 0, -1 do if getRoomFolder(i) then return i end end return 0
+end
+
+local function waitForRoom(n, timeout)
+    local s = tick()
+    while tick() - s < timeout do
+        if isCancelled() then return false end
+        if getRoomFolder(n) then return true end
+        task.wait(0.1)
+    end
+    return false
+end
+
+local function disableDoorCollision(door)
+    for _,p in ipairs(door:GetDescendants()) do
+        if p:IsA("BasePart") then p.CanCollide = false end
+    end
+end
+
+local function getDoorBasePart(door)
+    local inner = door:FindFirstChild("Door")
+    if inner and inner:IsA("BasePart") then return inner end
+    local pp = door.PrimaryPart if pp then return pp end
+    return door:FindFirstChildWhichIsA("BasePart")
+end
+
+local function openDoor(roomNum)
+    if isCancelled() then return false end
+    local rf = getRoomFolder(roomNum)
+    if not rf then return false end
+    local door = rf:FindFirstChild("Door")
+    if not door then return false end
+    disableDoorCollision(door)
+    
+    local doorPart = getDoorBasePart(door)
+    local initialCF = doorPart and doorPart.CFrame
+    local clientOpen = door:FindFirstChild("ClientOpen")
+    if not clientOpen then return false end
+    
+    local nextRoom = roomNum + 1
+    local speed = anticheatOn and SPEED_AC or SPEED_WALK
+
+    if doorPart then
+        tweenToPos(doorPart.Position, speed, 1.5)
+        if isCancelled() then return false end
+    end
+
+    local opened = false
+    local fs = tick()
+    local pingDir = 1
+
+    while tick() - fs < DOOR_TIMEOUT and not opened do
+        if isCancelled() then return false end
+        pcall(function() clientOpen:FireServer() end)
+        task.wait(DOOR_FIRE_INTERVAL)
+
+        if getRoomFolder(nextRoom) then opened = true break end
+
+        if doorPart and initialCF then
+            local ok, newCF = pcall(function() return doorPart.CFrame end)
+            if ok then
+                local pd = (newCF.Position - initialCF.Position).Magnitude
+                local ax,ay,az = initialCF:ToEulerAnglesXYZ()
+                local bx,by,bz = newCF:ToEulerAnglesXYZ()
+                local rd = math.abs(math.deg(bx-ax))
+                         + math.abs(math.deg(by-ay))
+                         + math.abs(math.deg(bz-az))
+                if rd > 5 or pd > 0.5 then opened = true break end
+            end
+        end
+
+        if doorPart and (tick()-fs) % 0.5 < DOOR_FIRE_INTERVAL then
+            local fwd = doorPart.CFrame.LookVector
+            tweenToPos(doorPart.Position + fwd * (pingDir * 5), speed, 1.5)
+            pingDir = -pingDir
+            if isCancelled() then return false end
+        end
+    end
+
+    if opened then waitForRoom(nextRoom + 1, 8) end
+    return opened
+end
+
+local function lootMoveTo(pos)
+    tweenToPos(pos, anticheatOn and SPEED_AC or SPEED_WALK, 1.5)
+end
+
+local function lootStardust(roomFolder)
+    local seen = {} 
+    local targets = {}
+    for _,d in ipairs(roomFolder:GetDescendants()) do
+        if (d.Name:find("Stardust") or d.Name:find("stardust")) and not seen[d] then
+            seen[d] = true table.insert(targets, d)
+        end
+    end
+    for _,target in ipairs(targets) do
+        if isCancelled() then return end
+        if not target.Parent then continue end
+        local mainPart = (target:IsA("BasePart") and target)
+            or target:FindFirstChild("Main")
+            or target:FindFirstChildWhichIsA("BasePart")
+        if mainPart and mainPart:IsA("BasePart") then lootMoveTo(mainPart.Position) end
+        if isCancelled() then return end
+        for _,d in ipairs(target:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then safeFirePrompt(d) end
+        end
+        if target:IsA("ProximityPrompt") then safeFirePrompt(target) end
+        local ws = tick()
+        while target.Parent and tick() - ws < 2 do task.wait(0.05) end
+    end
+end
+
+local function lootDesks(roomFolder)
+    local assets = roomFolder:FindFirstChild("Assets") or roomFolder
+    for _,d in ipairs(assets:GetDescendants()) do
+        if isCancelled() then return end
+        if d:IsA("Model") and d.Name:match("^ArchivesDesk") then 
+            local prompts = {}
+            for _,child in ipairs(d:GetDescendants()) do
+                if child.Name == "DrawerContainer" and child:IsA("Model") then
+                    local knob = child:FindFirstChild("Knob")
+                    if not knob then continue end
+                    local prompt = knob:FindFirstChild("ActivateEventPrompt") or findPromptInModel(knob)
+                    if not prompt then continue end
+                    local endPart = child:FindFirstChild("End")
+                    if endPart and endPart:IsA("BasePart") then
+                        lootMoveTo((endPart.CFrame * CFrame.new(0,0,2)).Position)
+                    end
+                    table.insert(prompts, prompt)
+                end
+            end
+            if isCancelled() then return end
+            for _,p in ipairs(prompts) do 
+                safeFirePrompt(p) 
+                task.wait(0.2)
+            end
+            task.wait(0.2)
+            lootStardust(roomFolder)
+        end
+    end
+end
+
+local function lootHidingSpots(roomFolder)
+    local assets = roomFolder:FindFirstChild("Assets") or roomFolder
+    local spots = {}
+    for _,d in ipairs(assets:GetDescendants()) do
+        if d:IsA("Model") and d.Name:match("^HidingSpot") then table.insert(spots, d) end
+    end
+    for _,spot in ipairs(spots) do
+        if isCancelled() then return end
+        if not spot.Parent then continue end
+        local prompt = spot:FindFirstChild("InteractPrompt") or findPromptInModel(spot)
+        if not prompt then continue end
+        local pp = prompt.Parent
+        if pp and pp:IsA("BasePart") then
+            lootMoveTo((pp.CFrame * CFrame.new(0,0,-2)).Position)
+        else
+            lootMoveTo((spot:GetPivot() * CFrame.new(0,0,-2)).Position)
+        end
+        if isCancelled() then return end
+        safeFirePrompt(prompt)
+        task.wait(0.2)
+        lootStardust(roomFolder)
+    end
+end
+
+local function lootRoom(roomNum)
+    if isCancelled() then return end
+    local rf = getRoomFolder(roomNum)
+    if not rf then return end
+    lootStardust(rf)
+    if isCancelled() then return end
+    lootDesks(rf)
+    if isCancelled() then return end
+    lootHidingSpots(rf)
+end
+
+local function firePlayAgain()
+    pcall(function()
+        ReplicatedStorage:WaitForChild("RemotesFolder"):WaitForChild("PlayAgain"):FireServer()
+    end)
+end
+
+local function blockDroneRemotes(model)
+    for _,d in ipairs(model:GetDescendants()) do
+        if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+            if hookfunction then
+                pcall(hookfunction, d.FireServer, function() end)
+                pcall(hookfunction, d.InvokeServer, function() end)
+            end
+        end
+    end
+end
+
+for _,obj in ipairs(Workspace:GetChildren()) do
+    if obj:IsA("Model") and (obj.Name == "Drones" or obj.Name == "DronesStampede") then
+        blockDroneRemotes(obj)
+    end
+end
+Workspace.ChildAdded:Connect(function(obj)
+    if obj:IsA("Model") and (obj.Name == "Drones" or obj.Name == "DronesStampede") then
+        task.wait(0.1) blockDroneRemotes(obj)
+    end
+end)
+
+local function roomLoop()
+    while not isCancelled() do
+        task.wait(0.05)
+        if not anticheatOn then
+            local ok = false
+            for _ = 1, 3 do
+                if isCancelled() then return end
+                ok = acquireAnyChair() if ok then break end
+                task.wait(1)
+            end
+            if not ok or isCancelled() then return end
+        end
+
+        local opened = openDoor(currentRoom)
+        if isCancelled() then return end
+        if not opened then task.wait(0.5) continue end
+
+        local nextRoom = currentRoom + 1
+        local loaded = waitForRoom(nextRoom, 12)
+        if not loaded or isCancelled() then task.wait(1) continue end
+
+        currentRoom = nextRoom
+
+        lootRoom(currentRoom)
+        if isCancelled() then return end
+
+        if currentRoom >= 49 then
+            firePlayAgain()
+            scriptRunning = false return
+        end
+
+        if CHAIR_ROOMS[currentRoom] then
+            local ok = false
+            for _ = 1, 3 do
+                if isCancelled() then return end
+                ok = switchChair() if ok then break end
+                task.wait(1)
+            end
+        end
+    end
+    scriptRunning = false
+end
+
+local function mainLoop()
+    scriptRunning = true
+    getgenv().XvlamerHub_StardustFarmCancelled = false
+    task.wait(3)
+    if isCancelled() then return end
+    currentRoom = detectCurrentRoom()
+    if not anticheatOn then
+        local ok = false
+        if currentRoom == 0 then
+            ok = acquireFirstChair()
+        else
+            ok = acquireAnyChair()
+        end
+        if not ok or isCancelled() then scriptRunning = false return end
+    end
+    roomLoop()
+end
+
+local function resumeLoop()
+    currentRoom = detectCurrentRoom()
+    if not anticheatOn then
+        local ok = acquireAnyChair()
+        if not ok or isCancelled() then scriptRunning = false return end
+    end
+    roomLoop()
+end
+
+getgenv().XvlamerHub_StardustFarmCancelled = false
+if scriptRunning then task.spawn(resumeLoop) else task.spawn(mainLoop) end
