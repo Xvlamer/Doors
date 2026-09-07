@@ -1,35 +1,47 @@
 local CoreGui = game:GetService("CoreGui")
 
 if getgenv().AdvancedChairAdminLoaded then
-	warn("[Advanced Chair Admin]: Script is already running. Second execution blocked.")
+	warn("[Advanced Chair Admin]: Script is already running.")
 	return
 end
 getgenv().AdvancedChairAdminLoaded = true
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local Players        = game:GetService("Players")
+local RunService     = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
+local Workspace      = game:GetService("Workspace")
 
-local player = Players.LocalPlayer
-local targetName = "ArchivesOfficeChair"
-local knownChairs = {}
-local collectedChairsMap = {}
+local player     = Players.LocalPlayer
+local TARGET_NAME = "ArchivesOfficeChair"
+
+local isRunning  = true
+local cleanedUp  = false
+
+local knownChairs   = {}
 local collectedChairs = {}
-local selectedTargets = {}
 
+local selectedTargets = {}
 local targetVisualData = {}
-local currentMode = "None" 
-local killTimer = 0
-local flingTimer = 0
-local jailPositions = {}
-local wallPositions = {}
-local orbitYLevels = {}
-local localOrbitY = 0
+
+local currentMode    = "None"
+local modeTimers     = {}
+
+local jailFormation  = {}
+local wallFormation  = {}
+local orbitYLevels   = {}
+local localOrbitY    = 0
+
 local cachedDeadTarget = nil
-local isRunning = true
-local cleanedUp = false
+local prevLocalDead    = false
+
+local descendantAddedConn
+local descendantRemovingConn
+local playerAddedConn
+local playerRemovingConn
+local inputBeganConn
+local dragInputGlobalConn
+local viewportConn
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "AdvancedChairAdmin"
@@ -41,352 +53,279 @@ uiScale.Parent = gui
 
 local function updateScreenScale()
 	pcall(function()
-		local viewport = Workspace.CurrentCamera.ViewportSize
-		if viewport.X < 800 or viewport.Y < 600 then
-			uiScale.Scale = math.clamp(viewport.Y / 700, 0.75, 1)
-		else
-			uiScale.Scale = 1
-		end
+		local vp = Workspace.CurrentCamera.ViewportSize
+		uiScale.Scale = (vp.X < 800 or vp.Y < 600) and math.clamp(vp.Y / 700, 0.75, 1) or 1
 	end)
 end
 
-local viewportConn = Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScreenScale)
+viewportConn = Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScreenScale)
 updateScreenScale()
 
--- Mobile Toggle Button
 local mobileToggleBtn = Instance.new("TextButton")
-mobileToggleBtn.Name = "MobileToggle"
-mobileToggleBtn.Size = UDim2.new(0, 110, 0, 36)
-mobileToggleBtn.Position = UDim2.new(0.5, -55, 0, 15)
+mobileToggleBtn.Name        = "MobileToggle"
+mobileToggleBtn.Size        = UDim2.new(0, 110, 0, 36)
+mobileToggleBtn.Position    = UDim2.new(0.5, -55, 0, 15)
 mobileToggleBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
-mobileToggleBtn.Text = "Toggle UI"
-mobileToggleBtn.TextColor3 = Color3.fromRGB(240, 240, 250)
-mobileToggleBtn.TextSize = 13
-mobileToggleBtn.Font = Enum.Font.GothamBold
-mobileToggleBtn.Visible = UserInputService.TouchEnabled
-mobileToggleBtn.Parent = gui
+mobileToggleBtn.Text        = "Toggle UI"
+mobileToggleBtn.TextColor3  = Color3.fromRGB(240, 240, 250)
+mobileToggleBtn.TextSize    = 13
+mobileToggleBtn.Font        = Enum.Font.GothamBold
+mobileToggleBtn.Visible     = UserInputService.TouchEnabled
+mobileToggleBtn.Parent      = gui
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = mobileToggleBtn
+	local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(70,70,100); s.Thickness = 1.5; s.Parent = mobileToggleBtn
+end
 
-local mCorner = Instance.new("UICorner")
-mCorner.CornerRadius = UDim.new(0, 8)
-mCorner.Parent = mobileToggleBtn
-
-local mStroke = Instance.new("UIStroke")
-mStroke.Color = Color3.fromRGB(70, 70, 100)
-mStroke.Thickness = 1.5
-mStroke.Parent = mobileToggleBtn
-
--- Main Frame
 local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 300, 0, 0)
-mainFrame.AutomaticSize = Enum.AutomaticSize.Y
-mainFrame.Position = UDim2.new(0, 25, 0.5, -230)
+mainFrame.Name           = "MainFrame"
+mainFrame.Size           = UDim2.new(0, 300, 0, 0)
+mainFrame.AutomaticSize  = Enum.AutomaticSize.Y
+mainFrame.Position       = UDim2.new(0, 25, 0.5, -230)
 mainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
 mainFrame.BorderSizePixel = 0
-mainFrame.Parent = gui
+mainFrame.Parent         = gui
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,12); c.Parent = mainFrame
+	local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(45,45,65); s.Thickness = 1.5; s.Parent = mainFrame
+end
 
-local fCorner = Instance.new("UICorner")
-fCorner.CornerRadius = UDim.new(0, 12)
-fCorner.Parent = mainFrame
-
-local fStroke = Instance.new("UIStroke")
-fStroke.Color = Color3.fromRGB(45, 45, 65)
-fStroke.Thickness = 1.5
-fStroke.Parent = mainFrame
-
--- Top Bar
 local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 42)
+topBar.Size             = UDim2.new(1, 0, 0, 42)
 topBar.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
-topBar.BorderSizePixel = 0
-topBar.Parent = mainFrame
-
-local tbCorner = Instance.new("UICorner")
-tbCorner.CornerRadius = UDim.new(0, 12)
-tbCorner.Parent = topBar
-
-local topBarFix = Instance.new("Frame")
-topBarFix.Size = UDim2.new(1, 0, 0, 12)
-topBarFix.Position = UDim2.new(0, 0, 1, -12)
-topBarFix.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
-topBarFix.BorderSizePixel = 0
-topBarFix.Parent = topBar
+topBar.BorderSizePixel  = 0
+topBar.Parent           = mainFrame
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,12); c.Parent = topBar
+	local fix = Instance.new("Frame")
+	fix.Size = UDim2.new(1,0,0,12); fix.Position = UDim2.new(0,0,1,-12)
+	fix.BackgroundColor3 = Color3.fromRGB(24,24,34); fix.BorderSizePixel = 0; fix.Parent = topBar
+end
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(0.65, 0, 1, 0)
-title.Position = UDim2.new(0.05, 0, 0, 0)
+title.Size             = UDim2.new(0.65, 0, 1, 0)
+title.Position         = UDim2.new(0.05, 0, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "Chair Admin Panel"
-title.TextColor3 = Color3.fromRGB(240, 240, 250)
-title.TextSize = 14
-title.Font = Enum.Font.GothamBold
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = topBar
+title.Text             = "Chair Admin Panel"
+title.TextColor3       = Color3.fromRGB(240, 240, 250)
+title.TextSize         = 14
+title.Font             = Enum.Font.GothamBold
+title.TextXAlignment   = Enum.TextXAlignment.Left
+title.Parent           = topBar
 
 local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 28, 0, 28)
-minBtn.Position = UDim2.new(1, -70, 0.5, -14)
+minBtn.Size             = UDim2.new(0, 28, 0, 28)
+minBtn.Position         = UDim2.new(1, -70, 0.5, -14)
 minBtn.BackgroundColor3 = Color3.fromRGB(38, 38, 52)
-minBtn.Text = "-"
-minBtn.TextColor3 = Color3.fromRGB(220, 220, 230)
-minBtn.TextSize = 16
-minBtn.Font = Enum.Font.GothamBold
-minBtn.Parent = topBar
-
-local mBtnCorner = Instance.new("UICorner")
-mBtnCorner.CornerRadius = UDim.new(0, 6)
-mBtnCorner.Parent = minBtn
+minBtn.Text             = "-"
+minBtn.TextColor3       = Color3.fromRGB(220, 220, 230)
+minBtn.TextSize         = 16
+minBtn.Font             = Enum.Font.GothamBold
+minBtn.Parent           = topBar
+do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = minBtn end
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 28, 0, 28)
-closeBtn.Position = UDim2.new(1, -36, 0.5, -14)
+closeBtn.Size             = UDim2.new(0, 28, 0, 28)
+closeBtn.Position         = UDim2.new(1, -36, 0.5, -14)
 closeBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
-closeBtn.Text = "×"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.TextSize = 16
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.Parent = topBar
+closeBtn.Text             = "×"
+closeBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+closeBtn.TextSize         = 16
+closeBtn.Font             = Enum.Font.GothamBold
+closeBtn.Parent           = topBar
+do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = closeBtn end
 
-local cBtnCorner = Instance.new("UICorner")
-cBtnCorner.CornerRadius = UDim.new(0, 6)
-cBtnCorner.Parent = closeBtn
-
--- Confirmation Popup Frame
 local confirmFrame = Instance.new("Frame")
-confirmFrame.Name = "ConfirmFrame"
-confirmFrame.Size = UDim2.new(0, 240, 0, 110)
-confirmFrame.Position = UDim2.new(0.5, -120, 0.5, -55)
+confirmFrame.Name             = "ConfirmFrame"
+confirmFrame.Size             = UDim2.new(0, 240, 0, 110)
+confirmFrame.Position         = UDim2.new(0.5, -120, 0.5, -55)
 confirmFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-confirmFrame.BorderSizePixel = 0
-confirmFrame.Visible = false
-confirmFrame.ZIndex = 10
-confirmFrame.Parent = gui
-
-local cfCorner = Instance.new("UICorner")
-cfCorner.CornerRadius = UDim.new(0, 10)
-cfCorner.Parent = confirmFrame
-
-local cfStroke = Instance.new("UIStroke")
-cfStroke.Color = Color3.fromRGB(60, 60, 85)
-cfStroke.Thickness = 1.5
-cfStroke.Parent = confirmFrame
+confirmFrame.BorderSizePixel  = 0
+confirmFrame.Visible          = false
+confirmFrame.ZIndex           = 10
+confirmFrame.Parent           = gui
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,10); c.Parent = confirmFrame
+	local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(60,60,85); s.Thickness = 1.5; s.Parent = confirmFrame
+end
 
 local confirmText = Instance.new("TextLabel")
-confirmText.Size = UDim2.new(1, -20, 0, 45)
-confirmText.Position = UDim2.new(0, 10, 0, 12)
+confirmText.Size             = UDim2.new(1, -20, 0, 45)
+confirmText.Position         = UDim2.new(0, 10, 0, 12)
 confirmText.BackgroundTransparency = 1
-confirmText.Text = "Are you sure you want to close the menu?"
-confirmText.TextColor3 = Color3.fromRGB(230, 230, 240)
-confirmText.TextSize = 13
-confirmText.Font = Enum.Font.GothamBold
-confirmText.TextWrapped = true
-confirmText.ZIndex = 11
-confirmText.Parent = confirmFrame
+confirmText.Text             = "Are you sure you want to close the menu?"
+confirmText.TextColor3       = Color3.fromRGB(230, 230, 240)
+confirmText.TextSize         = 13
+confirmText.Font             = Enum.Font.GothamBold
+confirmText.TextWrapped      = true
+confirmText.ZIndex           = 11
+confirmText.Parent           = confirmFrame
 
 local yesBtn = Instance.new("TextButton")
-yesBtn.Size = UDim2.new(0.44, 0, 0, 30)
-yesBtn.Position = UDim2.new(0.04, 0, 1, -38)
+yesBtn.Size             = UDim2.new(0.44, 0, 0, 30)
+yesBtn.Position         = UDim2.new(0.04, 0, 1, -38)
 yesBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
-yesBtn.Text = "Confirm"
-yesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-yesBtn.TextSize = 12
-yesBtn.Font = Enum.Font.GothamBold
-yesBtn.ZIndex = 11
-yesBtn.Parent = confirmFrame
-
-local yCorner = Instance.new("UICorner")
-yCorner.CornerRadius = UDim.new(0, 6)
-yCorner.Parent = yesBtn
+yesBtn.Text             = "Confirm"
+yesBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+yesBtn.TextSize         = 12
+yesBtn.Font             = Enum.Font.GothamBold
+yesBtn.ZIndex           = 11
+yesBtn.Parent           = confirmFrame
+do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = yesBtn end
 
 local noBtn = Instance.new("TextButton")
-noBtn.Size = UDim2.new(0.44, 0, 0, 30)
-noBtn.Position = UDim2.new(0.52, 0, 1, -38)
+noBtn.Size             = UDim2.new(0.44, 0, 0, 30)
+noBtn.Position         = UDim2.new(0.52, 0, 1, -38)
 noBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-noBtn.Text = "Cancel"
-noBtn.TextColor3 = Color3.fromRGB(230, 230, 240)
-noBtn.TextSize = 12
-noBtn.Font = Enum.Font.GothamBold
-noBtn.ZIndex = 11
-noBtn.Parent = confirmFrame
+noBtn.Text             = "Cancel"
+noBtn.TextColor3       = Color3.fromRGB(230, 230, 240)
+noBtn.TextSize         = 12
+noBtn.Font             = Enum.Font.GothamBold
+noBtn.ZIndex           = 11
+noBtn.Parent           = confirmFrame
+do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = noBtn end
 
-local nCorner = Instance.new("UICorner")
-nCorner.CornerRadius = UDim.new(0, 6)
-nCorner.Parent = noBtn
-
--- Content Container
 local contentContainer = Instance.new("Frame")
-contentContainer.Size = UDim2.new(1, 0, 0, 0)
+contentContainer.Size          = UDim2.new(1, 0, 0, 0)
 contentContainer.AutomaticSize = Enum.AutomaticSize.Y
-contentContainer.Position = UDim2.new(0, 0, 0, 42)
+contentContainer.Position      = UDim2.new(0, 0, 0, 42)
 contentContainer.BackgroundTransparency = 1
-contentContainer.Parent = mainFrame
+contentContainer.Parent        = mainFrame
+do
+	local l = Instance.new("UIListLayout"); l.SortOrder = Enum.SortOrder.LayoutOrder; l.Padding = UDim.new(0,8); l.Parent = contentContainer
+	local p = Instance.new("UIPadding"); p.PaddingTop = UDim.new(0,10); p.PaddingBottom = UDim.new(0,10); p.PaddingLeft = UDim.new(0,12); p.PaddingRight = UDim.new(0,12); p.Parent = contentContainer
+end
 
-local contentLayout = Instance.new("UIListLayout")
-contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
-contentLayout.Padding = UDim.new(0, 8)
-contentLayout.Parent = contentContainer
-
-local contentPadding = Instance.new("UIPadding")
-contentPadding.PaddingTop = UDim.new(0, 10)
-contentPadding.PaddingBottom = UDim.new(0, 10)
-contentPadding.PaddingLeft = UDim.new(0, 12)
-contentPadding.PaddingRight = UDim.new(0, 12)
-contentPadding.Parent = contentContainer
-
--- Status Row
 local topRow = Instance.new("Frame")
-topRow.Size = UDim2.new(1, 0, 0, 28)
+topRow.Size                = UDim2.new(1, 0, 0, 28)
 topRow.BackgroundTransparency = 1
-topRow.LayoutOrder = 1
-topRow.Parent = contentContainer
+topRow.LayoutOrder         = 1
+topRow.Parent              = contentContainer
 
 local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, 0, 1, 0)
+status.Size                = UDim2.new(1, 0, 1, 0)
 status.BackgroundTransparency = 1
-status.Text = "Chairs Ready: 0"
-status.TextColor3 = Color3.fromRGB(50, 220, 120)
-status.TextSize = 12
-status.Font = Enum.Font.GothamBold
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.Parent = topRow
+status.Text                = "Chairs Ready: 0"
+status.TextColor3          = Color3.fromRGB(50, 220, 120)
+status.TextSize            = 12
+status.Font                = Enum.Font.GothamBold
+status.TextXAlignment      = Enum.TextXAlignment.Left
+status.Parent              = topRow
 
--- Scrolling Frame for Players
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, 0, 0, 105)
-scroll.BackgroundColor3 = Color3.fromRGB(11, 11, 16)
-scroll.BorderSizePixel = 0
-scroll.ScrollBarThickness = 3
-scroll.LayoutOrder = 2
-scroll.Parent = contentContainer
-
-local scrollCorner = Instance.new("UICorner")
-scrollCorner.CornerRadius = UDim.new(0, 8)
-scrollCorner.Parent = scroll
-
-local scrollStroke = Instance.new("UIStroke")
-scrollStroke.Color = Color3.fromRGB(30, 30, 45)
-scrollStroke.Thickness = 1
-scrollStroke.Parent = scroll
+scroll.Size                 = UDim2.new(1, 0, 0, 105)
+scroll.BackgroundColor3     = Color3.fromRGB(11, 11, 16)
+scroll.BorderSizePixel      = 0
+scroll.ScrollBarThickness   = 3
+scroll.LayoutOrder          = 2
+scroll.Parent               = contentContainer
+do
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = scroll
+	local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(30,30,45); s.Thickness = 1; s.Parent = scroll
+end
 
 local scrollLayout = Instance.new("UIListLayout")
 scrollLayout.SortOrder = Enum.SortOrder.Name
-scrollLayout.Padding = UDim.new(0, 4)
-scrollLayout.Parent = scroll
+scrollLayout.Padding   = UDim.new(0, 4)
+scrollLayout.Parent    = scroll
 
-local scrollPadding = Instance.new("UIPadding")
-scrollPadding.PaddingTop = UDim.new(0, 4)
-scrollPadding.PaddingBottom = UDim.new(0, 4)
-scrollPadding.PaddingLeft = UDim.new(0, 4)
-scrollPadding.PaddingRight = UDim.new(0, 4)
-scrollPadding.Parent = scroll
-
--- Action Buttons Holder
-local btnHolder = Instance.new("Frame")
-btnHolder.Size = UDim2.new(1, 0, 0, 0)
-btnHolder.AutomaticSize = Enum.AutomaticSize.Y
-btnHolder.BackgroundTransparency = 1
-btnHolder.LayoutOrder = 3
-btnHolder.Parent = contentContainer
-
-local btnLayout = Instance.new("UIListLayout")
-btnLayout.SortOrder = Enum.SortOrder.LayoutOrder
-btnLayout.Padding = UDim.new(0, 6)
-btnLayout.Parent = btnHolder
-
-local function createActionButton(name, color, order)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, 0, 0, 32)
-	btn.BackgroundColor3 = color
-	btn.Text = name
-	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	btn.TextSize = 13
-	btn.Font = Enum.Font.GothamBold
-	btn.LayoutOrder = order
-	btn.Parent = btnHolder
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
-	corner.Parent = btn
-	return btn
+do
+	local p = Instance.new("UIPadding"); p.PaddingTop = UDim.new(0,4); p.PaddingBottom = UDim.new(0,4); p.PaddingLeft = UDim.new(0,4); p.PaddingRight = UDim.new(0,4); p.Parent = scroll
 end
 
-local killBtn = createActionButton("KILL (K)", Color3.fromRGB(190, 45, 45), 1)
-local jailBtn = createActionButton("JAIL (L): OFF", Color3.fromRGB(180, 115, 35), 2)
-local orbitBtn = createActionButton("ORBIT (O): OFF", Color3.fromRGB(45, 105, 180), 3)
-local throwBtn = createActionButton("THROW (T): OFF", Color3.fromRGB(120, 40, 180), 4)
-local flingBtn = createActionButton("FLING (F)", Color3.fromRGB(65, 175, 120), 5)
-local wallBtn = createActionButton("WALL (R): OFF", Color3.fromRGB(40, 160, 180), 6)
+local btnHolder = Instance.new("Frame")
+btnHolder.Size              = UDim2.new(1, 0, 0, 0)
+btnHolder.AutomaticSize     = Enum.AutomaticSize.Y
+btnHolder.BackgroundTransparency = 1
+btnHolder.LayoutOrder       = 3
+btnHolder.Parent            = contentContainer
+do
+	local l = Instance.new("UIListLayout"); l.SortOrder = Enum.SortOrder.LayoutOrder; l.Padding = UDim.new(0,6); l.Parent = btnHolder
+end
+
+local function makeBtn(label, color, order)
+	local b = Instance.new("TextButton")
+	b.Size             = UDim2.new(1, 0, 0, 32)
+	b.BackgroundColor3 = color
+	b.Text             = label
+	b.TextColor3       = Color3.fromRGB(255, 255, 255)
+	b.TextSize         = 13
+	b.Font             = Enum.Font.GothamBold
+	b.LayoutOrder      = order
+	b.Parent           = btnHolder
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = b
+	return b
+end
+
+local killBtn  = makeBtn("KILL (K)",        Color3.fromRGB(190, 45, 45),   1)
+local jailBtn  = makeBtn("JAIL (L): OFF",   Color3.fromRGB(180, 115, 35),  2)
+local orbitBtn = makeBtn("ORBIT (O): OFF",  Color3.fromRGB(45, 105, 180),  3)
+local throwBtn = makeBtn("THROW (T): OFF",  Color3.fromRGB(120, 40, 180),  4)
+local flingBtn = makeBtn("FLING (F)",       Color3.fromRGB(65, 175, 120),  5)
+local wallBtn  = makeBtn("WALL (R): OFF",   Color3.fromRGB(40, 160, 180),  6)
+
+local ON_GREEN  = Color3.fromRGB(35, 150, 80)
+local BTN_COLORS = {
+	kill  = Color3.fromRGB(190, 45, 45),
+	jail  = Color3.fromRGB(180, 115, 35),
+	orbit = Color3.fromRGB(45, 105, 180),
+	throw = Color3.fromRGB(120, 40, 180),
+	fling = Color3.fromRGB(65, 175, 120),
+	wall  = Color3.fromRGB(40, 160, 180),
+}
+
+local function allModesOff()
+	jailBtn.Text  = "JAIL (L): OFF";  jailBtn.BackgroundColor3  = BTN_COLORS.jail
+	orbitBtn.Text = "ORBIT (O): OFF"; orbitBtn.BackgroundColor3 = BTN_COLORS.orbit
+	throwBtn.Text = "THROW (T): OFF"; throwBtn.BackgroundColor3 = BTN_COLORS.throw
+	wallBtn.Text  = "WALL (R): OFF";  wallBtn.BackgroundColor3  = BTN_COLORS.wall
+	jailFormation = {}
+	wallFormation = {}
+	orbitYLevels  = {}
+end
 
 local function clearTargetVisuals(p)
 	pcall(function()
-		local data = targetVisualData[p]
-		if data then
-			if data.tag and data.tag.Parent then
-				data.tag:Destroy()
-			end
-			if data.highlight and data.highlight.Parent then
-				data.highlight:Destroy()
-			end
-			targetVisualData[p] = nil
-		end
+		local d = targetVisualData[p]
+		if not d then return end
+		if d.tag and d.tag.Parent     then d.tag:Destroy()       end
+		if d.highlight and d.highlight.Parent then d.highlight:Destroy() end
+		targetVisualData[p] = nil
 	end)
 end
 
 local function updateTargetVisuals(p)
 	pcall(function()
-		if not selectedTargets[p] then
-			clearTargetVisuals(p)
-			return
-		end
-
+		if not selectedTargets[p] then clearTargetVisuals(p); return end
 		local char = p.Character
 		if not char or not char:FindFirstChild("Head") or not char:FindFirstChild("HumanoidRootPart") then
-			clearTargetVisuals(p)
-			return
+			clearTargetVisuals(p); return
 		end
-
 		if not targetVisualData[p] then
 			targetVisualData[p] = {}
-			
-			local bg = Instance.new("BillboardGui")
-			bg.Name = "TargetInfoTag"
-			bg.Size = UDim2.new(0, 160, 0, 50)
-			bg.StudsOffset = Vector3.new(0, 2.8, 0)
-			bg.AlwaysOnTop = true
-			bg.Parent = char.Head
-
-			local label = Instance.new("TextLabel")
-			label.Name = "InfoLabel"
-			label.Size = UDim2.new(1, 0, 1, 0)
-			label.BackgroundTransparency = 1
-			label.TextColor3 = Color3.fromRGB(255, 255, 255)
-			label.TextStrokeTransparency = 0
-			label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			label.TextSize = 13
-			label.Font = Enum.Font.GothamBold
-			label.TextWrapped = true
-			label.Parent = bg
-			
-			targetVisualData[p].tag = bg
-			targetVisualData[p].label = label
-
-			local highlight = Instance.new("Highlight")
-			highlight.Name = "TargetESP"
-			highlight.Adornee = char
-			highlight.FillColor = Color3.fromRGB(15, 15, 20)
-			highlight.FillTransparency = 0.5
-			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-			highlight.OutlineTransparency = 0.5
-			highlight.Parent = char
-
-			targetVisualData[p].highlight = highlight
+			local bg    = Instance.new("BillboardGui")
+			bg.Name     = "TargetInfoTag"; bg.Size = UDim2.new(0,160,0,50)
+			bg.StudsOffset = Vector3.new(0,2.8,0); bg.AlwaysOnTop = true; bg.Parent = char.Head
+			local lbl   = Instance.new("TextLabel")
+			lbl.Name    = "InfoLabel"; lbl.Size = UDim2.new(1,0,1,0)
+			lbl.BackgroundTransparency = 1; lbl.TextColor3 = Color3.fromRGB(255,255,255)
+			lbl.TextStrokeTransparency = 0; lbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+			lbl.TextSize = 13; lbl.Font = Enum.Font.GothamBold; lbl.TextWrapped = true; lbl.Parent = bg
+			targetVisualData[p].tag   = bg
+			targetVisualData[p].label = lbl
+			local hl = Instance.new("Highlight")
+			hl.Name             = "TargetESP"; hl.Adornee = char
+			hl.FillColor        = Color3.fromRGB(15,15,20); hl.FillTransparency = 0.5
+			hl.OutlineColor     = Color3.fromRGB(255,255,255); hl.OutlineTransparency = 0.5
+			hl.Parent           = char
+			targetVisualData[p].highlight = hl
 		end
-
-		local label = targetVisualData[p].label
-		local localHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if label and localHrp then
-			local dist = math.floor((localHrp.Position - char.HumanoidRootPart.Position).Magnitude + 0.5)
-			label.Text = "@" .. p.Name .. "\n" .. dist .. " studs"
+		local lbl    = targetVisualData[p].label
+		local lHrp   = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local hrp    = char:FindFirstChild("HumanoidRootPart")
+		if lbl and lHrp and hrp then
+			local dist = math.floor((lHrp.Position - hrp.Position).Magnitude + 0.5)
+			lbl.Text = "@" .. p.Name .. "\n" .. dist .. " studs"
 		end
 	end)
 end
@@ -394,24 +333,20 @@ end
 local dragging, dragInput, dragStart, startPos
 topBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
+		dragging  = true
 		dragStart = input.Position
-		startPos = mainFrame.Position
+		startPos  = mainFrame.Position
 		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
+			if input.UserInputState == Enum.UserInputState.End then dragging = false end
 		end)
 	end
 end)
-
 topBar.InputChanged:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 		dragInput = input
 	end
 end)
-
-local dragInputGlobalConn = UserInputService.InputChanged:Connect(function(input)
+dragInputGlobalConn = UserInputService.InputChanged:Connect(function(input)
 	if input == dragInput and dragging then
 		local delta = input.Position - dragStart
 		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -419,97 +354,69 @@ local dragInputGlobalConn = UserInputService.InputChanged:Connect(function(input
 end)
 
 local minimized = false
+local prevMouseBehavior = Enum.MouseBehavior.Default
+
+local function setUIVisible(v)
+	mainFrame.Visible = v
+	if not UserInputService.TouchEnabled then
+		if v then prevMouseBehavior = UserInputService.MouseBehavior; UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		else UserInputService.MouseBehavior = prevMouseBehavior end
+	end
+end
+
 minBtn.MouseButton1Click:Connect(function()
 	minimized = not minimized
 	contentContainer.Visible = not minimized
 	if minimized then
 		mainFrame.AutomaticSize = Enum.AutomaticSize.None
-		mainFrame.Size = UDim2.new(0, 300, 0, 42)
+		mainFrame.Size = UDim2.new(0,300,0,42)
 		minBtn.Text = "+"
 	else
-		mainFrame.Size = UDim2.new(0, 300, 0, 0)
+		mainFrame.Size = UDim2.new(0,300,0,0)
 		mainFrame.AutomaticSize = Enum.AutomaticSize.Y
 		minBtn.Text = "-"
 	end
 end)
 
-local previousMouseBehavior = Enum.MouseBehavior.Default
-
-local function setUIVisible(visible)
-	mainFrame.Visible = visible
-	if not UserInputService.TouchEnabled then
-		if visible then
-			previousMouseBehavior = UserInputService.MouseBehavior
-			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		else
-			UserInputService.MouseBehavior = previousMouseBehavior
-		end
-	end
-end
-
 local function cleanup()
 	if cleanedUp then return end
 	cleanedUp = true
 	isRunning = false
-
 	getgenv().AdvancedChairAdminLoaded = nil
 
 	pcall(function()
-		if not UserInputService.TouchEnabled then
-			UserInputService.MouseBehavior = previousMouseBehavior
-		end
+		if not UserInputService.TouchEnabled then UserInputService.MouseBehavior = prevMouseBehavior end
 	end)
-
-	pcall(function() if viewportConn then viewportConn:Disconnect() end end)
-	pcall(function() if descendantAddedConn then descendantAddedConn:Disconnect() end end)
-	pcall(function() if descendantRemovingConn then descendantRemovingConn:Disconnect() end end)
-	pcall(function() if playerAddedConn then playerAddedConn:Disconnect() end end)
-	pcall(function() if playerRemovingConn then playerRemovingConn:Disconnect() end end)
-	pcall(function() if inputBeganConn then inputBeganConn:Disconnect() end end)
-	pcall(function() if dragInputGlobalConn then dragInputGlobalConn:Disconnect() end end)
-
+	for _, conn in ipairs({ viewportConn, descendantAddedConn, descendantRemovingConn, playerAddedConn, playerRemovingConn, inputBeganConn, dragInputGlobalConn }) do
+		pcall(function() if conn then conn:Disconnect() end end)
+	end
 	for _, chair in ipairs(knownChairs) do
-		if chair and chair.Parent then
-			local esp = chair:FindFirstChild("BlueESP")
-			if esp then esp:Destroy() end
-			chair:SetAttribute("ReleasedInMisc", nil)
-			chair:SetAttribute("LastPromptTime", nil)
-			chair:SetAttribute("IsThrown", nil)
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
+		pcall(function()
+			if chair and chair.Parent then
+				local esp = chair:FindFirstChild("BlueESP"); if esp then esp:Destroy() end
+				chair:SetAttribute("ReleasedInMisc", nil)
+				chair:SetAttribute("LastPromptTime", nil)
+				chair:SetAttribute("IsThrown", nil)
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then part.Anchored = false end
 				end
 			end
-		end
+		end)
 	end
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		clearTargetVisuals(p)
-	end
+	for _, p in ipairs(Players:GetPlayers()) do clearTargetVisuals(p) end
 end
 
-gui.AncestryChanged:Connect(function(_, parent)
-	if not parent then
-		cleanup()
-	end
-end)
+gui.AncestryChanged:Connect(function(_, parent) if not parent then cleanup() end end)
+closeBtn.MouseButton1Click:Connect(function() confirmFrame.Visible = true end)
+yesBtn.MouseButton1Click:Connect(function() cleanup(); gui:Destroy() end)
+noBtn.MouseButton1Click:Connect(function() confirmFrame.Visible = false end)
+mobileToggleBtn.MouseButton1Click:Connect(function() setUIVisible(not mainFrame.Visible) end)
 
-closeBtn.MouseButton1Click:Connect(function()
-	confirmFrame.Visible = true
-end)
-
-yesBtn.MouseButton1Click:Connect(function()
-	cleanup()
-	gui:Destroy()
-end)
-
-noBtn.MouseButton1Click:Connect(function()
-	confirmFrame.Visible = false
-end)
-
-mobileToggleBtn.MouseButton1Click:Connect(function()
-	setUIVisible(not mainFrame.Visible)
-end)
+local function refreshTitleTargetCount()
+	local count = 0
+	for _ in pairs(selectedTargets) do count += 1 end
+	title.Text = count == 0 and "Chair Admin Panel" or ("Targets: " .. count)
+end
 
 local function updatePlayerList()
 	pcall(function()
@@ -517,285 +424,230 @@ local function updatePlayerList()
 			if child:IsA("TextButton") then child:Destroy() end
 		end
 		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= player then
-				local btn = Instance.new("TextButton")
-				btn.Size = UDim2.new(1, 0, 0, 30)
-				btn.BackgroundColor3 = selectedTargets[p] and Color3.fromRGB(50, 50, 80) or Color3.fromRGB(22, 22, 32)
-				btn.Text = p.DisplayName .. " (@" .. p.Name .. ")"
-				btn.TextColor3 = Color3.fromRGB(210, 210, 220)
-				btn.TextSize = 11
-				btn.Font = Enum.Font.Gotham
-				btn.Parent = scroll
-
-				local bCorner = Instance.new("UICorner")
-				bCorner.CornerRadius = UDim.new(0, 6)
-				bCorner.Parent = btn
-
-				btn.MouseButton1Click:Connect(function()
-					if selectedTargets[p] then
-						selectedTargets[p] = nil
-						btn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
-						clearTargetVisuals(p)
-					else
-						selectedTargets[p] = true
-						btn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
-						updateTargetVisuals(p)
-					end
-					
-					local count = 0
-					for _ in pairs(selectedTargets) do count = count + 1 end
-					if count == 0 then
-						title.Text = "Chair Admin Panel"
-					else
-						title.Text = "Targets: " .. count
-					end
-				end)
-			end
+			if p == player then continue end
+			local btn = Instance.new("TextButton")
+			btn.Size             = UDim2.new(1, 0, 0, 30)
+			btn.BackgroundColor3 = selectedTargets[p] and Color3.fromRGB(50,50,80) or Color3.fromRGB(22,22,32)
+			btn.Text             = p.DisplayName .. " (@" .. p.Name .. ")"
+			btn.TextColor3       = Color3.fromRGB(210, 210, 220)
+			btn.TextSize         = 11
+			btn.Font             = Enum.Font.Gotham
+			btn.Parent           = scroll
+			local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = btn
+			btn.MouseButton1Click:Connect(function()
+				if selectedTargets[p] then
+					selectedTargets[p] = nil
+					btn.BackgroundColor3 = Color3.fromRGB(22,22,32)
+					clearTargetVisuals(p)
+				else
+					selectedTargets[p] = true
+					btn.BackgroundColor3 = Color3.fromRGB(50,50,80)
+					updateTargetVisuals(p)
+				end
+				refreshTitleTargetCount()
+			end)
 		end
 		scroll.CanvasSize = UDim2.new(0, 0, 0, scrollLayout.AbsoluteContentSize.Y + 8)
 	end)
 end
 
-local playerAddedConn = Players.PlayerAdded:Connect(updatePlayerList)
-local playerRemovingConn = Players.PlayerRemoving:Connect(function(p)
+playerAddedConn   = Players.PlayerAdded:Connect(updatePlayerList)
+playerRemovingConn = Players.PlayerRemoving:Connect(function(p)
 	selectedTargets[p] = nil
 	clearTargetVisuals(p)
-	if cachedDeadTarget == p then
-		cachedDeadTarget = nil
-	end
+	if cachedDeadTarget == p then cachedDeadTarget = nil end
 	updatePlayerList()
+	refreshTitleTargetCount()
 end)
 updatePlayerList()
 
+local function getActiveTargets()
+	local out = {}
+	for p in pairs(selectedTargets) do
+		if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+
+local function buildJailFormation()
+	jailFormation = {}
+	local activeTargets = getActiveTargets()
+	local numTargets    = #activeTargets
+	if numTargets == 0 or #collectedChairs == 0 then return end
+
+	local chairsPerTarget = math.floor(#collectedChairs / numTargets)
+	local remainder       = #collectedChairs % numTargets
+	local chairIndex      = 1
+
+	local CAGE_RADIUS = 5.5
+	local FLOOR_Y     = -2.5
+	local CEIL_Y      =  3.5
+	local SPACING     =  2.5
+
+	for tIdx, p in ipairs(activeTargets) do
+		local tHrp = p.Character.HumanoidRootPart
+		local tPos = tHrp.Position
+		local countForTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
+
+		local assigned = {}
+		for i = 1, countForTarget do
+			if collectedChairs[chairIndex] then
+				table.insert(assigned, collectedChairs[chairIndex])
+				chairIndex += 1
+			end
+		end
+
+		local slots = {}
+
+		local northZ = tPos.Z - CAGE_RADIUS
+		local southZ = tPos.Z + CAGE_RADIUS
+		local westX  = tPos.X - CAGE_RADIUS
+		local eastX  = tPos.X + CAGE_RADIUS
+
+		local halfSteps = math.floor(CAGE_RADIUS / SPACING)
+		for step = -halfSteps, halfSteps do
+			local offset = step * SPACING
+			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + FLOOR_Y, northZ), yaw = math.pi })
+			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + FLOOR_Y, southZ), yaw = 0 })
+			table.insert(slots, { pos = Vector3.new(westX, tPos.Y + FLOOR_Y, tPos.Z + offset), yaw = -math.pi / 2 })
+			table.insert(slots, { pos = Vector3.new(eastX, tPos.Y + FLOOR_Y, tPos.Z + offset), yaw = math.pi / 2 })
+		end
+
+		for step = -halfSteps, halfSteps do
+			local offset = step * SPACING
+			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + CEIL_Y, northZ), yaw = math.pi })
+			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + CEIL_Y, southZ), yaw = 0 })
+			table.insert(slots, { pos = Vector3.new(westX, tPos.Y + CEIL_Y, tPos.Z + offset), yaw = -math.pi / 2 })
+			table.insert(slots, { pos = Vector3.new(eastX, tPos.Y + CEIL_Y, tPos.Z + offset), yaw = math.pi / 2 })
+		end
+
+		for step = -halfSteps, halfSteps do
+			local offset = step * SPACING
+			local roofY = tPos.Y + CEIL_Y + SPACING
+			table.insert(slots, { pos = Vector3.new(tPos.X + offset, roofY, northZ), yaw = math.pi, pitchDown = true })
+			table.insert(slots, { pos = Vector3.new(tPos.X + offset, roofY, southZ), yaw = 0, pitchDown = true })
+			table.insert(slots, { pos = Vector3.new(westX, roofY, tPos.Z + offset), yaw = -math.pi / 2, pitchDown = true })
+			table.insert(slots, { pos = Vector3.new(eastX, roofY, tPos.Z + offset), yaw = math.pi / 2, pitchDown = true })
+		end
+
+		for i = 1, math.min(#assigned, #slots) do
+			local chair = assigned[i]
+			local slot  = slots[i]
+			if not chair then break end
+			local pitch = slot.pitchDown and math.pi or 0
+			jailFormation[chair] = { pos = slot.pos, cf = CFrame.new(slot.pos) * CFrame.Angles(pitch, slot.yaw, 0) }
+		end
+	end
+end
+
+local function buildWallFormation()
+	wallFormation = {}
+	local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not rootPart or #collectedChairs == 0 then return end
+
+	local total    = #collectedChairs
+	local maxRows  = 4
+	local maxPerRow = math.max(math.ceil(total / maxRows), 1)
+	local rightVec = rootPart.CFrame.RightVector
+	local lookVec  = rootPart.CFrame.LookVector
+	local centerPos = rootPart.Position + lookVec * 25 + Vector3.new(0, -3, 0)
+	local spacingX = 2.6
+	local spacingY = 2.8
+
+	local rawYaw = math.atan2(lookVec.X, lookVec.Z)
+	local snapped = math.round(rawYaw / (math.pi / 2)) * (math.pi / 2)
+	local seatAngle = snapped
+
+	for i, chair in ipairs(collectedChairs) do
+		local row      = math.floor((i-1) / maxPerRow)
+		local col      = (i-1) % maxPerRow
+		local rowCount = math.min(total - row * maxPerRow, maxPerRow)
+		local xOffset  = (col - (rowCount - 1) / 2) * spacingX
+		local yOffset  = row * spacingY
+		local targetPos = centerPos + rightVec * xOffset + Vector3.new(0, yOffset, 0)
+		wallFormation[chair] = CFrame.new(targetPos) * CFrame.Angles(0, seatAngle, 0)
+	end
+end
+
+local function enterMode(mode)
+	allModesOff()
+	currentMode = mode
+	modeTimers[mode] = tick()
+end
+
+local function leaveMode(mode)
+	if currentMode == mode then
+		allModesOff()
+		currentMode = "None"
+	end
+end
+
 local function triggerKill()
-	currentMode = "Kill"
-	killTimer = tick()
-	jailBtn.Text = "JAIL (L): OFF"
-	jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
-	orbitBtn.Text = "ORBIT (O): OFF"
-	orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
-	throwBtn.Text = "THROW (T): OFF"
-	throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
-	wallBtn.Text = "WALL (R): OFF"
-	wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
-	jailPositions = {}
-	wallPositions = {}
-	orbitYLevels = {}
+	enterMode("Kill")
 end
 
 local function triggerJail()
 	if currentMode == "Jail" then
-		currentMode = "None"
-		jailBtn.Text = "JAIL (L): OFF"
-		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
-		jailPositions = {}
+		leaveMode("Jail")
 	else
-		currentMode = "Jail"
-		jailBtn.Text = "JAIL (L): ON"
-		jailBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
-		orbitBtn.Text = "ORBIT (O): OFF"
-		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
-		throwBtn.Text = "THROW (T): OFF"
-		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
-		wallBtn.Text = "WALL (R): OFF"
-		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
-		wallPositions = {}
-		orbitYLevels = {}
-		
-		jailPositions = {}
-		local activeTargets = {}
-		for p, _ in pairs(selectedTargets) do
-			if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-				table.insert(activeTargets, p)
-			end
-		end
-		local numTargets = #activeTargets
-		if numTargets > 0 and #collectedChairs > 0 then
-			local chairsPerTarget = math.floor(#collectedChairs / numTargets)
-			local remainder = #collectedChairs % numTargets
-			local chairIndex = 1
-			for tIdx, p in ipairs(activeTargets) do
-				local tHrp = p.Character.HumanoidRootPart
-				local tPos = tHrp.Position
-				local countForThisTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
-				
-				local roofCount = math.clamp(math.floor(countForThisTarget * 0.3), 3, 6)
-				local wallCount = countForThisTarget - roofCount
-				if wallCount < 4 then
-					wallCount = countForThisTarget
-					roofCount = 0
-				end
-
-				local assignedForTarget = {}
-				for i = 1, countForThisTarget do
-					if collectedChairs[chairIndex] then
-						table.insert(assignedForTarget, collectedChairs[chairIndex])
-						chairIndex = chairIndex + 1
-					end
-				end
-
-				local cIdx = 1
-				for i = 1, wallCount do
-					local chair = assignedForTarget[cIdx]
-					if chair then
-						cIdx = cIdx + 1
-						local angle = (i - 1) * (2 * math.pi / wallCount)
-						local radius = 6.5
-						local x = math.cos(angle) * radius
-						local z = math.sin(angle) * radius
-						local heightTier = (i % 2 == 0) and -1.8 or 1.2
-						jailPositions[chair] = tPos + Vector3.new(x, heightTier, z)
-					end
-				end
-
-				for i = 1, roofCount do
-					local chair = assignedForTarget[cIdx]
-					if chair then
-						cIdx = cIdx + 1
-						local r = (i == 1) and 0 or 3.5
-						local angleRoof = (i == 1) and 0 or ((i - 2) * (2 * math.pi / (roofCount - 1)))
-						local x = math.cos(angleRoof) * r
-						local z = math.sin(angleRoof) * r
-						jailPositions[chair] = tPos + Vector3.new(x, 4.2, z)
-					end
-				end
-			end
-		end
+		enterMode("Jail")
+		jailBtn.Text = "JAIL (L): ON"; jailBtn.BackgroundColor3 = ON_GREEN
+		buildJailFormation()
 	end
 end
 
 local function triggerOrbit()
 	if currentMode == "Orbit" then
-		currentMode = "None"
-		orbitBtn.Text = "ORBIT (O): OFF"
-		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
-		orbitYLevels = {}
+		leaveMode("Orbit")
 	else
-		currentMode = "Orbit"
-		orbitBtn.Text = "ORBIT (O): ON"
-		orbitBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
-		jailBtn.Text = "JAIL (L): OFF"
-		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
-		throwBtn.Text = "THROW (T): OFF"
-		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
-		wallBtn.Text = "WALL (R): OFF"
-		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
-		jailPositions = {}
-		wallPositions = {}
-		
-		orbitYLevels = {}
+		enterMode("Orbit")
+		orbitBtn.Text = "ORBIT (O): ON"; orbitBtn.BackgroundColor3 = ON_GREEN
 		local rootP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if rootP then
-			localOrbitY = rootP.Position.Y
-		end
-		for p, _ in pairs(selectedTargets) do
-			if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-				orbitYLevels[p] = p.Character.HumanoidRootPart.Position.Y
-			end
+		if rootP then localOrbitY = rootP.Position.Y end
+		orbitYLevels = {}
+		for p in pairs(selectedTargets) do
+			local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then orbitYLevels[p] = hrp.Position.Y end
 		end
 	end
 end
 
 local function triggerThrow()
 	if currentMode == "Throw" then
-		currentMode = "None"
-		throwBtn.Text = "THROW (T): OFF"
-		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		leaveMode("Throw")
 		for _, chair in ipairs(collectedChairs) do
 			if chair and chair.Parent then
 				chair:SetAttribute("IsThrown", nil)
 				for _, part in ipairs(chair:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+						part.AssemblyLinearVelocity  = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
 					end
 				end
 			end
 		end
 	else
-		currentMode = "Throw"
-		throwBtn.Text = "THROW (T): ON"
-		throwBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
-		jailBtn.Text = "JAIL (L): OFF"
-		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
-		orbitBtn.Text = "ORBIT (O): OFF"
-		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
-		wallBtn.Text = "WALL (R): OFF"
-		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
-		jailPositions = {}
-		wallPositions = {}
-		orbitYLevels = {}
-
+		enterMode("Throw")
+		throwBtn.Text = "THROW (T): ON"; throwBtn.BackgroundColor3 = ON_GREEN
 		for _, chair in ipairs(collectedChairs) do
-			if chair and chair.Parent then
-				chair:SetAttribute("IsThrown", nil)
-			end
+			if chair and chair.Parent then chair:SetAttribute("IsThrown", nil) end
 		end
 	end
 end
 
 local function triggerFling()
-	currentMode = "Fling"
-	flingTimer = tick()
-	jailBtn.Text = "JAIL (L): OFF"
-	jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
-	orbitBtn.Text = "ORBIT (O): OFF"
-	orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
-	throwBtn.Text = "THROW (T): OFF"
-	throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
-	wallBtn.Text = "WALL (R): OFF"
-	wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
-	jailPositions = {}
-	wallPositions = {}
-	orbitYLevels = {}
+	enterMode("Fling")
 end
 
 local function triggerWall()
 	if currentMode == "Wall" then
-		currentMode = "None"
-		wallBtn.Text = "WALL (R): OFF"
-		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
-		wallPositions = {}
+		leaveMode("Wall")
 	else
-		currentMode = "Wall"
-		wallBtn.Text = "WALL (R): ON"
-		wallBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
-		jailBtn.Text = "JAIL (L): OFF"
-		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
-		orbitBtn.Text = "ORBIT (O): OFF"
-		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
-		throwBtn.Text = "THROW (T): OFF"
-		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
-		jailPositions = {}
-		wallPositions = {}
-		orbitYLevels = {}
-
-		local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if rootPart and #collectedChairs > 0 then
-			local totalChairs = #collectedChairs
-			local maxRows = 5
-			local maxPerRow = math.ceil(totalChairs / maxRows)
-			if maxPerRow < 1 then maxPerRow = 1 end
-			
-			local rightVec = rootPart.CFrame.RightVector
-			local lookVec = rootPart.CFrame.LookVector
-			local centerPos = rootPart.Position + (lookVec * 15) + Vector3.new(0, -3.0, 0)
-			local spacingX = 3.2
-			local spacingY = 3.2
-
-			for i, chair in ipairs(collectedChairs) do
-				local row = math.floor((i - 1) / maxPerRow)
-				local col = (i - 1) % maxPerRow
-				local currentCharsInThisRow = math.min(totalChairs - row * maxPerRow, maxPerRow)
-				
-				local xOffset = (col - (currentCharsInThisRow - 1) / 2) * spacingX
-				local yOffset = row * spacingY
-				local targetPos = centerPos + (rightVec * xOffset) + Vector3.new(0, yOffset, 0)
-				
-				-- Uses the exact same clean position-based locking method as Jail, turned around 180 degrees
-				wallPositions[chair] = CFrame.new(targetPos) * CFrame.Angles(0, math.rad(180), 0)
-			end
-		end
+		enterMode("Wall")
+		wallBtn.Text = "WALL (R): ON"; wallBtn.BackgroundColor3 = ON_GREEN
+		buildWallFormation()
 	end
 end
 
@@ -806,104 +658,121 @@ throwBtn.MouseButton1Click:Connect(triggerThrow)
 flingBtn.MouseButton1Click:Connect(triggerFling)
 wallBtn.MouseButton1Click:Connect(triggerWall)
 
-local inputBeganConn = UserInputService.InputBegan:Connect(function(input, gp)
+inputBeganConn = UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
 		setUIVisible(not mainFrame.Visible)
-	elseif input.KeyCode == Enum.KeyCode.K then
-		triggerKill()
-	elseif input.KeyCode == Enum.KeyCode.L then
-		triggerJail()
-	elseif input.KeyCode == Enum.KeyCode.O then
-		triggerOrbit()
-	elseif input.KeyCode == Enum.KeyCode.T then
-		triggerThrow()
-	elseif input.KeyCode == Enum.KeyCode.F then
-		triggerFling()
-	elseif input.KeyCode == Enum.KeyCode.R then
-		triggerWall()
+	elseif input.KeyCode == Enum.KeyCode.K then triggerKill()
+	elseif input.KeyCode == Enum.KeyCode.L then triggerJail()
+	elseif input.KeyCode == Enum.KeyCode.O then triggerOrbit()
+	elseif input.KeyCode == Enum.KeyCode.T then triggerThrow()
+	elseif input.KeyCode == Enum.KeyCode.F then triggerFling()
+	elseif input.KeyCode == Enum.KeyCode.R then triggerWall()
 	end
 end)
 
 local function applyESP(chair)
 	pcall(function()
 		if not chair:FindFirstChild("BlueESP") then
-			local highlight = Instance.new("Highlight")
-			highlight.Name = "BlueESP"
-			highlight.FillColor = Color3.fromRGB(0, 100, 255)
-			highlight.OutlineColor = Color3.fromRGB(100, 180, 255)
-			highlight.Parent = chair
+			local h = Instance.new("Highlight"); h.Name = "BlueESP"
+			h.FillColor = Color3.fromRGB(0,100,255); h.OutlineColor = Color3.fromRGB(100,180,255); h.Parent = chair
 		end
 	end)
 end
 
 local function removeESP(chair)
 	pcall(function()
-		local esp = chair:FindFirstChild("BlueESP")
-		if esp then esp:Destroy() end
+		local esp = chair:FindFirstChild("BlueESP"); if esp then esp:Destroy() end
 	end)
 end
 
 local function registerChair(obj)
-	pcall(function()
-		if obj.Name == targetName then
-			if not table.find(knownChairs, obj) then
-				table.insert(knownChairs, obj)
-			end
-		end
-	end)
+	if obj.Name == TARGET_NAME and not table.find(knownChairs, obj) then
+		table.insert(knownChairs, obj)
+	end
 end
 
-descendantAddedConn = Workspace.DescendantAdded:Connect(registerChair)
+descendantAddedConn = Workspace.DescendantAdded:Connect(function(obj)
+	pcall(registerChair, obj)
+end)
 descendantRemovingConn = Workspace.DescendantRemoving:Connect(function(obj)
-	collectedChairsMap[obj] = nil
 	local idx = table.find(knownChairs, obj)
 	if idx then table.remove(knownChairs, idx) end
 end)
-
 for _, obj in ipairs(Workspace:GetDescendants()) do
-	registerChair(obj)
+	pcall(registerChair, obj)
 end
 
-task.spawn(function()
-	while isRunning do
-		pcall(function()
-			collectedChairs = {}
-			for chair, _ in pairs(collectedChairsMap) do
-				if chair and chair.Parent then
-					table.insert(collectedChairs, chair)
-				end
-			end
-			status.Text = "Chairs Ready: " .. #collectedChairs
-		end)
-		task.wait(0.05)
+local function pivotChair(chair, cf)
+	if chair:IsA("Model") then
+		chair:PivotTo(cf)
+	elseif chair:IsA("BasePart") then
+		chair.CFrame = cf
 	end
-end)
+end
 
-RunService.Heartbeat:Connect(function(dt)
+local function applyPartsState(chair, canCollide, velocity)
+	for _, part in ipairs(chair:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored  = false
+			part.CanCollide = canCollide
+			if velocity then
+				part.AssemblyLinearVelocity  = velocity
+				part.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
+end
+
+local function applyPartsChaotic(chair, linVel, angVelRange)
+	for _, part in ipairs(chair:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored   = false
+			part.CanCollide = true
+			part.AssemblyLinearVelocity  = linVel
+			part.AssemblyAngularVelocity = Vector3.new(
+				math.random(-angVelRange, angVelRange),
+				math.random(-angVelRange, angVelRange),
+				math.random(-angVelRange, angVelRange)
+			)
+		end
+	end
+end
+
+RunService.Heartbeat:Connect(function()
 	if not isRunning then return end
-	local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+
+	local localChar = player.Character
+	local rootPart  = localChar and localChar:FindFirstChild("HumanoidRootPart")
 	if not rootPart then return end
 
-	local targetsChanged = false
-	for p, _ in pairs(selectedTargets) do
-		local char = p.Character
-		local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		
-		local shouldRemove = false
-		if not char or not humanoid or humanoid.Health <= 0 then
-			shouldRemove = true
-		elseif hrp and rootPart then
-			local dist = (hrp.Position - rootPart.Position).Magnitude
-			if dist > 10000 then
-				shouldRemove = true
-			end
-		elseif not hrp then
-			shouldRemove = true
-		end
+	local localHumanoid = localChar:FindFirstChildOfClass("Humanoid")
+	local isLocalDead   = not localHumanoid or localHumanoid.Health <= 0
 
-		if shouldRemove then
+	if isLocalDead and not prevLocalDead then
+		cachedDeadTarget = nil
+		local others = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				table.insert(others, p)
+			end
+		end
+		if #others > 0 then cachedDeadTarget = others[math.random(1, #others)] end
+	elseif not isLocalDead and prevLocalDead then
+		cachedDeadTarget = nil
+	end
+	prevLocalDead = isLocalDead
+
+	local targetsChanged = false
+	for p in pairs(selectedTargets) do
+		local char     = p.Character
+		local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp      = char and char:FindFirstChild("HumanoidRootPart")
+		local remove   = not char or not humanoid or humanoid.Health <= 0 or not hrp
+		if not remove and hrp then
+			remove = (hrp.Position - rootPart.Position).Magnitude > 10000
+		end
+		if remove then
 			selectedTargets[p] = nil
 			clearTargetVisuals(p)
 			targetsChanged = true
@@ -911,397 +780,219 @@ RunService.Heartbeat:Connect(function(dt)
 			updateTargetVisuals(p)
 		end
 	end
-	
-	if targetsChanged then
-		updatePlayerList()
-		local count = 0
-		for _ in pairs(selectedTargets) do count = count + 1 end
-		if count == 0 then
-			title.Text = "Chair Admin Panel"
-		else
-			title.Text = "Targets: " .. count
-		end
-	end
+	if targetsChanged then updatePlayerList(); refreshTitleTargetCount() end
 
 	local miscFolder = Workspace:FindFirstChild("Misc")
-	local remote = ReplicatedStorage:FindFirstChild("RemotesFolder") and ReplicatedStorage.RemotesFolder:FindFirstChild("CartControl")
+	local remote     = ReplicatedStorage:FindFirstChild("RemotesFolder") and ReplicatedStorage.RemotesFolder:FindFirstChild("CartControl")
+	local now        = tick()
 
-	local availableChairs = {}
-	local currentTime = tick()
+	collectedChairs = {}
+	local proximityQueue = {}
 
 	for _, chair in ipairs(knownChairs) do
-		if chair and chair.Parent then
-			local inMisc = miscFolder and chair:IsDescendantOf(miscFolder)
-			
-			if inMisc then
-				collectedChairsMap[chair] = true
-				removeESP(chair)
-				chair:SetAttribute("LastPromptTime", nil)
-				
-				if not chair:GetAttribute("ReleasedInMisc") then
-					chair:SetAttribute("ReleasedInMisc", true)
-					if remote then
-						task.spawn(function()
-							pcall(function() remote:FireServer() end)
-						end)
-					end
-				end
-			else
-				chair:SetAttribute("ReleasedInMisc", nil)
-				collectedChairsMap[chair] = nil
-				applyESP(chair)
-
-				local primary = chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart")) or chair
-				if primary then
-					local dist = (rootPart.Position - primary.Position).Magnitude
-					if dist <= 25 then
-						local prompt = chair:FindFirstChild("CartPrompt", true)
-						if prompt then
-							local lastFired = chair:GetAttribute("LastPromptTime") or 0
-							if currentTime - lastFired >= 0.1 then
-								chair:SetAttribute("LastPromptTime", currentTime)
-								table.insert(availableChairs, {chair = chair, prompt = prompt, dist = dist})
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	table.sort(availableChairs, function(a, b)
-		return a.dist < b.dist
-	end)
-
-	for _, item in ipairs(availableChairs) do
-		pcall(function()
-			fireproximityprompt(item.prompt)
-		end)
-		if remote then
-			task.spawn(function()
-				pcall(function() remote:FireServer() end)
-			end)
-		end
-	end
-
-	if currentMode == "Kill" then
-		if tick() - killTimer > 5 then
-			currentMode = "None"
-			jailPositions = {}
-			wallPositions = {}
-			orbitYLevels = {}
-		end
-	elseif currentMode == "Fling" then
-		if tick() - flingTimer > 1 then
-			currentMode = "None"
-			jailPositions = {}
-			wallPositions = {}
-			orbitYLevels = {}
-		end
-	end
-
-	local activeTargets = {}
-	for p, _ in pairs(selectedTargets) do
-		if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-			table.insert(activeTargets, p)
-		end
-	end
-
-	local assignedChairs = {}
-	local numTargets = #activeTargets
-
-	if currentMode == "Jail" then
-	elseif currentMode == "Orbit" and numTargets > 0 then
-		local chairsPerTarget = math.floor(#collectedChairs / numTargets)
-		local remainder = #collectedChairs % numTargets
-		
-		local chairIndex = 1
-		for tIdx, p in ipairs(activeTargets) do
-			local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-			if tHrp then
-				local countForThisTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
-				local targetChairs = {}
-				for i = 1, countForThisTarget do
-					if collectedChairs[chairIndex] then
-						table.insert(targetChairs, collectedChairs[chairIndex])
-						chairIndex = chairIndex + 1
-					end
-				end
-				
-				local lockedY = orbitYLevels[p] or tHrp.Position.Y
-				for localIdx, chair in ipairs(targetChairs) do
-					assignedChairs[chair] = {
-						HRP = tHrp,
-						Type = "Orbit",
-						Index = localIdx,
-						Total = #targetChairs,
-						LockedY = lockedY
-					}
-				end
-			end
-		end
-	elseif currentMode == "Throw" then
-	elseif currentMode == "Wall" then
-	elseif currentMode == "Fling" and numTargets > 0 then
-		local chairIdx = 1
-		for _, p in ipairs(activeTargets) do
-			local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-			if tHrp then
-				for i = 1, 3 do
-					local chair = collectedChairs[chairIdx]
-					if chair then
-						assignedChairs[chair] = { HRP = tHrp, Type = "Fling", Index = i }
-						chairIdx = chairIdx + 1
-					end
-				end
-			end
-		end
-	elseif numTargets > 0 and #collectedChairs > 0 and currentMode == "Kill" then
-		local chairsPerTarget = math.floor(#collectedChairs / numTargets)
-		local remainder = #collectedChairs % numTargets
-		
-		local chairIndex = 1
-		for tIdx, p in ipairs(activeTargets) do
-			local tHrp = p.Character.HumanoidRootPart
-			local countForThisTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
-			
-			local targetChairs = {}
-			for i = 1, countForThisTarget do
-				if collectedChairs[chairIndex] then
-					table.insert(targetChairs, collectedChairs[chairIndex])
-					chairIndex = chairIndex + 1
-				end
-			end
-			
-			for localIdx, chair in ipairs(targetChairs) do
-				assignedChairs[chair] = {
-					HRP = tHrp,
-					Type = currentMode,
-					Index = localIdx,
-					Total = #targetChairs
-				}
-			end
-		end
-	end
-
-	local localHumanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-	local isLocalDead = (not localHumanoid) or (localHumanoid.Health <= 0)
-
-	if not isLocalDead then
-		cachedDeadTarget = nil
-	elseif isLocalDead and not cachedDeadTarget then
-		local otherPlayers = {}
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-				table.insert(otherPlayers, p)
-			end
-		end
-		if #otherPlayers > 0 then
-			cachedDeadTarget = otherPlayers[math.random(1, #otherPlayers)]
-		end
-	end
-
-	for i, chair in ipairs(collectedChairs) do
 		if not chair or not chair.Parent then continue end
-		local assignment = assignedChairs[chair]
-		
-		if currentMode == "Jail" then
-			local targetPos = jailPositions[chair] or (rootPart.Position - Vector3.new(0, 30, 0))
-			if chair:IsA("Model") then
-				chair:PivotTo(CFrame.new(targetPos))
-			elseif chair:IsA("BasePart") then
-				chair.CFrame = CFrame.new(targetPos)
-			end
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.CanCollide = true
-					part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-					part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-				end
-			end
-		elseif currentMode == "Wall" then
-			local targetCF = wallPositions[chair]
-			if targetCF then
-				if chair:IsA("Model") then
-					chair:PivotTo(targetCF)
-				elseif chair:IsA("BasePart") then
-					chair.CFrame = targetCF
-				end
 
-				for _, part in ipairs(chair:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.Anchored = false
-						part.CanCollide = true
-						part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-					end
-				end
-			end
-		elseif currentMode == "Orbit" and numTargets == 0 then
-			local totalChairs = #collectedChairs
-			local radius = 12
-			local spinSpeed = 4
-			local angle = ((i - 1) * (2 * math.pi / totalChairs)) + (tick() * spinSpeed)
-			local x = math.cos(angle) * radius
-			local z = math.sin(angle) * radius
-			
-			local targetPos = Vector3.new(rootPart.Position.X + x, localOrbitY, rootPart.Position.Z + z)
+		local inMisc = miscFolder and chair:IsDescendantOf(miscFolder)
 
-			if chair:IsA("Model") then
-				chair:PivotTo(CFrame.new(targetPos))
-			elseif chair:IsA("BasePart") then
-				chair.CFrame = CFrame.new(targetPos)
-			end
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.CanCollide = false
-					part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-					part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-				end
-			end
-		elseif assignment and assignment.Type == "Orbit" then
-			local targetHRP = assignment.HRP
-			local idx = assignment.Index
-			local totalChairs = assignment.Total
-			local radius = 12
-			local spinSpeed = 4
-			local angle = ((idx - 1) * (2 * math.pi / math.max(totalChairs, 1))) + (tick() * spinSpeed)
-			local x = math.cos(angle) * radius
-			local z = math.sin(angle) * radius
-			
-			local lockedY = assignment.LockedY or targetHRP.Position.Y
-			local targetPos = Vector3.new(targetHRP.Position.X + x, lockedY, targetHRP.Position.Z + z)
-
-			if chair:IsA("Model") then
-				chair:PivotTo(CFrame.new(targetPos))
-			elseif chair:IsA("BasePart") then
-				chair.CFrame = CFrame.new(targetPos)
-			end
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.CanCollide = false
-					part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-					part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-				end
-			end
-		elseif currentMode == "Throw" then
-			local primary = chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart")) or chair
-			if primary then
-				local chairPos = primary.Position
-				local diff = chairPos - rootPart.Position
-				local distFromPlayer = diff.Magnitude
-
-				if distFromPlayer > 500 then
-					chair:SetAttribute("IsThrown", nil)
-					local resetPos = rootPart.Position - Vector3.new(0, 30, 0)
-					if chair:IsA("Model") then
-						chair:PivotTo(CFrame.new(resetPos))
-					elseif chair:IsA("BasePart") then
-						chair.CFrame = CFrame.new(resetPos)
-					end
-					for _, part in ipairs(chair:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-							part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-						end
-					end
-				elseif not chair:GetAttribute("IsThrown") then
-					chair:SetAttribute("IsThrown", true)
-					
-					local frontCenter = rootPart.Position + (rootPart.CFrame.LookVector * 15) + Vector3.new(0, 2, 0)
-					local angle = (i - 1) * (2 * math.pi / math.max(#collectedChairs, 1))
-					local spread = Vector3.new(math.cos(angle) * 2.5, (i % 2) * 1.2, math.sin(angle) * 2.5)
-					local targetPos = frontCenter + spread
-
-					if chair:IsA("Model") then
-						chair:PivotTo(CFrame.new(targetPos))
-					elseif chair:IsA("BasePart") then
-						chair.CFrame = CFrame.new(targetPos)
-					end
-
-					task.delay(0.05, function()
-						if chair and chair.Parent then
-							for _, part in ipairs(chair:GetDescendants()) do
-								if part:IsA("BasePart") then
-									part.Anchored = false
-									part.CanCollide = true
-									local lookDir = rootPart.CFrame.LookVector
-									part.AssemblyLinearVelocity = (lookDir * 250) + Vector3.new(0, math.random(20, 45), 0)
-									part.AssemblyAngularVelocity = Vector3.new(math.random(-400, 400), math.random(-400, 400), math.random(-400, 400))
-								end
-							end
-						end
-					end)
-				end
-			end
-		elseif assignment and assignment.Type == "Fling" then
-			local targetHRP = assignment.HRP
-			local idx = assignment.Index
-			local angle = (idx - 1) * (2 * math.pi / 3)
-			local x = math.cos(angle) * 0.5
-			local z = math.sin(angle) * 0.5
-			local targetPos = targetHRP.Position + Vector3.new(x, -2, z)
-			
-			if chair:IsA("Model") then
-				chair:PivotTo(CFrame.new(targetPos))
-			elseif chair:IsA("BasePart") then
-				chair.CFrame = CFrame.new(targetPos)
-			end
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.CanCollide = true
-					part.AssemblyLinearVelocity = Vector3.new(math.random(-80, 80), math.random(150, 250), math.random(-80, 80))
-					part.AssemblyAngularVelocity = Vector3.new(math.random(-999, 999), math.random(-999, 999), math.random(-999, 999))
-				end
-			end
-		elseif assignment and assignment.Type == "Kill" then
-			local targetHRP = assignment.HRP
-			local idx = assignment.Index
-			local timeVal = tick() * 35 + (idx * 1.5)
-			local radius = 3.5 + math.sin(tick() * 15 + idx) * 1.5
-			local x = math.cos(timeVal) * radius
-			local z = math.sin(timeVal) * radius
-			local yOffset = math.sin(tick() * 25 + idx) * 3 + 2.5
-			local targetPos = targetHRP.Position + Vector3.new(x, yOffset, z)
-
-			if chair:IsA("Model") then
-				chair:PivotTo(CFrame.new(targetPos))
-			elseif chair:IsA("BasePart") then
-				chair.CFrame = CFrame.new(targetPos)
-			end
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.CanCollide = false
-					part.AssemblyLinearVelocity = Vector3.new(math.random(-400, 400), math.random(200, 500), math.random(-400, 400))
-					part.AssemblyAngularVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
+		if inMisc then
+			table.insert(collectedChairs, chair)
+			removeESP(chair)
+			chair:SetAttribute("LastPromptTime", nil)
+			if not chair:GetAttribute("ReleasedInMisc") then
+				chair:SetAttribute("ReleasedInMisc", true)
+				if remote then
+					task.spawn(function() pcall(function() remote:FireServer() end) end)
 				end
 			end
 		else
-			local targetPos
-			if isLocalDead and cachedDeadTarget and cachedDeadTarget.Character and cachedDeadTarget.Character:FindFirstChild("HumanoidRootPart") then
-				targetPos = cachedDeadTarget.Character.HumanoidRootPart.Position - Vector3.new(0, 30, (i % 5) * 2)
-			else
-				targetPos = rootPart.Position - Vector3.new(0, 30, (i % 5) * 2)
+			chair:SetAttribute("ReleasedInMisc", nil)
+
+			local esp = chair:FindFirstChild("BlueESP")
+			if not esp then
+				local h = Instance.new("Highlight")
+				h.Name = "BlueESP"
+				h.FillColor = Color3.fromRGB(0, 100, 255)
+				h.OutlineColor = Color3.fromRGB(100, 180, 255)
+				h.Parent = chair
 			end
 
-			if chair:IsA("Model") then
-				chair:PivotTo(CFrame.new(targetPos))
-			elseif chair:IsA("BasePart") then
-				chair.CFrame = CFrame.new(targetPos)
-			end
-			for _, part in ipairs(chair:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.CanCollide = false
-					part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-					part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+			local primary = (chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart"))) or (chair:IsA("BasePart") and chair)
+			if primary then
+				local dist = (rootPart.Position - primary.Position).Magnitude
+				if dist <= 25 then
+					local prompt = chair:FindFirstChild("CartPrompt", true)
+					if prompt then
+						local lastFired = chair:GetAttribute("LastPromptTime") or 0
+						if now - lastFired >= 0.1 then
+							chair:SetAttribute("LastPromptTime", now)
+							table.insert(proximityQueue, { chair = chair, prompt = prompt, dist = dist })
+						end
+					end
 				end
 			end
+		end
+	end
+
+	status.Text = "Chairs Ready: " .. #collectedChairs
+
+	table.sort(proximityQueue, function(a, b) return a.dist < b.dist end)
+	for _, item in ipairs(proximityQueue) do
+		pcall(function() fireproximityprompt(item.prompt) end)
+		if remote then
+			task.spawn(function() pcall(function() remote:FireServer() end) end)
+		end
+	end
+
+	if currentMode == "Kill"  and now - (modeTimers["Kill"]  or 0) > 5 then allModesOff(); currentMode = "None" end
+	if currentMode == "Fling" and now - (modeTimers["Fling"] or 0) > 1 then allModesOff(); currentMode = "None" end
+
+	if #collectedChairs == 0 then return end
+
+	local activeTargets = getActiveTargets()
+	local numTargets    = #activeTargets
+	local t             = tick()
+
+	if currentMode == "Jail" then
+		for _, chair in ipairs(collectedChairs) do
+			if not chair or not chair.Parent then continue end
+			local entry = jailFormation[chair]
+			if entry then
+				pivotChair(chair, entry.cf)
+				applyPartsState(chair, true, Vector3.zero)
+			else
+				local fallback = rootPart.Position - Vector3.new(0, 30, 0)
+				pivotChair(chair, CFrame.new(fallback))
+				applyPartsState(chair, false, Vector3.zero)
+			end
+		end
+
+	elseif currentMode == "Wall" then
+		for _, chair in ipairs(collectedChairs) do
+			if not chair or not chair.Parent then continue end
+			local cf = wallFormation[chair]
+			if cf then
+				pivotChair(chair, cf)
+				applyPartsState(chair, true, Vector3.zero)
+			end
+		end
+
+	elseif currentMode == "Orbit" then
+		if numTargets == 0 then
+			local total = #collectedChairs
+			local radius, spinSpeed = 12, 4
+			for i, chair in ipairs(collectedChairs) do
+				if not chair or not chair.Parent then continue end
+				local angle = ((i-1) * (2*math.pi / total)) + t * spinSpeed
+				local pos   = Vector3.new(rootPart.Position.X + math.cos(angle)*radius, localOrbitY, rootPart.Position.Z + math.sin(angle)*radius)
+				pivotChair(chair, CFrame.new(pos))
+				applyPartsState(chair, false, Vector3.zero)
+			end
+		else
+			local perTarget = math.floor(#collectedChairs / numTargets)
+			local rem       = #collectedChairs % numTargets
+			local cIdx      = 1
+			for tIdx, p in ipairs(activeTargets) do
+				local hrp   = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+				if not hrp then cIdx += perTarget + (tIdx <= rem and 1 or 0); continue end
+				local count = perTarget + (tIdx <= rem and 1 or 0)
+				local locY  = orbitYLevels[p] or hrp.Position.Y
+				local radius, spinSpeed = 12, 4
+				for localIdx = 1, count do
+					local chair = collectedChairs[cIdx]; cIdx += 1
+					if not chair or not chair.Parent then continue end
+					local angle = ((localIdx-1) * (2*math.pi / math.max(count,1))) + t * spinSpeed
+					local pos   = Vector3.new(hrp.Position.X + math.cos(angle)*radius, locY, hrp.Position.Z + math.sin(angle)*radius)
+					pivotChair(chair, CFrame.new(pos))
+					applyPartsState(chair, false, Vector3.zero)
+				end
+			end
+		end
+
+	elseif currentMode == "Throw" then
+		for i, chair in ipairs(collectedChairs) do
+			if not chair or not chair.Parent then continue end
+			local primary = (chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart"))) or (chair:IsA("BasePart") and chair)
+			if not primary then continue end
+
+			local dist = (primary.Position - rootPart.Position).Magnitude
+			if dist > 500 then
+				chair:SetAttribute("IsThrown", nil)
+				pivotChair(chair, CFrame.new(rootPart.Position - Vector3.new(0,30, (i%5)*2)))
+				applyPartsState(chair, false, Vector3.zero)
+			elseif not chair:GetAttribute("IsThrown") then
+				chair:SetAttribute("IsThrown", true)
+				local groundY = rootPart.Position.Y - 2.5
+				local front   = Vector3.new(
+					rootPart.Position.X + rootPart.CFrame.LookVector.X * 15,
+					groundY,
+					rootPart.Position.Z + rootPart.CFrame.LookVector.Z * 15
+				)
+				local stagger = Vector3.new(0, i * 0.15, 0)
+				pivotChair(chair, CFrame.new(front + stagger))
+				task.delay(0.05, function()
+					if chair and chair.Parent then
+						local lookDir = rootPart.CFrame.LookVector
+						applyPartsChaotic(chair,
+							(lookDir * 250) + Vector3.new(0, math.random(20,45), 0),
+							400
+						)
+					end
+				end)
+			end
+		end
+
+	elseif currentMode == "Fling" and numTargets > 0 then
+		local cIdx = 1
+		for _, p in ipairs(activeTargets) do
+			local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+			if not hrp then continue end
+			for localIdx = 1, 3 do
+				local chair = collectedChairs[cIdx]; cIdx += 1
+				if not chair or not chair.Parent then continue end
+				local angle = (localIdx-1) * (2*math.pi / 3)
+				pivotChair(chair, CFrame.new(hrp.Position + Vector3.new(math.cos(angle)*0.5, -2, math.sin(angle)*0.5)))
+				applyPartsChaotic(chair,
+					Vector3.new(math.random(-80,80), math.random(150,250), math.random(-80,80)),
+					999
+				)
+			end
+		end
+
+	elseif currentMode == "Kill" and numTargets > 0 then
+		local perTarget = math.floor(#collectedChairs / numTargets)
+		local rem       = #collectedChairs % numTargets
+		local cIdx      = 1
+		for tIdx, p in ipairs(activeTargets) do
+			local hrp   = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+			if not hrp then cIdx += perTarget + (tIdx <= rem and 1 or 0); continue end
+			local count = perTarget + (tIdx <= rem and 1 or 0)
+			for localIdx = 1, count do
+				local chair = collectedChairs[cIdx]; cIdx += 1
+				if not chair or not chair.Parent then continue end
+				local radius  = 3.5 + math.sin(t * 15 + localIdx) * 1.5
+				local angle   = t * 35 + localIdx * 1.5
+				local x       = math.cos(angle) * radius
+				local z       = math.sin(angle) * radius
+				local yOff    = math.sin(t * 25 + localIdx) * 3 + 2.5
+				pivotChair(chair, CFrame.new(hrp.Position + Vector3.new(x, yOff, z)))
+				applyPartsChaotic(chair,
+					Vector3.new(math.random(-400,400), math.random(200,500), math.random(-400,400)),
+					99999
+				)
+			end
+		end
+
+	else
+		local fallbackPos
+		if isLocalDead and cachedDeadTarget and cachedDeadTarget.Character and cachedDeadTarget.Character:FindFirstChild("HumanoidRootPart") then
+			fallbackPos = cachedDeadTarget.Character.HumanoidRootPart.Position
+		else
+			fallbackPos = rootPart.Position
+		end
+		for i, chair in ipairs(collectedChairs) do
+			if not chair or not chair.Parent then continue end
+			pivotChair(chair, CFrame.new(fallbackPos - Vector3.new(0, 30, (i%5)*2)))
+			applyPartsState(chair, false, Vector3.zero)
 		end
 	end
 end)
