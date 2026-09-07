@@ -509,10 +509,10 @@ local function cleanup()
 	pcall(function() if inputBeganConn then inputBeganConn:Disconnect() end end)
 	pcall(function() if dragInputGlobalConn then dragInputGlobalConn:Disconnect() end end)
 
-	-- Keep chairs in a locked position with LastPusherId set to executor's UserId for a new script to grab
 	for _, chair in ipairs(knownChairs) do
 		if chair and chair.Parent then
 			pcall(function()
+				chair:SetAttribute("PlayerId", player.UserId)
 				chair:SetAttribute("LastPusherId", player.UserId)
 				local esp = chair:FindFirstChild("BlueESP")
 				if esp then esp:Destroy() end
@@ -569,10 +569,11 @@ local function updatePlayerList()
 		end
 		for _, p in ipairs(Players:GetPlayers()) do
 			if p ~= player then
+				local targetP = p -- Safe reference capture for closures
 				local btn = Instance.new("TextButton")
 				btn.Size = UDim2.new(1, 0, 0, 30)
-				btn.BackgroundColor3 = selectedTargets[p] and Color3.fromRGB(50, 50, 80) or Color3.fromRGB(22, 22, 32)
-				btn.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+				btn.BackgroundColor3 = selectedTargets[targetP] and Color3.fromRGB(50, 50, 80) or Color3.fromRGB(22, 22, 32)
+				btn.Text = targetP.DisplayName .. " (@" .. targetP.Name .. ")"
 				btn.TextColor3 = Color3.fromRGB(210, 210, 220)
 				btn.TextSize = 11
 				btn.Font = Enum.Font.Gotham
@@ -583,14 +584,14 @@ local function updatePlayerList()
 				bCorner.Parent = btn
 
 				btn.MouseButton1Click:Connect(function()
-					if selectedTargets[p] then
-						selectedTargets[p] = nil
+					if selectedTargets[targetP] then
+						selectedTargets[targetP] = nil
 						btn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
-						clearTargetVisuals(p)
+						clearTargetVisuals(targetP)
 					else
-						selectedTargets[p] = true
+						selectedTargets[targetP] = true
 						btn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
-						updateTargetVisuals(p)
+						updateTargetVisuals(targetP)
 					end
 					
 					local count = 0
@@ -909,7 +910,6 @@ RunService.Heartbeat:Connect(function(dt)
 					local primary = chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart")) or chair
 					if primary then
 						local dist = (rootPart.Position - primary.Position).Magnitude
-						-- Updated distance threshold to 20 studs
 						if dist <= 20 then
 							local prompt = chair:FindFirstChild("CartPrompt", true)
 							if prompt then
@@ -922,7 +922,7 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	if tick() - lastGrabTime >= 0.05 then
+	if tick() - lastGrabTime >= 0.1 then
 		lastGrabTime = tick()
 		
 		table.sort(availableChairs, function(a, b)
@@ -931,15 +931,18 @@ RunService.Heartbeat:Connect(function(dt)
 
 		for _, item in ipairs(availableChairs) do
 			pcall(function()
-				-- Ensure executor's UserId is assigned before firing prompt
+				item.chair:SetAttribute("PlayerId", player.UserId)
 				item.chair:SetAttribute("LastPusherId", player.UserId)
+				
 				fireproximityprompt(item.prompt)
-			end)
-			if remote then
+				
 				task.spawn(function()
-					pcall(function() remote:FireServer() end)
+					task.wait(0.05)
+					if remote then
+						pcall(function() remote:FireServer() end)
+					end
 				end)
-			end
+			end)
 		end
 	end
 
@@ -1056,7 +1059,9 @@ RunService.Heartbeat:Connect(function(dt)
 	for i, chair in ipairs(collectedChairs) do
 		if not chair or not chair.Parent then continue end
 		pcall(function()
+			chair:SetAttribute("PlayerId", player.UserId)
 			chair:SetAttribute("LastPusherId", player.UserId)
+
 			local assignment = assignedChairs[chair]
 			
 			if currentMode == "Jail" then
@@ -1078,13 +1083,12 @@ RunService.Heartbeat:Connect(function(dt)
 			elseif currentMode == "Orbit" and numTargets == 0 then
 				local totalChairs = #collectedChairs
 				local radius = 12
-				local spinSpeed = 4
+				local spinSpeed = 10
 				local angle = ((i - 1) * (2 * math.pi / totalChairs)) + (tick() * spinSpeed)
 				local x = math.cos(angle) * radius
 				local z = math.sin(angle) * radius
 				
-				local ySpread = ((i - (totalChairs + 1) / 2) * 0.8) + (math.sin(tick() * 5 + i) * 1.5)
-				local targetPos = rootPart.Position + Vector3.new(x, ySpread, z)
+				local targetPos = Vector3.new(rootPart.Position.X + x, rootPart.Position.Y + 0.5, rootPart.Position.Z + z)
 				local targetCf = CFrame.new(targetPos)
 
 				if chair:IsA("Model") then
@@ -1094,8 +1098,10 @@ RunService.Heartbeat:Connect(function(dt)
 				end
 				for _, part in ipairs(chair:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.Anchored = true
+						part.Anchored = false
 						part.CanCollide = false
+						part.AssemblyLinearVelocity = (targetPos - part.Position) * 25
+						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 					end
 				end
 			elseif assignment and assignment.Type == "Orbit" then
@@ -1103,13 +1109,12 @@ RunService.Heartbeat:Connect(function(dt)
 				local idx = assignment.Index
 				local totalChairs = assignment.Total
 				local radius = 12
-				local spinSpeed = 4
+				local spinSpeed = 10
 				local angle = ((idx - 1) * (2 * math.pi / math.max(totalChairs, 1))) + (tick() * spinSpeed)
 				local x = math.cos(angle) * radius
 				local z = math.sin(angle) * radius
 				
-				local ySpread = ((idx - (totalChairs + 1) / 2) * 0.8) + (math.sin(tick() * 5 + idx) * 1.5)
-				local targetPos = targetHRP.Position + Vector3.new(x, ySpread, z)
+				local targetPos = Vector3.new(targetHRP.Position.X + x, targetHRP.Position.Y + 0.5, targetHRP.Position.Z + z)
 				local targetCf = CFrame.new(targetPos)
 
 				if chair:IsA("Model") then
@@ -1119,8 +1124,10 @@ RunService.Heartbeat:Connect(function(dt)
 				end
 				for _, part in ipairs(chair:GetDescendants()) do
 					if part:IsA("BasePart") then
-						part.Anchored = true
+						part.Anchored = false
 						part.CanCollide = false
+						part.AssemblyLinearVelocity = (targetPos - part.Position) * 25
+						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 					end
 				end
 			elseif currentMode == "Throw" then
@@ -1212,12 +1219,12 @@ RunService.Heartbeat:Connect(function(dt)
 			elseif assignment and assignment.Type == "Kill" then
 				local targetHRP = assignment.HRP
 				local idx = assignment.Index
-				local timeVal = tick() * 35 + (idx * 1.5)
-				local radius = 3.5 + math.sin(tick() * 15 + idx) * 1.5
+				local timeVal = tick() * 55 + (idx * 1.5)
+				local radius = 3
 				local x = math.cos(timeVal) * radius
 				local z = math.sin(timeVal) * radius
-				local yOffset = math.sin(tick() * 25 + idx) * 3 + 2.5
-				local targetPos = targetHRP.Position + Vector3.new(x, yOffset, z)
+				
+				local targetPos = Vector3.new(targetHRP.Position.X + x, targetHRP.Position.Y + 0.5, targetHRP.Position.Z + z)
 				local targetCf = CFrame.new(targetPos)
 
 				if chair:IsA("Model") then
@@ -1229,9 +1236,20 @@ RunService.Heartbeat:Connect(function(dt)
 					if part:IsA("BasePart") then
 						part.Anchored = false
 						part.CanCollide = false
-						part.AssemblyLinearVelocity = Vector3.new(math.random(-400, 400), math.random(200, 500), math.random(-400, 400))
-						part.AssemblyAngularVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
+						part.AssemblyLinearVelocity = Vector3.new(math.random(-1200, 1200), math.random(600, 1500), math.random(-1200, 1200))
+						part.AssemblyAngularVelocity = Vector3.new(math.random(-999999, 999999), math.random(-999999, 999999), math.random(-999999, 999999))
 					end
+				end
+
+				if targetHRP and (targetHRP.Position - targetPos).Magnitude < 12 then
+					pcall(function()
+						local char = targetHRP.Parent
+						local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+						if humanoid and humanoid.Health > 0 then
+							humanoid.Health = 0
+							char:BreakJoints()
+						end
+					end)
 				end
 			else
 				local targetPos
