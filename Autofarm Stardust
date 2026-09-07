@@ -1,844 +1,1263 @@
+local CoreGui = game:GetService("CoreGui")
+
+if getgenv().AdvancedChairAdminLoaded then
+	warn("[Advanced Chair Admin]: Script is already running. Second execution blocked.")
+	return
+end
+getgenv().AdvancedChairAdminLoaded = true
+
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
-local SoundService = game:GetService("SoundService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-local currentRoomsFolder = Workspace:WaitForChild("CurrentRooms")
-local miscFolder = Workspace:WaitForChild("Misc")
-local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder")
-local cartControlRemote = remotesFolder:WaitForChild("CartControl")
-local playerUserId = tostring(player.UserId)
+local targetName = "ArchivesOfficeChair"
+local knownChairs = {}
+local collectedChairsMap = {}
+local collectedChairs = {}
+local selectedTargets = {}
 
--- Silence all audio on execute to prevent stacking sounds
-for _,s in ipairs(SoundService:GetDescendants()) do
-    if s:IsA("Sound") then s:Stop() s.Volume=0 end
+local targetVisualData = {}
+local currentMode = "None" 
+local killTimer = 0
+local flingTimer = 0
+local lastGrabTime = 0
+local collectorEnabled = true
+local jailPositions = {}
+local cachedDeadTarget = nil
+local isRunning = true
+local cleanedUp = false
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "AdvancedChairAdmin"
+gui.ResetOnSpawn = false
+gui.Parent = CoreGui
+
+local uiScale = Instance.new("UIScale")
+uiScale.Parent = gui
+
+local function updateScreenScale()
+	pcall(function()
+		local viewport = Workspace.CurrentCamera.ViewportSize
+		if viewport.X < 800 or viewport.Y < 600 then
+			uiScale.Scale = math.clamp(viewport.Y / 700, 0.75, 1)
+		else
+			uiScale.Scale = 1
+		end
+	end)
 end
-for _,s in ipairs(Workspace:GetDescendants()) do
-    if s:IsA("Sound") then s:Stop() s.Volume=0 end
+
+local viewportConn = Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScreenScale)
+updateScreenScale()
+
+-- Mobile Toggle Button
+local mobileToggleBtn = Instance.new("TextButton")
+mobileToggleBtn.Name = "MobileToggle"
+mobileToggleBtn.Size = UDim2.new(0, 110, 0, 36)
+mobileToggleBtn.Position = UDim2.new(0.5, -55, 0, 15)
+mobileToggleBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+mobileToggleBtn.Text = "Toggle UI"
+mobileToggleBtn.TextColor3 = Color3.fromRGB(240, 240, 250)
+mobileToggleBtn.TextSize = 13
+mobileToggleBtn.Font = Enum.Font.GothamBold
+mobileToggleBtn.Visible = UserInputService.TouchEnabled
+mobileToggleBtn.Parent = gui
+
+local mCorner = Instance.new("UICorner")
+mCorner.CornerRadius = UDim.new(0, 8)
+mCorner.Parent = mobileToggleBtn
+
+local mStroke = Instance.new("UIStroke")
+mStroke.Color = Color3.fromRGB(70, 70, 100)
+mStroke.Thickness = 1.5
+mStroke.Parent = mobileToggleBtn
+
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 300, 0, 0)
+mainFrame.AutomaticSize = Enum.AutomaticSize.Y
+mainFrame.Position = UDim2.new(0, 25, 0.5, -230)
+mainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = gui
+
+local fCorner = Instance.new("UICorner")
+fCorner.CornerRadius = UDim.new(0, 12)
+fCorner.Parent = mainFrame
+
+local fStroke = Instance.new("UIStroke")
+fStroke.Color = Color3.fromRGB(45, 45, 65)
+fStroke.Thickness = 1.5
+fStroke.Parent = mainFrame
+
+-- Top Bar
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 42)
+topBar.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+
+local tbCorner = Instance.new("UICorner")
+tbCorner.CornerRadius = UDim.new(0, 12)
+tbCorner.Parent = topBar
+
+local topBarFix = Instance.new("Frame")
+topBarFix.Size = UDim2.new(1, 0, 0, 12)
+topBarFix.Position = UDim2.new(0, 0, 1, -12)
+topBarFix.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
+topBarFix.BorderSizePixel = 0
+topBarFix.Parent = topBar
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(0.65, 0, 1, 0)
+title.Position = UDim2.new(0.05, 0, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "Chair Admin Panel"
+title.TextColor3 = Color3.fromRGB(240, 240, 250)
+title.TextSize = 14
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = topBar
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 28, 0, 28)
+minBtn.Position = UDim2.new(1, -70, 0.5, -14)
+minBtn.BackgroundColor3 = Color3.fromRGB(38, 38, 52)
+minBtn.Text = "-"
+minBtn.TextColor3 = Color3.fromRGB(220, 220, 230)
+minBtn.TextSize = 16
+minBtn.Font = Enum.Font.GothamBold
+minBtn.Parent = topBar
+
+local mBtnCorner = Instance.new("UICorner")
+mBtnCorner.CornerRadius = UDim.new(0, 6)
+mBtnCorner.Parent = minBtn
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 28, 0, 28)
+closeBtn.Position = UDim2.new(1, -36, 0.5, -14)
+closeBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+closeBtn.Text = "×"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = topBar
+
+local cBtnCorner = Instance.new("UICorner")
+cBtnCorner.CornerRadius = UDim.new(0, 6)
+cBtnCorner.Parent = closeBtn
+
+-- Confirmation Modal Frame
+local confirmFrame = Instance.new("Frame")
+confirmFrame.Name = "ConfirmFrame"
+confirmFrame.Size = UDim2.new(0, 250, 0, 115)
+confirmFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+confirmFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+confirmFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+confirmFrame.Visible = false
+confirmFrame.ZIndex = 20
+confirmFrame.Parent = gui
+
+local cfCorner = Instance.new("UICorner")
+cfCorner.CornerRadius = UDim.new(0, 10)
+cfCorner.Parent = confirmFrame
+
+local cfStroke = Instance.new("UIStroke")
+cfStroke.Color = Color3.fromRGB(65, 65, 90)
+cfStroke.Thickness = 1.5
+cfStroke.Parent = confirmFrame
+
+local cfText = Instance.new("TextLabel")
+cfText.Size = UDim2.new(1, -20, 0, 42)
+cfText.Position = UDim2.new(0, 10, 0, 12)
+cfText.BackgroundTransparency = 1
+cfText.Text = "Are you sure you want to close the menu?"
+cfText.TextColor3 = Color3.fromRGB(235, 235, 245)
+cfText.TextSize = 13
+cfText.Font = Enum.Font.GothamBold
+cfText.TextWrapped = true
+cfText.ZIndex = 21
+cfText.Parent = confirmFrame
+
+local confirmBtnHolder = Instance.new("Frame")
+confirmBtnHolder.Size = UDim2.new(1, -20, 0, 34)
+confirmBtnHolder.Position = UDim2.new(0, 10, 1, -44)
+confirmBtnHolder.BackgroundTransparency = 1
+confirmBtnHolder.ZIndex = 21
+confirmBtnHolder.Parent = confirmFrame
+
+local confirmBtnLayout = Instance.new("UIListLayout")
+confirmBtnLayout.FillDirection = Enum.FillDirection.Horizontal
+confirmBtnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+confirmBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+confirmBtnLayout.Padding = UDim.new(0, 10)
+confirmBtnLayout.Parent = confirmBtnHolder
+
+local cancelConfirmBtn = Instance.new("TextButton")
+cancelConfirmBtn.Size = UDim2.new(0, 105, 1, 0)
+cancelConfirmBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+cancelConfirmBtn.Text = "Cancel"
+cancelConfirmBtn.TextColor3 = Color3.fromRGB(220, 220, 230)
+cancelConfirmBtn.TextSize = 12
+cancelConfirmBtn.Font = Enum.Font.GothamBold
+cancelConfirmBtn.ZIndex = 21
+cancelConfirmBtn.Parent = confirmBtnHolder
+
+local ccCorner = Instance.new("UICorner")
+ccCorner.CornerRadius = UDim.new(0, 6)
+ccCorner.Parent = cancelConfirmBtn
+
+local proceedConfirmBtn = Instance.new("TextButton")
+proceedConfirmBtn.Size = UDim2.new(0, 105, 1, 0)
+proceedConfirmBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+proceedConfirmBtn.Text = "Proceed"
+proceedConfirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+proceedConfirmBtn.TextSize = 12
+proceedConfirmBtn.Font = Enum.Font.GothamBold
+proceedConfirmBtn.ZIndex = 21
+proceedConfirmBtn.Parent = confirmBtnHolder
+
+local pcCorner = Instance.new("UICorner")
+pcCorner.CornerRadius = UDim.new(0, 6)
+pcCorner.Parent = proceedConfirmBtn
+
+-- Content Container
+local contentContainer = Instance.new("Frame")
+contentContainer.Size = UDim2.new(1, 0, 0, 0)
+contentContainer.AutomaticSize = Enum.AutomaticSize.Y
+contentContainer.Position = UDim2.new(0, 0, 0, 42)
+contentContainer.BackgroundTransparency = 1
+contentContainer.Parent = mainFrame
+
+local contentLayout = Instance.new("UIListLayout")
+contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+contentLayout.Padding = UDim.new(0, 8)
+contentLayout.Parent = contentContainer
+
+local contentPadding = Instance.new("UIPadding")
+contentPadding.PaddingTop = UDim.new(0, 10)
+contentPadding.PaddingBottom = UDim.new(0, 10)
+contentPadding.PaddingLeft = UDim.new(0, 12)
+contentPadding.PaddingRight = UDim.new(0, 12)
+contentPadding.Parent = contentContainer
+
+-- Status & Collector Row
+local topRow = Instance.new("Frame")
+topRow.Size = UDim2.new(1, 0, 0, 28)
+topRow.BackgroundTransparency = 1
+topRow.LayoutOrder = 1
+topRow.Parent = contentContainer
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(0.5, 0, 1, 0)
+status.BackgroundTransparency = 1
+status.Text = "Chairs Ready: 0"
+status.TextColor3 = Color3.fromRGB(50, 220, 120)
+status.TextSize = 12
+status.Font = Enum.Font.GothamBold
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.Parent = topRow
+
+local collectorBtn = Instance.new("TextButton")
+collectorBtn.Size = UDim2.new(0.48, 0, 1, 0)
+collectorBtn.Position = UDim2.new(0.52, 0, 0, 0)
+collectorBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
+collectorBtn.Text = "Collector: ON"
+collectorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+collectorBtn.TextSize = 11
+collectorBtn.Font = Enum.Font.GothamBold
+collectorBtn.Parent = topRow
+
+local cbCorner = Instance.new("UICorner")
+cbCorner.CornerRadius = UDim.new(0, 6)
+cbCorner.Parent = collectorBtn
+
+-- Scrolling Frame for Players
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, 0, 0, 105)
+scroll.BackgroundColor3 = Color3.fromRGB(11, 11, 16)
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 3
+scroll.LayoutOrder = 2
+scroll.Parent = contentContainer
+
+local scrollCorner = Instance.new("UICorner")
+scrollCorner.CornerRadius = UDim.new(0, 8)
+scrollCorner.Parent = scroll
+
+local scrollStroke = Instance.new("UIStroke")
+scrollStroke.Color = Color3.fromRGB(30, 30, 45)
+scrollStroke.Thickness = 1
+scrollStroke.Parent = scroll
+
+local scrollLayout = Instance.new("UIListLayout")
+scrollLayout.SortOrder = Enum.SortOrder.Name
+scrollLayout.Padding = UDim.new(0, 4)
+scrollLayout.Parent = scroll
+
+local scrollPadding = Instance.new("UIPadding")
+scrollPadding.PaddingTop = UDim.new(0, 4)
+scrollPadding.PaddingBottom = UDim.new(0, 4)
+scrollPadding.PaddingLeft = UDim.new(0, 4)
+scrollPadding.PaddingRight = UDim.new(0, 4)
+scrollPadding.Parent = scroll
+
+-- Action Buttons Holder
+local btnHolder = Instance.new("Frame")
+btnHolder.Size = UDim2.new(1, 0, 0, 0)
+btnHolder.AutomaticSize = Enum.AutomaticSize.Y
+btnHolder.BackgroundTransparency = 1
+btnHolder.LayoutOrder = 3
+btnHolder.Parent = contentContainer
+
+local btnLayout = Instance.new("UIListLayout")
+btnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+btnLayout.Padding = UDim.new(0, 6)
+btnLayout.Parent = btnHolder
+
+local function createActionButton(name, color, order)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, 0, 0, 32)
+	btn.BackgroundColor3 = color
+	btn.Text = name
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.TextSize = 13
+	btn.Font = Enum.Font.GothamBold
+	btn.LayoutOrder = order
+	btn.Parent = btnHolder
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+	return btn
 end
 
-Lighting.Ambient = Color3.new(1,1,1)
-Lighting.ColorShift_Bottom = Color3.new(1,1,1)
-Lighting.ColorShift_Top = Color3.new(1,1,1)
-Lighting.Brightness = 3
-Lighting.GlobalShadows = false
-Lighting.FogEnd = 100000
-Lighting.FogStart = 100000
+local killBtn = createActionButton("KILL", Color3.fromRGB(190, 45, 45), 1)
+local jailBtn = createActionButton("JAIL: OFF", Color3.fromRGB(180, 115, 35), 2)
+local orbitBtn = createActionButton("ORBIT: OFF", Color3.fromRGB(45, 105, 180), 3)
+local throwBtn = createActionButton("THROW: OFF", Color3.fromRGB(120, 40, 180), 4)
+local flingBtn = createActionButton("FLING", Color3.fromRGB(65, 175, 120), 5)
 
-local SPEED_XZ           = 100
-local SPEED_Y            = 50
-local SPEED_WALK_XZ      = 20
-local SPEED_WALK_Y       = 20
-local SPEED_SWITCH_XZ    = 25
-local SPEED_NOCLIP_XZ    = 2
-local GRAB_INTERVAL      = 0.05
-local DOOR_FIRE_INTERVAL = 0.03
-local DOOR_TIMEOUT       = 25
-local CHAIR_SEARCH_LIMIT = 30
-local ARRIVE_DIST        = 1.5
-local CHAIR_ROOMS = {[10]=true,[20]=true,[30]=true,[40]=true}
-
-local WP1 = CFrame.new(251.042633,-0.174223781,-39.4570351,0.99865216,0.00258172257,-0.0518378392,0.000143666432,0.998620749,0.0525028333,0.0519018881,-0.0524395108,0.997274339)
-local WP2 = CFrame.new(222.109955,-0.188600898,-73.2570419,0.581981838,-0.0934531838,0.807814121,-0.00017296632,0.993360579,0.115043029,-0.813201785,-0.0670926794,0.578101695)
-local WP3 = CFrame.new(224.2043,-0.20942986,-89.5533981,-0.977390945,-0.0288311634,0.209465548,0.000259756664,0.990495384,0.137545392,-0.21144025,0.134490013,-0.968093693)
-local WP4 = CFrame.new(213.868347,-0.237462163,-83.2877045,-0.618880212,-0.264314145,0.739679098,0.000223322699,0.94162488,0.336663544,-0.785485327,0.208519593,-0.582694054)
-
-local anticheatOn   = false
-local activeChair   = nil
-local allChairs     = {}
-local currentRoom   = 0
-local scriptRunning = false
-local anchorConn    = nil
-local reseatConn    = nil
-local tweenConn     = nil
-local noclipConn    = nil
-
-do
-    local old = playerGui:FindFirstChild("ACStatusGui")
-    if old then old:Destroy() end
+local function clearTargetVisuals(p)
+	pcall(function()
+		local data = targetVisualData[p]
+		if data then
+			if data.tag and data.tag.Parent then
+				data.tag:Destroy()
+			end
+			if data.highlight and data.highlight.Parent then
+				data.highlight:Destroy()
+			end
+			targetVisualData[p] = nil
+		end
+	end)
 end
-local sg = Instance.new("ScreenGui")
-sg.Name="ACStatusGui" sg.ResetOnSpawn=false sg.IgnoreGuiInset=true
-sg.DisplayOrder=999 sg.Parent=playerGui
-local hud = Instance.new("TextLabel")
-hud.Size=UDim2.new(0,160,0,16) hud.Position=UDim2.new(0,6,1,-22)
-hud.BackgroundTransparency=1 hud.TextSize=11 hud.Font=Enum.Font.Code
-hud.TextXAlignment=Enum.TextXAlignment.Left hud.TextYAlignment=Enum.TextYAlignment.Center
-hud.Text="AntiCheat: Off" hud.TextColor3=Color3.fromRGB(220,50,50)
-hud.ZIndex=10 hud.Active=false hud.Selectable=false hud.Parent=sg
 
-local function setHudOn()  hud.Text="AntiCheat: On"  hud.TextColor3=Color3.fromRGB(50,220,80)  end
-local function setHudOff() hud.Text="AntiCheat: Off" hud.TextColor3=Color3.fromRGB(220,50,50) end
-local function getChar() return player.Character end
-local function getRoot() local c=getChar() return c and c:FindFirstChild("HumanoidRootPart") end
+local function updateTargetVisuals(p)
+	pcall(function()
+		if not selectedTargets[p] then
+			clearTargetVisuals(p)
+			return
+		end
 
-local COLL_OFF_NAMES = {
-    ArchivesCubicleRight=true,ArchivesCubicleLeft=true,
-    ArchivesTrashcan=true,PottedPlant_Archives_Large=true,
-}
-local function disableSpecificCollisions(obj)
-    if not obj:IsA("BasePart") then return end
-    local n=obj.Name
-    if COLL_OFF_NAMES[n] or n:match("^ArchivesDesk") or n=="Main" or n=="Door" or n=="PaperPlane" or n:match("^Door") then
-        obj.CanCollide=false obj.CanTouch=false obj.CanQuery=false
-    end
+		local char = p.Character
+		if not char or not char:FindFirstChild("Head") or not char:FindFirstChild("HumanoidRootPart") then
+			clearTargetVisuals(p)
+			return
+		end
+
+		if not targetVisualData[p] then
+			targetVisualData[p] = {}
+			
+			local bg = Instance.new("BillboardGui")
+			bg.Name = "TargetInfoTag"
+			bg.Size = UDim2.new(0, 160, 0, 50)
+			bg.StudsOffset = Vector3.new(0, 2.8, 0)
+			bg.AlwaysOnTop = true
+			bg.Parent = char.Head
+
+			local label = Instance.new("TextLabel")
+			label.Name = "InfoLabel"
+			label.Size = UDim2.new(1, 0, 1, 0)
+			label.BackgroundTransparency = 1
+			label.TextColor3 = Color3.fromRGB(255, 255, 255)
+			label.TextStrokeTransparency = 0
+			label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			label.TextSize = 13
+			label.Font = Enum.Font.GothamBold
+			label.TextWrapped = true
+			label.Parent = bg
+			
+			targetVisualData[p].tag = bg
+			targetVisualData[p].label = label
+
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "TargetESP"
+			highlight.Adornee = char
+			highlight.FillColor = Color3.fromRGB(15, 15, 20)
+			highlight.FillTransparency = 0.5
+			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+			highlight.OutlineTransparency = 0.5
+			highlight.Parent = char
+
+			targetVisualData[p].highlight = highlight
+		end
+
+		local label = targetVisualData[p].label
+		local localHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if label and localHrp then
+			local dist = math.floor((localHrp.Position - char.HumanoidRootPart.Position).Magnitude + 0.5)
+			label.Text = "@" .. p.Name .. "\n" .. dist .. " studs"
+		end
+	end)
 end
-for _,obj in ipairs(Workspace:GetDescendants()) do disableSpecificCollisions(obj) end
-Workspace.DescendantAdded:Connect(disableSpecificCollisions)
 
--- Noclip permanently on when anticheat is active
-noclipConn = RunService.Stepped:Connect(function()
-    if not anticheatOn then return end
-    local c=getChar() if not c then return end
-    for _,p in ipairs(c:GetDescendants()) do
-        if p:IsA("BasePart") then p.CanCollide=false end
-    end
+collectorBtn.MouseButton1Click:Connect(function()
+	collectorEnabled = not collectorEnabled
+	if collectorEnabled then
+		collectorBtn.Text = "Collector: ON"
+		collectorBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
+	else
+		collectorBtn.Text = "Collector: OFF"
+		collectorBtn.BackgroundColor3 = Color3.fromRGB(160, 45, 45)
+		for _, chair in ipairs(knownChairs) do
+			if chair and chair.Parent then
+				local esp = chair:FindFirstChild("BlueESP")
+				if esp then esp:Destroy() end
+			end
+		end
+	end
 end)
 
-local function isCancelled()
-    return getgenv().XvlamerHub_StardustFarmCancelled==true
-        or getgenv().XvlamerHub_Cancelled==true
-        or not scriptRunning
-end
-
--- Separate X/Z and Y speeds. Y capped at 50 to prevent ground clipping.
--- Player velocity zeroed every heartbeat. No raycast — geometry does not exist.
-local function tweenToPos(targetPos, xzSpeed, ySpeed, stopDist)
-    if typeof(targetPos)=="CFrame" then targetPos=targetPos.Position end
-    if tweenConn then tweenConn:Disconnect() tweenConn=nil end
-    if isCancelled() then return false end
-    stopDist = stopDist or ARRIVE_DIST
-    xzSpeed  = xzSpeed or SPEED_XZ
-    ySpeed   = ySpeed  or SPEED_Y
-    local done=false local result=false
-    tweenConn = RunService.Heartbeat:Connect(function(dt)
-        if done then return end
-        if isCancelled() then done=true result=false return end
-        local root=getRoot()
-        if not root then done=true result=false return end
-        root.AssemblyLinearVelocity  = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        local hum=getChar() and getChar():FindFirstChildOfClass("Humanoid")
-        if hum then hum.PlatformStand=true end
-        local cur  = root.Position
-        local diff = targetPos - cur
-        local dist = diff.Magnitude
-        if dist<=stopDist then
-            if hum then hum.PlatformStand=false end
-            done=true result=true return
-        end
-        -- Move X/Z and Y independently at different speeds
-        local dx = diff.X
-        local dy = diff.Y
-        local dz = diff.Z
-        local xzDist = math.sqrt(dx*dx+dz*dz)
-        local newX = cur.X + (xzDist>0 and (dx/xzDist)*math.min(xzDist,xzSpeed*dt) or 0)
-        local newZ = cur.Z + (xzDist>0 and (dz/xzDist)*math.min(xzDist,xzSpeed*dt) or 0)
-        local newY = cur.Y + (math.abs(dy)>0 and (dy/math.abs(dy))*math.min(math.abs(dy),ySpeed*dt) or 0)
-        root.CFrame = CFrame.new(Vector3.new(newX,newY,newZ)) * root.CFrame.Rotation
-    end)
-    while not done do task.wait(0.05) end
-    if tweenConn then tweenConn:Disconnect() tweenConn=nil end
-    local hum=getChar() and getChar():FindFirstChildOfClass("Humanoid")
-    if hum then hum.PlatformStand=false end
-    return result
-end
-
-local function safeFirePrompt(prompt)
-    if not prompt or not prompt.Parent then return end
-    pcall(fireproximityprompt,prompt)
-end
-
-local function findPromptInModel(model)
-    for _,d in ipairs(model:GetDescendants()) do
-        if d:IsA("ProximityPrompt") then return d end
-    end
-end
-
-local function getChairPos(chair)
-    local b=chair:FindFirstChild("Base")
-    if b and b:IsA("BasePart") then return b.Position end
-    local pp=chair.PrimaryPart if pp then return pp.Position end
-    return chair:GetPivot().Position
-end
-
-local function getCartPrompt(chair)
-    local att=chair:FindFirstChild("Attachment") if not att then return nil end
-    local cp=att:FindFirstChild("CartPrompt")
-    if cp and cp:IsA("ProximityPrompt") then return cp end
-    return nil
-end
-
-local function getSeatPrompt(chair)
-    local col=chair:FindFirstChild("Collider") if not col then return nil end
-    local sp=col:FindFirstChild("SeatPrompt")
-    if sp and sp:IsA("ProximityPrompt") then return sp end
-    return nil
-end
-
-local function getGrabPosition(chair)
-    local att=chair:FindFirstChild("Attachment")
-    if att and att:IsA("Attachment") then
-        local cf=att.WorldCFrame
-        return cf.Position+cf.LookVector*(-2)
-    end
-    return getChairPos(chair)
-end
-
-local function lockChairParts(chair)
-    for _,p in ipairs(chair:GetDescendants()) do
-        if p:IsA("BasePart") then
-            p.CanCollide=false p.CanTouch=false p.CanQuery=false
-            p.Transparency=1 p.Massless=true
-            p.CustomPhysicalProperties=PhysicalProperties.new(0,0,0,0,0)
-        end
-        if p:IsA("Sound") then p.Volume=0 p:Stop() end
-    end
-end
-
-local function disableChairPrompts(chair)
-    for _,d in ipairs(chair:GetDescendants()) do
-        if d:IsA("ProximityPrompt") then d.Enabled=false end
-    end
-end
-
-local function enableAllPrompts()
-    for c in pairs(allChairs) do
-        if c and c.Parent then
-            for _,d in ipairs(c:GetDescendants()) do
-                if d:IsA("ProximityPrompt") then d.Enabled=true end
-            end
-        end
-    end
-end
-
-local function stopAnchor()
-    if anchorConn then anchorConn:Disconnect() anchorConn=nil end
-    if reseatConn then reseatConn:Disconnect() reseatConn=nil end
-    anticheatOn=false setHudOff()
-    enableAllPrompts()
-    activeChair=nil
-    warn("[ANCHOR] Stopped")
-end
-
-local function doSeatCycle(seatPrompt)
-    local char=getChar()
-    if char then char:SetAttribute("SeatedInSeat",false) end
-    task.wait(0.05)
-    pcall(function() fireproximityprompt(seatPrompt) end)
-    task.wait(0.05)
-    char=getChar()
-    if char then char:SetAttribute("SeatedInSeat",false) end
-end
-
--- SeatedInSeat logic:
--- false  = bypass active, anticheat ON
--- true   = game seated us, force to false
--- nil    = not seated at all, fire seatPrompt to re-seat
-local function anchorToPlayer(chair, seatPrompt)
-    if anchorConn then anchorConn:Disconnect() anchorConn=nil end
-    if reseatConn then reseatConn:Disconnect() reseatConn=nil end
-    activeChair=chair
-    warn("[ANCHOR] Started on",chair.Name)
-
-    task.spawn(function()
-        while activeChair==chair and not isCancelled() do
-            pcall(function() cartControlRemote:FireServer() end)
-            task.wait(0.05)
-        end
-    end)
-
-    anchorConn=RunService.RenderStepped:Connect(function()
-        if not chair or not chair.Parent then
-            warn("[ANCHOR] Chair gone")
-            stopAnchor() return
-        end
-        local c=getChar()
-        local root=c and c:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-
-        -- Chair placed below and behind, no vertical contact with player
-        chair:PivotTo(root.CFrame*CFrame.new(0,-3.5,1))
-
-        for _,p in ipairs(chair:GetDescendants()) do
-            if p:IsA("BasePart") then
-                p.AssemblyLinearVelocity=Vector3.zero
-                p.AssemblyAngularVelocity=Vector3.zero
-                if p.CanCollide then p.CanCollide=false end
-                if p.CanTouch   then p.CanTouch=false end
-            end
-        end
-
-        if chair:GetAttribute("CartHitConnected")==true then
-            chair:SetAttribute("CartHitConnected",false)
-        end
-
-        local seated=c:GetAttribute("SeatedInSeat")
-        if seated==false then
-            -- Correct state: bypass active
-            if not anticheatOn then
-                anticheatOn=true setHudOn()
-                warn("[ANTICHEAT] On")
-            end
-        elseif seated==true then
-            -- Game tried to seat us: reject it
-            c:SetAttribute("SeatedInSeat",false)
-        elseif seated==nil then
-            -- Lost seat: anticheat off until reseatConn fixes it
-            if anticheatOn then
-                anticheatOn=false setHudOff()
-                warn("[ANTICHEAT] Lost seat — reseating")
-            end
-        end
-    end)
-
-    reseatConn=RunService.Heartbeat:Connect(function()
-        if not chair or not chair.Parent then return end
-        if tostring(chair:GetAttribute("LastPusherId"))~=playerUserId then return end
-        local c=getChar() if not c then return end
-        local seated=c:GetAttribute("SeatedInSeat")
-        -- nil means we need to re-fire the seat prompt
-        if seated==nil then
-            task.spawn(function() doSeatCycle(seatPrompt) end)
-        end
-    end)
-end
-
-local function hookCharacter(character)
-    character:GetAttributeChangedSignal("SeatedInSeat"):Connect(function()
-        if activeChair and character:GetAttribute("SeatedInSeat")==true then
-            character:SetAttribute("SeatedInSeat",false)
-        end
-    end)
-end
-if player.Character then hookCharacter(player.Character) end
-player.CharacterAdded:Connect(hookCharacter)
-
--- hookChair: registers only. Zero auto-grab logic.
-local function hookChair(chair)
-    if chair.Name~="ArchivesOfficeChair" then return end
-    if allChairs[chair] then return end
-    allChairs[chair]=true
-    chair.AncestryChanged:Connect(function()
-        if not chair.Parent then
-            allChairs[chair]=nil
-            if activeChair==chair then stopAnchor() end
-        end
-    end)
-end
-
-local function scanFolder(folder)
-    for _,d in ipairs(folder:GetDescendants()) do
-        if d.Name=="ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
-    end
-    folder.DescendantAdded:Connect(function(d)
-        if d.Name=="ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
-    end)
-end
-scanFolder(miscFolder)
-scanFolder(currentRoomsFolder)
-
-local function findNearestChair(exclude)
-    local root=getRoot() if not root then return nil end
-    local best=nil local bestDist=math.huge
-    local function check(d)
-        if d.Name~="ArchivesOfficeChair" or not d:IsA("Model") then return end
-        if exclude and d==exclude then return end
-        local dist=(root.Position-getChairPos(d)).Magnitude
-        if dist<bestDist then bestDist=dist best=d end
-    end
-    for _,d in ipairs(miscFolder:GetDescendants()) do check(d) end
-    for i=0,50 do
-        local rf=currentRoomsFolder:FindFirstChild(tostring(i))
-        if rf then for _,d in ipairs(rf:GetDescendants()) do check(d) end end
-    end
-    return best
-end
-
--- Explicit grab only — never called by proximity signal
-local function grabAndBypass(chair)
-    if isCancelled() then return false end
-    local cartPrompt=getCartPrompt(chair)
-    local seatPrompt=getSeatPrompt(chair)
-    if not cartPrompt or not seatPrompt then
-        warn("[GRAB] Missing prompts on",chair.Name) return false
-    end
-    warn("[GRAB] Attempting",chair.Name)
-
-    local grabStart=tick() local owned=false
-    while tick()-grabStart<8 do
-        if isCancelled() then return false end
-        safeFirePrompt(cartPrompt)
-        pcall(function() cartControlRemote:FireServer() end)
-        task.wait(GRAB_INTERVAL)
-        if tostring(chair:GetAttribute("LastPusherId"))==playerUserId then
-            owned=true break
-        end
-    end
-    if not owned then warn("[GRAB] Not owned") return false end
-    warn("[GRAB] Owned")
-
-    pcall(function() cartControlRemote:FireServer() end)
-    task.wait(0.15)
-    if isCancelled() then return false end
-
-    lockChairParts(chair)
-    disableChairPrompts(chair)
-    doSeatCycle(seatPrompt)
-    anchorToPlayer(chair,seatPrompt)
-
-    local ws=tick() local confirmed=false
-    while tick()-ws<5 do
-        if isCancelled() then return false end
-        local c=getChar()
-        if c and c:GetAttribute("SeatedInSeat")==false then
-            confirmed=true break
-        end
-        task.wait(0.1)
-    end
-    task.wait(1)
-    warn("[GRAB] Confirmed:",confirmed,"AC:",anticheatOn)
-    return confirmed and anticheatOn
-end
-
--- Room 0: tween WP1->WP2->WP3->WP4 then tween to grab pos at walk speed
-local function acquireFirstChair()
-    if isCancelled() then return false end
-    warn("[INIT] WP1")
-    tweenToPos(WP1,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-    warn("[INIT] WP2")
-    tweenToPos(WP2,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-    warn("[INIT] WP3")
-    tweenToPos(WP3,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-    warn("[INIT] WP4")
-    tweenToPos(WP4,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-
-    local chair=findNearestChair(nil)
-    local ss=tick()
-    while not chair do
-        if isCancelled() then return false end
-        if tick()-ss>CHAIR_SEARCH_LIMIT then warn("[INIT] Chair not found") return false end
-        task.wait(0.3) chair=findNearestChair(nil)
-    end
-    warn("[INIT] Chair found:",chair.Name)
-
-    local grabPos=getGrabPosition(chair)
-    tweenToPos(grabPos,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-
-    return grabAndBypass(chair)
-end
-
--- Rooms 10/20/30/40: tween to new chair while anchored, grab new, drop old only after owned
-local function switchChair()
-    local ss=tick()
-    local newChair=findNearestChair(activeChair)
-    while not newChair do
-        if isCancelled() then return false end
-        if tick()-ss>CHAIR_SEARCH_LIMIT then break end
-        task.wait(0.3) newChair=findNearestChair(activeChair)
-    end
-    if not newChair then warn("[SWITCH] No chair found") return false end
-    warn("[SWITCH] Switching to",newChair.Name)
-
-    local cartPrompt=getCartPrompt(newChair)
-    local seatPrompt=getSeatPrompt(newChair)
-    if not cartPrompt or not seatPrompt then return false end
-
-    local grabPos=getGrabPosition(newChair)
-    tweenToPos(grabPos,SPEED_SWITCH_XZ,SPEED_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-
-    -- Grab new before releasing old
-    local grabStart=tick() local owned=false
-    while tick()-grabStart<8 do
-        if isCancelled() then return false end
-        safeFirePrompt(cartPrompt)
-        pcall(function() cartControlRemote:FireServer() end)
-        task.wait(GRAB_INTERVAL)
-        if tostring(newChair:GetAttribute("LastPusherId"))==playerUserId then
-            owned=true break
-        end
-    end
-    if not owned then warn("[SWITCH] Not owned") return false end
-
-    stopAnchor()
-    pcall(function() cartControlRemote:FireServer() end)
-    task.wait(0.15)
-    if isCancelled() then return false end
-
-    lockChairParts(newChair)
-    disableChairPrompts(newChair)
-    doSeatCycle(seatPrompt)
-    anchorToPlayer(newChair,seatPrompt)
-
-    local ws=tick() local confirmed=false
-    while tick()-ws<5 do
-        if isCancelled() then return false end
-        local c=getChar()
-        if c and c:GetAttribute("SeatedInSeat")==false then confirmed=true break end
-        task.wait(0.1)
-    end
-    task.wait(1)
-    warn("[SWITCH] Done. Confirmed:",confirmed)
-    return confirmed and anticheatOn
-end
-
-local function acquireAnyChair()
-    if isCancelled() then return false end
-    local ss=tick()
-    local chair=findNearestChair(nil)
-    local useSlow=false
-    while not chair do
-        if isCancelled() then return false end
-        if tick()-ss>CHAIR_SEARCH_LIMIT then useSlow=true break end
-        task.wait(0.3) chair=findNearestChair(nil)
-    end
-    if not chair then warn("[ACQUIRE] No chair") return false end
-    local grabPos=getGrabPosition(chair)
-    tweenToPos(grabPos,useSlow and SPEED_NOCLIP_XZ or SPEED_SWITCH_XZ,SPEED_Y,ARRIVE_DIST)
-    if isCancelled() then return false end
-    return grabAndBypass(chair)
-end
-
-local function getRoomFolder(n) return currentRoomsFolder:FindFirstChild(tostring(n)) end
-
-local function waitForRoom(n,timeout)
-    local s=tick()
-    while tick()-s<timeout do
-        if isCancelled() then return false end
-        if getRoomFolder(n) then return true end
-        task.wait(0.1)
-    end
-    return false
-end
-
-local function disableDoorCollision(door)
-    for _,p in ipairs(door:GetDescendants()) do
-        if p:IsA("BasePart") then p.CanCollide=false end
-    end
-end
-
-local function getDoorBasePart(door)
-    local inner=door:FindFirstChild("Door")
-    if inner and inner:IsA("BasePart") then return inner end
-    local pp=door.PrimaryPart if pp then return pp end
-    return door:FindFirstChildWhichIsA("BasePart")
-end
-
--- openDoor: moves around the door while firing ClientOpen rapidly
-local function openDoor(roomNum)
-    if isCancelled() then return false end
-    local folderNum=roomNum-1
-    local rf=getRoomFolder(folderNum)
-    if not rf then warn("[DOOR] No folder",folderNum) return false end
-    local door=rf:FindFirstChild("Door")
-    if not door then warn("[DOOR] No Door in",folderNum) return false end
-    disableDoorCollision(door)
-    local doorPart=getDoorBasePart(door)
-    local initialCF=doorPart and doorPart.CFrame
-    local clientOpen=door:FindFirstChild("ClientOpen")
-    if not clientOpen then warn("[DOOR] No ClientOpen") return false end
-
-    local xzSpd=anticheatOn and SPEED_XZ or SPEED_WALK_XZ
-    local ySpd=anticheatOn and SPEED_Y or SPEED_WALK_Y
-
-    warn("[DOOR] Opening room",roomNum)
-
-    -- Move to door first
-    if doorPart then
-        tweenToPos(doorPart.Position,xzSpd,ySpd,1.5)
-        if isCancelled() then return false end
-    end
-
-    local opened=false
-    local fs=tick()
-    local pingDir=1
-    local pingTimer=0
-    local PING_INTERVAL=0.3
-
-    while tick()-fs<DOOR_TIMEOUT and not opened do
-        if isCancelled() then return false end
-
-        -- Fire remote as fast as possible
-        pcall(function() clientOpen:FireServer() end)
-        task.wait(DOOR_FIRE_INTERVAL)
-
-        if getRoomFolder(roomNum) then opened=true break end
-
-        if doorPart and initialCF then
-            local ok,newCF=pcall(function() return doorPart.CFrame end)
-            if ok then
-                local pd=(newCF.Position-initialCF.Position).Magnitude
-                local ax,ay,az=initialCF:ToEulerAnglesXYZ()
-                local bx,by,bz=newCF:ToEulerAnglesXYZ()
-                local rd=math.abs(math.deg(bx-ax))+math.abs(math.deg(by-ay))+math.abs(math.deg(bz-az))
-                if rd>5 or pd>0.5 then opened=true break end
-            end
-        end
-
-        -- Ping-pong around door every PING_INTERVAL seconds to keep trigger active
-        pingTimer=pingTimer+DOOR_FIRE_INTERVAL
-        if doorPart and pingTimer>=PING_INTERVAL then
-            pingTimer=0
-            local fwd=doorPart.CFrame.LookVector
-            local side=doorPart.CFrame.RightVector
-            local offset=fwd*(pingDir*3)+side*(pingDir*2)
-            tweenToPos(doorPart.Position+offset,xzSpd,ySpd,1.0)
-            pingDir=-pingDir
-            if isCancelled() then return false end
-        end
-    end
-
-    if opened then
-        warn("[DOOR] Opened room",roomNum)
-        waitForRoom(roomNum+1,8)
-    else
-        warn("[DOOR] Timeout room",roomNum)
-    end
-    return opened
-end
-
-local function roomHasLootables(roomNum)
-    local rf=getRoomFolder(roomNum) if not rf then return false end
-    for _,d in ipairs(rf:GetDescendants()) do
-        if d.Name:find("Stardust") or d.Name:find("stardust") then return true end
-        if d:IsA("Model") and d.Name:match("^ArchivesDesk") then return true end
-        if d:IsA("Model") and d.Name:match("^HidingSpot") then return true end
-    end
-    return false
-end
-
-local function lootMoveTo(pos)
-    tweenToPos(pos,anticheatOn and SPEED_XZ or SPEED_WALK_XZ,anticheatOn and SPEED_Y or SPEED_WALK_Y,ARRIVE_DIST)
-end
-
-local function lootStardust(roomFolder)
-    local seen={} local targets={}
-    for _,d in ipairs(roomFolder:GetDescendants()) do
-        if (d.Name:find("Stardust") or d.Name:find("stardust")) and not seen[d] then
-            seen[d]=true table.insert(targets,d)
-        end
-    end
-    local root=getRoot()
-    if root then
-        table.sort(targets,function(a,b)
-            local function pos(x)
-                if x:IsA("BasePart") then return x.Position end
-                local m=x:FindFirstChild("Main")
-                if m and m:IsA("BasePart") then return m.Position end
-                return x:GetPivot().Position
-            end
-            return (root.Position-pos(a)).Magnitude<(root.Position-pos(b)).Magnitude
-        end)
-    end
-    for _,target in ipairs(targets) do
-        if isCancelled() then return end
-        if not target.Parent then continue end
-        local mainPart=(target:IsA("BasePart") and target)
-            or target:FindFirstChild("Main")
-            or target:FindFirstChildWhichIsA("BasePart")
-        if mainPart and mainPart:IsA("BasePart") then lootMoveTo(mainPart.Position) end
-        if isCancelled() then return end
-        for _,d in ipairs(target:GetDescendants()) do
-            if d:IsA("ProximityPrompt") then safeFirePrompt(d) end
-        end
-        if target:IsA("ProximityPrompt") then safeFirePrompt(target) end
-        local ws=tick()
-        while target.Parent and tick()-ws<2 do task.wait(0.05) end
-    end
-end
-
--- Desks: move to each desk, fire ALL drawer prompts at once, move on immediately
-local function lootDesks(roomFolder)
-    local assets=roomFolder:FindFirstChild("Assets") or roomFolder
-    local desks={}
-    for _,d in ipairs(assets:GetDescendants()) do
-        if d:IsA("Model") and d.Name:match("^ArchivesDesk") then table.insert(desks,d) end
-    end
-    local root=getRoot()
-    if root then
-        table.sort(desks,function(a,b)
-            return (root.Position-a:GetPivot().Position).Magnitude<(root.Position-b:GetPivot().Position).Magnitude
-        end)
-    end
-    for _,desk in ipairs(desks) do
-        if isCancelled() then return end
-        if not desk.Parent then continue end
-        -- Move to desk pivot
-        lootMoveTo(desk:GetPivot().Position)
-        if isCancelled() then return end
-        -- Fire all drawer prompts simultaneously
-        for _,child in ipairs(desk:GetDescendants()) do
-            if child.Name=="DrawerContainer" and child:IsA("Model") then
-                local knob=child:FindFirstChild("Knob") if not knob then continue end
-                local prompt=knob:FindFirstChild("ActivateEventPrompt") or findPromptInModel(knob)
-                if prompt then safeFirePrompt(prompt) end
-            end
-        end
-        task.wait(0.1)
-    end
-    lootStardust(roomFolder)
-end
-
-local function lootHidingSpots(roomFolder)
-    local assets=roomFolder:FindFirstChild("Assets") or roomFolder
-    local spots={}
-    for _,d in ipairs(assets:GetDescendants()) do
-        if d:IsA("Model") and d.Name:match("^HidingSpot") then table.insert(spots,d) end
-    end
-    local root=getRoot()
-    if root then
-        table.sort(spots,function(a,b)
-            return (root.Position-a:GetPivot().Position).Magnitude<(root.Position-b:GetPivot().Position).Magnitude
-        end)
-    end
-    for _,spot in ipairs(spots) do
-        if isCancelled() then return end
-        if not spot.Parent then continue end
-        local prompt=spot:FindFirstChild("InteractPrompt") or findPromptInModel(spot)
-        if not prompt then continue end
-        local pp=prompt.Parent
-        if pp and pp:IsA("BasePart") then
-            lootMoveTo((pp.CFrame*CFrame.new(0,0,-2)).Position)
-        else
-            lootMoveTo((spot:GetPivot()*CFrame.new(0,0,-2)).Position)
-        end
-        if isCancelled() then return end
-        safeFirePrompt(prompt)
-        task.wait(0.2)
-        lootStardust(roomFolder)
-    end
-end
-
-local function lootRoom(roomNum)
-    if isCancelled() then return end
-    local rf=getRoomFolder(roomNum) if not rf then return end
-    warn("[LOOT] Room",roomNum)
-    lootStardust(rf)
-    if isCancelled() then return end
-    lootDesks(rf)
-    if isCancelled() then return end
-    lootHidingSpots(rf)
-    warn("[LOOT] Room",roomNum,"done")
-end
-
-local function firePlayAgain()
-    pcall(function()
-        ReplicatedStorage:WaitForChild("RemotesFolder"):WaitForChild("PlayAgain"):FireServer()
-    end)
-end
-
-local function blockDroneRemotes(model)
-    for _,d in ipairs(model:GetDescendants()) do
-        if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
-            if hookfunction then
-                pcall(hookfunction,d.FireServer,function() end)
-                pcall(hookfunction,d.InvokeServer,function() end)
-            end
-        end
-    end
-end
-for _,obj in ipairs(Workspace:GetChildren()) do
-    if obj:IsA("Model") and (obj.Name=="Drones" or obj.Name=="DronesStampede") then
-        blockDroneRemotes(obj)
-    end
-end
-Workspace.ChildAdded:Connect(function(obj)
-    if obj:IsA("Model") and (obj.Name=="Drones" or obj.Name=="DronesStampede") then
-        task.wait(0.1) blockDroneRemotes(obj)
-    end
+local dragging, dragInput, dragStart, startPos
+topBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
 end)
 
-local function roomLoop()
-    while not isCancelled() do
-        task.wait(0.05)
-        if not anticheatOn then
-            warn("[LOOP] AC off — reacquiring")
-            local ok=false
-            for _=1,3 do
-                if isCancelled() then return end
-                ok=acquireAnyChair() if ok then break end
-                task.wait(1)
-            end
-            if not ok or isCancelled() then return end
-        end
+topBar.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		dragInput = input
+	end
+end)
 
-        local targetRoom=currentRoom+1
-        warn("[LOOP] Opening door to room",targetRoom)
-        local opened=openDoor(targetRoom)
-        if isCancelled() then return end
-        if not opened then task.wait(0.5) continue end
+local dragInputGlobalConn = UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
 
-        local loaded=waitForRoom(targetRoom,12)
-        if not loaded or isCancelled() then task.wait(1) continue end
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	contentContainer.Visible = not minimized
+	topBarFix.Visible = not minimized
+	if minimized then
+		mainFrame.AutomaticSize = Enum.AutomaticSize.None
+		mainFrame.Size = UDim2.new(0, 300, 0, 42)
+		minBtn.Text = "+"
+	else
+		mainFrame.Size = UDim2.new(0, 300, 0, 0)
+		mainFrame.AutomaticSize = Enum.AutomaticSize.Y
+		minBtn.Text = "-"
+	end
+end)
 
-        currentRoom=targetRoom
-        warn("[LOOP] In room",currentRoom)
+local previousMouseBehavior = Enum.MouseBehavior.Default
 
-        -- Always wait 3 seconds, then loot if there's anything
-        task.wait(3)
-        if roomHasLootables(currentRoom) then
-            lootRoom(currentRoom)
-        end
-        if isCancelled() then return end
-
-        if currentRoom>=49 then
-            warn("[LOOP] Done — PlayAgain")
-            firePlayAgain()
-            scriptRunning=false return
-        end
-
-        if CHAIR_ROOMS[currentRoom] then
-            warn("[LOOP] Chair switch at room",currentRoom)
-            local ok=false
-            for _=1,3 do
-                if isCancelled() then return end
-                ok=switchChair() if ok then break end
-                task.wait(1)
-            end
-            if not ok then warn("[LOOP] Switch failed — continuing") end
-        end
-    end
-    scriptRunning=false
+local function setUIVisible(visible)
+	mainFrame.Visible = visible
+	if not UserInputService.TouchEnabled then
+		if visible then
+			previousMouseBehavior = UserInputService.MouseBehavior
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		else
+			UserInputService.MouseBehavior = previousMouseBehavior
+		end
+	end
 end
 
-local function mainLoop()
-    scriptRunning=true
-    getgenv().XvlamerHub_StardustFarmCancelled=false
-    task.wait(3)
-    if isCancelled() then return end
-    currentRoom=0
-    warn("[MAIN] Start room 0")
-    if not anticheatOn then
-        local ok=acquireFirstChair()
-        if not ok or isCancelled() then
-            warn("[MAIN] Failed to acquire chair")
-            scriptRunning=false return
-        end
-    end
-    roomLoop()
+local function cleanup()
+	if cleanedUp then return end
+	cleanedUp = true
+	isRunning = false
+
+	getgenv().AdvancedChairAdminLoaded = nil
+
+	pcall(function()
+		if not UserInputService.TouchEnabled then
+			UserInputService.MouseBehavior = previousMouseBehavior
+		end
+	end)
+
+	pcall(function() if viewportConn then viewportConn:Disconnect() end end)
+	pcall(function() if descendantAddedConn then descendantAddedConn:Disconnect() end end)
+	pcall(function() if descendantRemovingConn then descendantRemovingConn:Disconnect() end end)
+	pcall(function() if playerAddedConn then playerAddedConn:Disconnect() end end)
+	pcall(function() if playerRemovingConn then playerRemovingConn:Disconnect() end end)
+	pcall(function() if inputBeganConn then inputBeganConn:Disconnect() end end)
+	pcall(function() if dragInputGlobalConn then dragInputGlobalConn:Disconnect() end end)
+
+	for _, chair in ipairs(knownChairs) do
+		if chair and chair.Parent then
+			pcall(function()
+				chair:SetAttribute("LastPusherId", player.UserId)
+				local esp = chair:FindFirstChild("BlueESP")
+				if esp then esp:Destroy() end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+						part.CanCollide = true
+						part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+					end
+				end
+			end)
+		end
+	end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		clearTargetVisuals(p)
+	end
 end
 
-local function resumeLoop()
-    local best=0
-    for i=50,0,-1 do if getRoomFolder(i) then best=i break end end
-    currentRoom=best
-    warn("[RESUME] Room",currentRoom)
-    if not anticheatOn then
-        local ok=acquireAnyChair()
-        if not ok or isCancelled() then scriptRunning=false return end
-    end
-    roomLoop()
+gui.AncestryChanged:Connect(function(_, parent)
+	if not parent then
+		cleanup()
+	end
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+	confirmFrame.Visible = true
+end)
+
+cancelConfirmBtn.MouseButton1Click:Connect(function()
+	confirmFrame.Visible = false
+end)
+
+proceedConfirmBtn.MouseButton1Click:Connect(function()
+	cleanup()
+	gui:Destroy()
+end)
+
+mobileToggleBtn.MouseButton1Click:Connect(function()
+	setUIVisible(not mainFrame.Visible)
+end)
+
+local inputBeganConn = UserInputService.InputBegan:Connect(function(input, gp)
+	if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
+		setUIVisible(not mainFrame.Visible)
+	end
+end)
+
+local function updatePlayerList()
+	pcall(function()
+		for _, child in ipairs(scroll:GetChildren()) do
+			if child:IsA("TextButton") then child:Destroy() end
+		end
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player then
+				local btn = Instance.new("TextButton")
+				btn.Size = UDim2.new(1, 0, 0, 30)
+				btn.BackgroundColor3 = selectedTargets[p] and Color3.fromRGB(50, 50, 80) or Color3.fromRGB(22, 22, 32)
+				btn.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+				btn.TextColor3 = Color3.fromRGB(210, 210, 220)
+				btn.TextSize = 11
+				btn.Font = Enum.Font.Gotham
+				btn.Parent = scroll
+
+				local bCorner = Instance.new("UICorner")
+				bCorner.CornerRadius = UDim.new(0, 6)
+				bCorner.Parent = btn
+
+				btn.MouseButton1Click:Connect(function()
+					if selectedTargets[p] then
+						selectedTargets[p] = nil
+						btn.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+						clearTargetVisuals(p)
+					else
+						selectedTargets[p] = true
+						btn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+						updateTargetVisuals(p)
+					end
+					
+					local count = 0
+					for _ in pairs(selectedTargets) do count = count + 1 end
+					if count == 0 then
+						title.Text = "Chair Admin Panel"
+					else
+						title.Text = "Targets: " .. count
+					end
+				end)
+			end
+		end
+		scroll.CanvasSize = UDim2.new(0, 0, 0, scrollLayout.AbsoluteContentSize.Y + 8)
+	end)
 end
 
-getgenv().XvlamerHub_StardustFarmCancelled=false
-if scriptRunning then task.spawn(resumeLoop) else task.spawn(mainLoop) end
+local playerAddedConn = Players.PlayerAdded:Connect(updatePlayerList)
+local playerRemovingConn = Players.PlayerRemoving:Connect(function(p)
+	selectedTargets[p] = nil
+	clearTargetVisuals(p)
+	if cachedDeadTarget == p then
+		cachedDeadTarget = nil
+	end
+	updatePlayerList()
+end)
+updatePlayerList()
+
+killBtn.MouseButton1Click:Connect(function()
+	currentMode = "Kill"
+	killTimer = tick()
+	jailBtn.Text = "JAIL: OFF"
+	jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
+	orbitBtn.Text = "ORBIT: OFF"
+	orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+	throwBtn.Text = "THROW: OFF"
+	throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+	jailPositions = {}
+end)
+
+jailBtn.MouseButton1Click:Connect(function()
+	if currentMode == "Jail" then
+		currentMode = "None"
+		jailBtn.Text = "JAIL: OFF"
+		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
+		jailPositions = {}
+	else
+		currentMode = "Jail"
+		jailBtn.Text = "JAIL: ON"
+		jailBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
+		orbitBtn.Text = "ORBIT: OFF"
+		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+		throwBtn.Text = "THROW: OFF"
+		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		
+		jailPositions = {}
+		local activeTargets = {}
+		for p, _ in pairs(selectedTargets) do
+			if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				table.insert(activeTargets, p)
+			end
+		end
+		local numTargets = #activeTargets
+		if numTargets > 0 and #collectedChairs > 0 then
+			local chairsPerTarget = math.floor(#collectedChairs / numTargets)
+			local remainder = #collectedChairs % numTargets
+			local chairIndex = 1
+			for tIdx, p in ipairs(activeTargets) do
+				local tHrp = p.Character.HumanoidRootPart
+				local tPos = tHrp.Position
+				local countForThisTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
+				
+				local roofCount = math.clamp(math.floor(countForThisTarget * 0.3), 3, 6)
+				local wallCount = countForThisTarget - roofCount
+				if wallCount < 4 then
+					wallCount = countForThisTarget
+					roofCount = 0
+				end
+
+				local assignedForTarget = {}
+				for i = 1, countForThisTarget do
+					if collectedChairs[chairIndex] then
+						table.insert(assignedForTarget, collectedChairs[chairIndex])
+						chairIndex = chairIndex + 1
+					end
+				end
+
+				local cIdx = 1
+				for i = 1, wallCount do
+					local chair = assignedForTarget[cIdx]
+					if chair then
+						cIdx = cIdx + 1
+						local angle = (i - 1) * (2 * math.pi / wallCount)
+						local radius = 6.5
+						local x = math.cos(angle) * radius
+						local z = math.sin(angle) * radius
+						local heightTier = (i % 2 == 0) and -1.8 or 1.2
+						jailPositions[chair] = tPos + Vector3.new(x, heightTier, z)
+					end
+				end
+
+				for i = 1, roofCount do
+					local chair = assignedForTarget[cIdx]
+					if chair then
+						cIdx = cIdx + 1
+						local r = (i == 1) and 0 or 3.5
+						local angleRoof = (i == 1) and 0 or ((i - 2) * (2 * math.pi / (roofCount - 1)))
+						local x = math.cos(angleRoof) * r
+						local z = math.sin(angleRoof) * r
+						jailPositions[chair] = tPos + Vector3.new(x, 4.2, z)
+					end
+				end
+			end
+		end
+	end
+end)
+
+orbitBtn.MouseButton1Click:Connect(function()
+	if currentMode == "Orbit" then
+		currentMode = "None"
+		orbitBtn.Text = "ORBIT: OFF"
+		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+	else
+		currentMode = "Orbit"
+		orbitBtn.Text = "ORBIT: ON"
+		orbitBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
+		jailBtn.Text = "JAIL: OFF"
+		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
+		throwBtn.Text = "THROW: OFF"
+		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		jailPositions = {}
+	end
+end)
+
+throwBtn.MouseButton1Click:Connect(function()
+	if currentMode == "Throw" then
+		currentMode = "None"
+		throwBtn.Text = "THROW: OFF"
+		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		for _, chair in ipairs(collectedChairs) do
+			if chair and chair.Parent then
+				pcall(function()
+					chair:SetAttribute("IsThrown", nil)
+					for _, part in ipairs(chair:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+							part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+						end
+					end
+				end)
+			end
+		end
+	else
+		currentMode = "Throw"
+		throwBtn.Text = "THROW: ON"
+		throwBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
+		jailBtn.Text = "JAIL: OFF"
+		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
+		orbitBtn.Text = "ORBIT: OFF"
+		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+		jailPositions = {}
+
+		for _, chair in ipairs(collectedChairs) do
+			if chair and chair.Parent then
+				pcall(function() chair:SetAttribute("IsThrown", nil) end)
+			end
+		end
+	end
+end)
+
+flingBtn.MouseButton1Click:Connect(function()
+	currentMode = "Fling"
+	flingTimer = tick()
+	jailBtn.Text = "JAIL: OFF"
+	jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
+	orbitBtn.Text = "ORBIT: OFF"
+	orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+	throwBtn.Text = "THROW: OFF"
+	throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+	jailPositions = {}
+end)
+
+local function applyESP(chair)
+	pcall(function()
+		if not chair:FindFirstChild("BlueESP") then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "BlueESP"
+			highlight.FillColor = Color3.fromRGB(0, 100, 255)
+			highlight.OutlineColor = Color3.fromRGB(100, 180, 255)
+			highlight.Parent = chair
+		end
+	end)
+end
+
+local function removeESP(chair)
+	pcall(function()
+		local esp = chair:FindFirstChild("BlueESP")
+		if esp then esp:Destroy() end
+	end)
+end
+
+local function registerChair(obj)
+	pcall(function()
+		if obj.Name == targetName then
+			if not table.find(knownChairs, obj) then
+				table.insert(knownChairs, obj)
+			end
+			local prompt = obj:FindFirstChild("CartPrompt", true)
+			if prompt then
+				prompt.SoundId = ""
+			end
+		end
+	end)
+end
+
+descendantAddedConn = Workspace.DescendantAdded:Connect(registerChair)
+descendantRemovingConn = Workspace.DescendantRemoving:Connect(function(obj)
+	collectedChairsMap[obj] = nil
+	local idx = table.find(knownChairs, obj)
+	if idx then table.remove(knownChairs, idx) end
+end)
+
+for _, obj in ipairs(Workspace:GetDescendants()) do
+	registerChair(obj)
+end
+
+task.spawn(function()
+	while isRunning do
+		pcall(function()
+			collectedChairs = {}
+			for chair, _ in pairs(collectedChairsMap) do
+				if chair and chair.Parent then
+					table.insert(collectedChairs, chair)
+				end
+			end
+			status.Text = "Chairs Ready: " .. #collectedChairs
+		end)
+		task.wait(0.05)
+	end
+end)
+
+RunService.Heartbeat:Connect(function(dt)
+	if not isRunning then return end
+	local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+
+	local targetsChanged = false
+	for p, _ in pairs(selectedTargets) do
+		local char = p.Character
+		local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		
+		local shouldRemove = false
+		if not char or not humanoid or humanoid.Health <= 0 then
+			shouldRemove = true
+		elseif hrp and rootPart then
+			local dist = (hrp.Position - rootPart.Position).Magnitude
+			if dist > 10000 then
+				shouldRemove = true
+			end
+		elseif not hrp then
+			shouldRemove = true
+		end
+
+		if shouldRemove then
+			selectedTargets[p] = nil
+			clearTargetVisuals(p)
+			targetsChanged = true
+		else
+			updateTargetVisuals(p)
+		end
+	end
+	
+	if targetsChanged then
+		updatePlayerList()
+		local count = 0
+		for _ in pairs(selectedTargets) do count = count + 1 end
+		if count == 0 then
+			title.Text = "Chair Admin Panel"
+		else
+			title.Text = "Targets: " .. count
+		end
+	end
+
+	local miscFolder = Workspace:FindFirstChild("Misc")
+	local remote = ReplicatedStorage:FindFirstChild("RemotesFolder") and ReplicatedStorage.RemotesFolder:FindFirstChild("CartControl")
+
+	local availableChairs = {}
+
+	for _, chair in ipairs(knownChairs) do
+		if chair and chair.Parent then
+			pcall(function()
+				local inMisc = miscFolder and chair:IsDescendantOf(miscFolder)
+				
+				if inMisc then
+					removeESP(chair)
+					collectedChairsMap[chair] = true
+					
+					if not chair:GetAttribute("ReleasedInMisc") then
+						chair:SetAttribute("ReleasedInMisc", true)
+						if remote then
+							task.spawn(function()
+								pcall(function() remote:FireServer() end)
+							end)
+						end
+					end
+				else
+					chair:SetAttribute("ReleasedInMisc", nil)
+					collectedChairsMap[chair] = nil
+
+					if collectorEnabled then
+						applyESP(chair)
+					else
+						removeESP(chair)
+					end
+
+					local primary = chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart")) or chair
+					if primary then
+						local dist = (rootPart.Position - primary.Position).Magnitude
+						if dist <= 20 then
+							local prompt = chair:FindFirstChild("CartPrompt", true)
+							if prompt then
+								table.insert(availableChairs, {chair = chair, prompt = prompt, dist = dist})
+							end
+						end
+					end
+				end
+			end)
+		end
+	end
+
+	if tick() - lastGrabTime >= 0.05 then
+		lastGrabTime = tick()
+		
+		table.sort(availableChairs, function(a, b)
+			return a.dist < b.dist
+		end)
+
+		for _, item in ipairs(availableChairs) do
+			pcall(function()
+				item.chair:SetAttribute("LastPusherId", player.UserId)
+				fireproximityprompt(item.prompt)
+			end)
+			if remote then
+				task.spawn(function()
+					pcall(function() remote:FireServer() end)
+				end)
+			end
+		end
+	end
+
+	if currentMode == "Kill" then
+		if tick() - killTimer > 5 then
+			currentMode = "None"
+			jailPositions = {}
+		end
+	elseif currentMode == "Fling" then
+		if tick() - flingTimer > 1 then
+			currentMode = "None"
+			jailPositions = {}
+		end
+	end
+
+	local activeTargets = {}
+	for p, _ in pairs(selectedTargets) do
+		if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			table.insert(activeTargets, p)
+		end
+	end
+
+	local assignedChairs = {}
+	local numTargets = #activeTargets
+
+	if currentMode == "Jail" then
+	elseif currentMode == "Orbit" and numTargets > 0 then
+		local chairsPerTarget = math.floor(#collectedChairs / numTargets)
+		local remainder = #collectedChairs % numTargets
+		
+		local chairIndex = 1
+		for tIdx, p in ipairs(activeTargets) do
+			local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+			if tHrp then
+				local countForThisTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
+				local targetChairs = {}
+				for i = 1, countForThisTarget do
+					if collectedChairs[chairIndex] then
+						table.insert(targetChairs, collectedChairs[chairIndex])
+						chairIndex = chairIndex + 1
+					end
+				end
+				
+				for localIdx, chair in ipairs(targetChairs) do
+					assignedChairs[chair] = {
+						HRP = tHrp,
+						Type = "Orbit",
+						Index = localIdx,
+						Total = #targetChairs
+					}
+				end
+			end
+		end
+	elseif currentMode == "Throw" then
+	elseif currentMode == "Fling" and numTargets > 0 then
+		local chairIdx = 1
+		for _, p in ipairs(activeTargets) do
+			local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+			if tHrp then
+				for i = 1, 3 do
+					local chair = collectedChairs[chairIdx]
+					if chair then
+						assignedChairs[chair] = { HRP = tHrp, Type = "Fling", Index = i }
+						chairIdx = chairIdx + 1
+					end
+				end
+			end
+		end
+	elseif numTargets > 0 and #collectedChairs > 0 and currentMode == "Kill" then
+		local chairsPerTarget = math.floor(#collectedChairs / numTargets)
+		local remainder = #collectedChairs % numTargets
+		
+		local chairIndex = 1
+		for tIdx, p in ipairs(activeTargets) do
+			local tHrp = p.Character.HumanoidRootPart
+			local countForThisTarget = chairsPerTarget + (tIdx <= remainder and 1 or 0)
+			
+			local targetChairs = {}
+			for i = 1, countForThisTarget do
+				if collectedChairs[chairIndex] then
+					table.insert(targetChairs, collectedChairs[chairIndex])
+					chairIndex = chairIndex + 1
+				end
+			end
+			
+			for localIdx, chair in ipairs(targetChairs) do
+				assignedChairs[chair] = {
+					HRP = tHrp,
+					Type = currentMode,
+					Index = localIdx,
+					Total = #targetChairs
+				}
+			end
+		end
+	end
+
+	local localHumanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	local isLocalDead = (not localHumanoid) or (localHumanoid.Health <= 0)
+
+	if not isLocalDead then
+		cachedDeadTarget = nil
+	elseif isLocalDead and not cachedDeadTarget then
+		local otherPlayers = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				table.insert(otherPlayers, p)
+			end
+		end
+		if #otherPlayers > 0 then
+			cachedDeadTarget = otherPlayers[math.random(1, #otherPlayers)]
+		end
+	end
+
+	for i, chair in ipairs(collectedChairs) do
+		if not chair or not chair.Parent then continue end
+		pcall(function()
+			chair:SetAttribute("LastPusherId", player.UserId)
+			local assignment = assignedChairs[chair]
+			
+			if currentMode == "Jail" then
+				local targetPos = jailPositions[chair] or (rootPart.Position - Vector3.new(0, 30, 0))
+				local targetCf = CFrame.new(targetPos)
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCf)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCf
+				end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+						part.CanCollide = true
+						part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+					end
+				end
+			elseif currentMode == "Orbit" and numTargets == 0 then
+				local totalChairs = #collectedChairs
+				local radius = 12
+				local spinSpeed = 10
+				local angle = ((i - 1) * (2 * math.pi / totalChairs)) + (tick() * spinSpeed)
+				local x = math.cos(angle) * radius
+				local z = math.sin(angle) * radius
+				
+				local ySpread = ((i - (totalChairs + 1) / 2) * 0.8) + (math.sin(tick() * 10 + i) * 1.5)
+				local targetPos = rootPart.Position + Vector3.new(x, ySpread, z)
+				local targetCf = CFrame.new(targetPos)
+
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCf)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCf
+				end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+						part.CanCollide = false
+					end
+				end
+			elseif assignment and assignment.Type == "Orbit" then
+				local targetHRP = assignment.HRP
+				local idx = assignment.Index
+				local totalChairs = assignment.Total
+				local radius = 12
+				local spinSpeed = 10
+				local angle = ((idx - 1) * (2 * math.pi / math.max(totalChairs, 1))) + (tick() * spinSpeed)
+				local x = math.cos(angle) * radius
+				local z = math.sin(angle) * radius
+				
+				local ySpread = ((idx - (totalChairs + 1) / 2) * 0.8) + (math.sin(tick() * 10 + idx) * 1.5)
+				local targetPos = targetHRP.Position + Vector3.new(x, ySpread, z)
+				local targetCf = CFrame.new(targetPos)
+
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCf)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCf
+				end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+						part.CanCollide = false
+					end
+				end
+			elseif currentMode == "Throw" then
+				local primary = chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart")) or chair
+				if primary then
+					local chairPos = primary.Position
+					local diff = chairPos - rootPart.Position
+					local distFromPlayer = diff.Magnitude
+
+					if math.abs(diff.X) <= 4.5 and math.abs(diff.Y) <= 4.5 and math.abs(diff.Z) <= 4.5 then
+						chair:SetAttribute("IsThrown", nil)
+						for _, part in ipairs(chair:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.Anchored = false
+								part.CanCollide = false
+								local pushDir = (diff.Magnitude > 0) and diff.Unit or Vector3.new(0, 1, 0)
+								part.AssemblyLinearVelocity = (pushDir * 500) + Vector3.new(0, 150, 0)
+								part.AssemblyAngularVelocity = Vector3.new(math.random(-800, 800), math.random(-800, 800), math.random(-800, 800))
+							end
+						end
+					elseif distFromPlayer > 500 then
+						chair:SetAttribute("IsThrown", nil)
+						local resetPos = rootPart.Position - Vector3.new(0, 30, 0)
+						local targetCf = CFrame.new(resetPos)
+						if chair:IsA("Model") then
+							chair:PivotTo(targetCf)
+						elseif chair:IsA("BasePart") then
+							chair.CFrame = targetCf
+						end
+						for _, part in ipairs(chair:GetDescendants()) do
+							if part:IsA("BasePart") then
+								part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+								part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+							end
+						end
+					elseif not chair:GetAttribute("IsThrown") then
+						chair:SetAttribute("IsThrown", true)
+						
+						local frontCenter = rootPart.Position + (rootPart.CFrame.LookVector * 15) + Vector3.new(0, 2, 0)
+						local angle = (i - 1) * (2 * math.pi / math.max(#collectedChairs, 1))
+						local spread = Vector3.new(math.cos(angle) * 2.5, (i % 2) * 1.2, math.sin(angle) * 2.5)
+						local targetPos = frontCenter + spread
+						local targetCf = CFrame.new(targetPos)
+
+						if chair:IsA("Model") then
+							chair:PivotTo(targetCf)
+						elseif chair:IsA("BasePart") then
+							chair.CFrame = targetCf
+							chair.Anchored = true
+						end
+
+						task.delay(0.01, function()
+							if chair and chair.Parent then
+								for _, part in ipairs(chair:GetDescendants()) do
+									if part:IsA("BasePart") then
+										part.Anchored = false
+										part.CanCollide = false
+										local lookDir = rootPart.CFrame.LookVector
+										part.AssemblyLinearVelocity = (lookDir * 400) + Vector3.new(0, math.random(40, 80), 0)
+										part.AssemblyAngularVelocity = Vector3.new(math.random(-800, 800), math.random(-800, 800), math.random(-800, 800))
+									end
+								end
+							end
+						end)
+					end
+				end
+			elseif assignment and assignment.Type == "Fling" then
+				local targetHRP = assignment.HRP
+				local idx = assignment.Index
+				local angle = (idx - 1) * (2 * math.pi / 3)
+				local x = math.cos(angle) * 0.5
+				local z = math.sin(angle) * 0.5
+				local targetPos = targetHRP.Position + Vector3.new(x, -2, z)
+				local targetCf = CFrame.new(targetPos)
+				
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCf)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCf
+				end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = false
+						part.CanCollide = false
+						part.AssemblyLinearVelocity = Vector3.new(math.random(-250, 250), math.random(500, 800), math.random(-250, 250))
+						part.AssemblyAngularVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
+					end
+				end
+			elseif assignment and assignment.Type == "Kill" then
+				local targetHRP = assignment.HRP
+				local idx = assignment.Index
+				-- PSYCHO APESHIT MODE: Extreme speed, massive chaos
+				local timeVal = tick() * 180 + (idx * 3.7)
+				local radius = 1.5 + math.sin(tick() * 70 + idx) * 3.0
+				local x = math.cos(timeVal) * radius
+				local z = math.sin(timeVal) * radius
+				local yOffset = math.sin(tick() * 90 + idx) * 5 + 1.0
+				
+				-- Violently snap right inside and around the target's body with pure psycho chaos
+				local targetPos = targetHRP.Position + Vector3.new(x, yOffset, z) + Vector3.new(math.random(-4, 4), math.random(-3, 5), math.random(-4, 4))
+				local targetCf = CFrame.new(targetPos) * CFrame.Angles(math.rad(math.random(-360, 360)), math.rad(math.random(-360, 360)), math.rad(math.random(-360, 360)))
+
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCf)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCf
+				end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = false
+						part.CanCollide = false
+						part.AssemblyLinearVelocity = Vector3.new(math.random(-2000, 2000), math.random(1500, 3500), math.random(-2000, 2000))
+						part.AssemblyAngularVelocity = Vector3.new(math.random(-999999, 999999), math.random(-999999, 999999), math.random(-999999, 999999))
+					end
+				end
+			else
+				local targetPos
+				if isLocalDead and cachedDeadTarget and cachedDeadTarget.Character and cachedDeadTarget.Character:FindFirstChild("HumanoidRootPart") then
+					targetPos = cachedDeadTarget.Character.HumanoidRootPart.Position - Vector3.new(0, 30, (i % 5) * 2)
+				else
+					targetPos = rootPart.Position - Vector3.new(0, 30, (i % 5) * 2)
+				end
+				local targetCf = CFrame.new(targetPos)
+
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCf)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCf
+				end
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = true
+						part.CanCollide = false
+						part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+					end
+				end
+			end
+		end)
+	end
+end)
