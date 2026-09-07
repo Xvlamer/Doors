@@ -24,6 +24,9 @@ local currentMode = "None"
 local killTimer = 0
 local flingTimer = 0
 local jailPositions = {}
+local wallPositions = {}
+local orbitYLevels = {}
+local localOrbitY = 0
 local cachedDeadTarget = nil
 local isRunning = true
 local cleanedUp = false
@@ -312,6 +315,7 @@ local jailBtn = createActionButton("JAIL (L): OFF", Color3.fromRGB(180, 115, 35)
 local orbitBtn = createActionButton("ORBIT (O): OFF", Color3.fromRGB(45, 105, 180), 3)
 local throwBtn = createActionButton("THROW (T): OFF", Color3.fromRGB(120, 40, 180), 4)
 local flingBtn = createActionButton("FLING (F)", Color3.fromRGB(65, 175, 120), 5)
+local wallBtn = createActionButton("WALL (R): OFF", Color3.fromRGB(40, 160, 180), 6)
 
 local function clearTargetVisuals(p)
 	pcall(function()
@@ -471,6 +475,11 @@ local function cleanup()
 			chair:SetAttribute("ReleasedInMisc", nil)
 			chair:SetAttribute("LastPromptTime", nil)
 			chair:SetAttribute("IsThrown", nil)
+			for _, part in ipairs(chair:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Anchored = false
+				end
+			end
 		end
 	end
 
@@ -567,7 +576,11 @@ local function triggerKill()
 	orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
 	throwBtn.Text = "THROW (T): OFF"
 	throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+	wallBtn.Text = "WALL (R): OFF"
+	wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
 	jailPositions = {}
+	wallPositions = {}
+	orbitYLevels = {}
 end
 
 local function triggerJail()
@@ -584,6 +597,10 @@ local function triggerJail()
 		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
 		throwBtn.Text = "THROW (T): OFF"
 		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		wallBtn.Text = "WALL (R): OFF"
+		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
+		wallPositions = {}
+		orbitYLevels = {}
 		
 		jailPositions = {}
 		local activeTargets = {}
@@ -652,6 +669,7 @@ local function triggerOrbit()
 		currentMode = "None"
 		orbitBtn.Text = "ORBIT (O): OFF"
 		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+		orbitYLevels = {}
 	else
 		currentMode = "Orbit"
 		orbitBtn.Text = "ORBIT (O): ON"
@@ -660,7 +678,21 @@ local function triggerOrbit()
 		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
 		throwBtn.Text = "THROW (T): OFF"
 		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		wallBtn.Text = "WALL (R): OFF"
+		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
 		jailPositions = {}
+		wallPositions = {}
+		
+		orbitYLevels = {}
+		local rootP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if rootP then
+			localOrbitY = rootP.Position.Y
+		end
+		for p, _ in pairs(selectedTargets) do
+			if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				orbitYLevels[p] = p.Character.HumanoidRootPart.Position.Y
+			end
+		end
 	end
 end
 
@@ -688,7 +720,11 @@ local function triggerThrow()
 		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
 		orbitBtn.Text = "ORBIT (O): OFF"
 		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+		wallBtn.Text = "WALL (R): OFF"
+		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
 		jailPositions = {}
+		wallPositions = {}
+		orbitYLevels = {}
 
 		for _, chair in ipairs(collectedChairs) do
 			if chair and chair.Parent then
@@ -707,7 +743,60 @@ local function triggerFling()
 	orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
 	throwBtn.Text = "THROW (T): OFF"
 	throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+	wallBtn.Text = "WALL (R): OFF"
+	wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
 	jailPositions = {}
+	wallPositions = {}
+	orbitYLevels = {}
+end
+
+local function triggerWall()
+	if currentMode == "Wall" then
+		currentMode = "None"
+		wallBtn.Text = "WALL (R): OFF"
+		wallBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 180)
+		wallPositions = {}
+	else
+		currentMode = "Wall"
+		wallBtn.Text = "WALL (R): ON"
+		wallBtn.BackgroundColor3 = Color3.fromRGB(35, 150, 80)
+		jailBtn.Text = "JAIL (L): OFF"
+		jailBtn.BackgroundColor3 = Color3.fromRGB(180, 115, 35)
+		orbitBtn.Text = "ORBIT (O): OFF"
+		orbitBtn.BackgroundColor3 = Color3.fromRGB(45, 105, 180)
+		throwBtn.Text = "THROW (T): OFF"
+		throwBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 180)
+		jailPositions = {}
+		wallPositions = {}
+		orbitYLevels = {}
+
+		local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if rootPart and #collectedChairs > 0 then
+			local totalChairs = #collectedChairs
+			local maxRows = 5
+			local maxPerRow = math.ceil(totalChairs / maxRows)
+			if maxPerRow < 1 then maxPerRow = 1 end
+			
+			local rightVec = rootPart.CFrame.RightVector
+			local lookVec = rootPart.CFrame.LookVector
+			local centerPos = rootPart.Position + (lookVec * 15) + Vector3.new(0, -3.0, 0)
+			local spacingX = 3.2
+			local spacingY = 3.2
+
+			for i, chair in ipairs(collectedChairs) do
+				local row = math.floor((i - 1) / maxPerRow)
+				local col = (i - 1) % maxPerRow
+				local currentCharsInThisRow = math.min(totalChairs - row * maxPerRow, maxPerRow)
+				
+				local xOffset = (col - (currentCharsInThisRow - 1) / 2) * spacingX
+				local yOffset = row * spacingY
+				local targetPos = centerPos + (rightVec * xOffset) + Vector3.new(0, yOffset, 0)
+				
+				-- Uses the exact same clean position-based locking method as Jail, turned around 180 degrees
+				wallPositions[chair] = CFrame.new(targetPos) * CFrame.Angles(0, math.rad(180), 0)
+			end
+		end
+	end
 end
 
 killBtn.MouseButton1Click:Connect(triggerKill)
@@ -715,6 +804,7 @@ jailBtn.MouseButton1Click:Connect(triggerJail)
 orbitBtn.MouseButton1Click:Connect(triggerOrbit)
 throwBtn.MouseButton1Click:Connect(triggerThrow)
 flingBtn.MouseButton1Click:Connect(triggerFling)
+wallBtn.MouseButton1Click:Connect(triggerWall)
 
 local inputBeganConn = UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
@@ -730,6 +820,8 @@ local inputBeganConn = UserInputService.InputBegan:Connect(function(input, gp)
 		triggerThrow()
 	elseif input.KeyCode == Enum.KeyCode.F then
 		triggerFling()
+	elseif input.KeyCode == Enum.KeyCode.R then
+		triggerWall()
 	end
 end)
 
@@ -859,7 +951,6 @@ RunService.Heartbeat:Connect(function(dt)
 				collectedChairsMap[chair] = nil
 				applyESP(chair)
 
-				-- 25-stud threshold rule for grabbing via prompt
 				local primary = chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart")) or chair
 				if primary then
 					local dist = (rootPart.Position - primary.Position).Magnitude
@@ -867,7 +958,7 @@ RunService.Heartbeat:Connect(function(dt)
 						local prompt = chair:FindFirstChild("CartPrompt", true)
 						if prompt then
 							local lastFired = chair:GetAttribute("LastPromptTime") or 0
-							if currentTime - lastFired >= 0.1 then -- Fires 10 times per second per chair
+							if currentTime - lastFired >= 0.1 then
 								chair:SetAttribute("LastPromptTime", currentTime)
 								table.insert(availableChairs, {chair = chair, prompt = prompt, dist = dist})
 							end
@@ -897,11 +988,15 @@ RunService.Heartbeat:Connect(function(dt)
 		if tick() - killTimer > 5 then
 			currentMode = "None"
 			jailPositions = {}
+			wallPositions = {}
+			orbitYLevels = {}
 		end
 	elseif currentMode == "Fling" then
 		if tick() - flingTimer > 1 then
 			currentMode = "None"
 			jailPositions = {}
+			wallPositions = {}
+			orbitYLevels = {}
 		end
 	end
 
@@ -933,17 +1028,20 @@ RunService.Heartbeat:Connect(function(dt)
 					end
 				end
 				
+				local lockedY = orbitYLevels[p] or tHrp.Position.Y
 				for localIdx, chair in ipairs(targetChairs) do
 					assignedChairs[chair] = {
 						HRP = tHrp,
 						Type = "Orbit",
 						Index = localIdx,
-						Total = #targetChairs
+						Total = #targetChairs,
+						LockedY = lockedY
 					}
 				end
 			end
 		end
 	elseif currentMode == "Throw" then
+	elseif currentMode == "Wall" then
 	elseif currentMode == "Fling" and numTargets > 0 then
 		local chairIdx = 1
 		for _, p in ipairs(activeTargets) do
@@ -1022,6 +1120,24 @@ RunService.Heartbeat:Connect(function(dt)
 					part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 				end
 			end
+		elseif currentMode == "Wall" then
+			local targetCF = wallPositions[chair]
+			if targetCF then
+				if chair:IsA("Model") then
+					chair:PivotTo(targetCF)
+				elseif chair:IsA("BasePart") then
+					chair.CFrame = targetCF
+				end
+
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = false
+						part.CanCollide = true
+						part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+						part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+					end
+				end
+			end
 		elseif currentMode == "Orbit" and numTargets == 0 then
 			local totalChairs = #collectedChairs
 			local radius = 12
@@ -1030,8 +1146,7 @@ RunService.Heartbeat:Connect(function(dt)
 			local x = math.cos(angle) * radius
 			local z = math.sin(angle) * radius
 			
-			local ySpread = ((i - (totalChairs + 1) / 2) * 0.8) + (math.sin(tick() * 5 + i) * 1.5)
-			local targetPos = rootPart.Position + Vector3.new(x, ySpread, z)
+			local targetPos = Vector3.new(rootPart.Position.X + x, localOrbitY, rootPart.Position.Z + z)
 
 			if chair:IsA("Model") then
 				chair:PivotTo(CFrame.new(targetPos))
@@ -1056,8 +1171,8 @@ RunService.Heartbeat:Connect(function(dt)
 			local x = math.cos(angle) * radius
 			local z = math.sin(angle) * radius
 			
-			local ySpread = ((idx - (totalChairs + 1) / 2) * 0.8) + (math.sin(tick() * 5 + idx) * 1.5)
-			local targetPos = targetHRP.Position + Vector3.new(x, ySpread, z)
+			local lockedY = assignment.LockedY or targetHRP.Position.Y
+			local targetPos = Vector3.new(targetHRP.Position.X + x, lockedY, targetHRP.Position.Z + z)
 
 			if chair:IsA("Model") then
 				chair:PivotTo(CFrame.new(targetPos))
