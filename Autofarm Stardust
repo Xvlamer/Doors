@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -12,132 +13,144 @@ local remotesFolder = ReplicatedStorage:WaitForChild("RemotesFolder")
 local cartControlRemote = remotesFolder:WaitForChild("CartControl")
 local playerUserId = tostring(player.UserId)
 
-Lighting.Ambient = Color3.new(1, 1, 1)
-Lighting.ColorShift_Bottom = Color3.new(1, 1, 1)
-Lighting.ColorShift_Top = Color3.new(1, 1, 1)
+-- Silence all audio on execute to prevent stacking sounds
+for _,s in ipairs(SoundService:GetDescendants()) do
+    if s:IsA("Sound") then s:Stop() s.Volume=0 end
+end
+for _,s in ipairs(Workspace:GetDescendants()) do
+    if s:IsA("Sound") then s:Stop() s.Volume=0 end
+end
+
+Lighting.Ambient = Color3.new(1,1,1)
+Lighting.ColorShift_Bottom = Color3.new(1,1,1)
+Lighting.ColorShift_Top = Color3.new(1,1,1)
 Lighting.Brightness = 3
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 100000
 Lighting.FogStart = 100000
 
-local SPEED_WALK = 20
-local SPEED_AC = 100
-local SPEED_SWITCH = 25
-local SPEED_NOCLIP = 2
-local GRAB_INTERVAL = 0.05
-local DOOR_FIRE_INTERVAL = 0.05
-local DOOR_TIMEOUT = 25
+local SPEED_XZ           = 100
+local SPEED_Y            = 50
+local SPEED_WALK_XZ      = 20
+local SPEED_WALK_Y       = 20
+local SPEED_SWITCH_XZ    = 25
+local SPEED_NOCLIP_XZ    = 2
+local GRAB_INTERVAL      = 0.05
+local DOOR_FIRE_INTERVAL = 0.03
+local DOOR_TIMEOUT       = 25
 local CHAIR_SEARCH_LIMIT = 30
-local ARRIVE_DIST = 1.5
+local ARRIVE_DIST        = 1.5
 local CHAIR_ROOMS = {[10]=true,[20]=true,[30]=true,[40]=true}
 
-local WP1 = CFrame.new(251.042633, -0.174223781, -39.4570351, 0.99865216, 0.00258172257, -0.0518378392, 0.000143666432, 0.998620749, 0.0525028333, 0.0519018881, -0.0524395108, 0.997274339)
-local WP2 = CFrame.new(222.109955, -0.188600898, -73.2570419, 0.581981838, -0.0934531838, 0.807814121, -0.00017296632, 0.993360579, 0.115043029, -0.813201785, -0.0670926794, 0.578101695)
+local WP1 = CFrame.new(251.042633,-0.174223781,-39.4570351,0.99865216,0.00258172257,-0.0518378392,0.000143666432,0.998620749,0.0525028333,0.0519018881,-0.0524395108,0.997274339)
+local WP2 = CFrame.new(222.109955,-0.188600898,-73.2570419,0.581981838,-0.0934531838,0.807814121,-0.00017296632,0.993360579,0.115043029,-0.813201785,-0.0670926794,0.578101695)
+local WP3 = CFrame.new(224.2043,-0.20942986,-89.5533981,-0.977390945,-0.0288311634,0.209465548,0.000259756664,0.990495384,0.137545392,-0.21144025,0.134490013,-0.968093693)
+local WP4 = CFrame.new(213.868347,-0.237462163,-83.2877045,-0.618880212,-0.264314145,0.739679098,0.000223322699,0.94162488,0.336663544,-0.785485327,0.208519593,-0.582694054)
 
-local anticheatOn = false
-local activeChair = nil
-local allChairs = {}
-local currentRoom = 0
+local anticheatOn   = false
+local activeChair   = nil
+local allChairs     = {}
+local currentRoom   = 0
 local scriptRunning = false
-local anchorConn = nil
-local reseatConn = nil
-local tweenConn = nil
-local noclipConn = nil
+local anchorConn    = nil
+local reseatConn    = nil
+local tweenConn     = nil
+local noclipConn    = nil
 
 do
     local old = playerGui:FindFirstChild("ACStatusGui")
     if old then old:Destroy() end
 end
-
 local sg = Instance.new("ScreenGui")
-sg.Name = "ACStatusGui"
-sg.ResetOnSpawn = false
-sg.IgnoreGuiInset = true
-sg.DisplayOrder = 999
-sg.Parent = playerGui
-
+sg.Name="ACStatusGui" sg.ResetOnSpawn=false sg.IgnoreGuiInset=true
+sg.DisplayOrder=999 sg.Parent=playerGui
 local hud = Instance.new("TextLabel")
-hud.Size = UDim2.new(0,130,0,16)
-hud.Position = UDim2.new(0,6,1,-22)
-hud.BackgroundTransparency = 1
-hud.TextSize = 11
-hud.Font = Enum.Font.Code
-hud.TextXAlignment = Enum.TextXAlignment.Left
-hud.TextYAlignment = Enum.TextYAlignment.Center
-hud.Text = "AntiCheat: Off"
-hud.TextColor3 = Color3.fromRGB(220,50,50)
-hud.ZIndex = 10
-hud.Active = false
-hud.Selectable = false
-hud.Parent = sg
+hud.Size=UDim2.new(0,160,0,16) hud.Position=UDim2.new(0,6,1,-22)
+hud.BackgroundTransparency=1 hud.TextSize=11 hud.Font=Enum.Font.Code
+hud.TextXAlignment=Enum.TextXAlignment.Left hud.TextYAlignment=Enum.TextYAlignment.Center
+hud.Text="AntiCheat: Off" hud.TextColor3=Color3.fromRGB(220,50,50)
+hud.ZIndex=10 hud.Active=false hud.Selectable=false hud.Parent=sg
 
-local function setHudOn() hud.Text = "AntiCheat: On" hud.TextColor3 = Color3.fromRGB(50,220,80) end
-local function setHudOff() hud.Text = "AntiCheat: Off" hud.TextColor3 = Color3.fromRGB(220,50,50) end
+local function setHudOn()  hud.Text="AntiCheat: On"  hud.TextColor3=Color3.fromRGB(50,220,80)  end
+local function setHudOff() hud.Text="AntiCheat: Off" hud.TextColor3=Color3.fromRGB(220,50,50) end
 local function getChar() return player.Character end
-local function getRoot() local c = getChar() return c and c:FindFirstChild("HumanoidRootPart") end
+local function getRoot() local c=getChar() return c and c:FindFirstChild("HumanoidRootPart") end
 
+local COLL_OFF_NAMES = {
+    ArchivesCubicleRight=true,ArchivesCubicleLeft=true,
+    ArchivesTrashcan=true,PottedPlant_Archives_Large=true,
+}
 local function disableSpecificCollisions(obj)
-    if obj:IsA("BasePart") then
-        local n = obj.Name
-        if n == "ArchivesCubicleRight" or n == "ArchivesCubicleLeft" or n == "ArchivesTrashcan" or n == "PottedPlant_Archives_Large" or n:match("^ArchivesDesk") or n == "Main" or n == "Door" or n == "PaperPlane" or n:match("^Door") then
-            obj.CanCollide = false
-            obj.CanTouch = false
-            obj.CanQuery = false
-        end
+    if not obj:IsA("BasePart") then return end
+    local n=obj.Name
+    if COLL_OFF_NAMES[n] or n:match("^ArchivesDesk") or n=="Main" or n=="Door" or n=="PaperPlane" or n:match("^Door") then
+        obj.CanCollide=false obj.CanTouch=false obj.CanQuery=false
     end
 end
-
-for _, obj in ipairs(Workspace:GetDescendants()) do disableSpecificCollisions(obj) end
+for _,obj in ipairs(Workspace:GetDescendants()) do disableSpecificCollisions(obj) end
 Workspace.DescendantAdded:Connect(disableSpecificCollisions)
 
+-- Noclip permanently on when anticheat is active
 noclipConn = RunService.Stepped:Connect(function()
-    if anticheatOn then
-        local c = getChar()
-        if c then
-            for _, p in ipairs(c:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.CanCollide = false
-                end
-            end
-        end
+    if not anticheatOn then return end
+    local c=getChar() if not c then return end
+    for _,p in ipairs(c:GetDescendants()) do
+        if p:IsA("BasePart") then p.CanCollide=false end
     end
 end)
 
 local function isCancelled()
-    return getgenv().XvlamerHub_StardustFarmCancelled == true
-        or getgenv().XvlamerHub_Cancelled == true
+    return getgenv().XvlamerHub_StardustFarmCancelled==true
+        or getgenv().XvlamerHub_Cancelled==true
         or not scriptRunning
 end
 
-local function tweenToPos(targetPos, speed, stopDist)
-    if typeof(targetPos) == "CFrame" then targetPos = targetPos.Position end
-    if tweenConn then tweenConn:Disconnect() tweenConn = nil end
+-- Separate X/Z and Y speeds. Y capped at 50 to prevent ground clipping.
+-- Player velocity zeroed every heartbeat. No raycast — geometry does not exist.
+local function tweenToPos(targetPos, xzSpeed, ySpeed, stopDist)
+    if typeof(targetPos)=="CFrame" then targetPos=targetPos.Position end
+    if tweenConn then tweenConn:Disconnect() tweenConn=nil end
     if isCancelled() then return false end
     stopDist = stopDist or ARRIVE_DIST
-    speed = speed or (anticheatOn and SPEED_AC or SPEED_WALK)
-    
-    local done = false
-    local result = false
+    xzSpeed  = xzSpeed or SPEED_XZ
+    ySpeed   = ySpeed  or SPEED_Y
+    local done=false local result=false
     tweenConn = RunService.Heartbeat:Connect(function(dt)
         if done then return end
-        if isCancelled() then done = true result = false return end
-        local root = getRoot()
-        if not root then done = true result = false return end
-        local cur = root.Position
+        if isCancelled() then done=true result=false return end
+        local root=getRoot()
+        if not root then done=true result=false return end
+        root.AssemblyLinearVelocity  = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        local hum=getChar() and getChar():FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand=true end
+        local cur  = root.Position
         local diff = targetPos - cur
         local dist = diff.Magnitude
-        if dist <= stopDist then done = true result = true return end
-        local moveAmt = math.min(dist, speed * dt)
-        root.CFrame = CFrame.new(cur + diff.Unit * moveAmt) * root.CFrame.Rotation
+        if dist<=stopDist then
+            if hum then hum.PlatformStand=false end
+            done=true result=true return
+        end
+        -- Move X/Z and Y independently at different speeds
+        local dx = diff.X
+        local dy = diff.Y
+        local dz = diff.Z
+        local xzDist = math.sqrt(dx*dx+dz*dz)
+        local newX = cur.X + (xzDist>0 and (dx/xzDist)*math.min(xzDist,xzSpeed*dt) or 0)
+        local newZ = cur.Z + (xzDist>0 and (dz/xzDist)*math.min(xzDist,xzSpeed*dt) or 0)
+        local newY = cur.Y + (math.abs(dy)>0 and (dy/math.abs(dy))*math.min(math.abs(dy),ySpeed*dt) or 0)
+        root.CFrame = CFrame.new(Vector3.new(newX,newY,newZ)) * root.CFrame.Rotation
     end)
     while not done do task.wait(0.05) end
-    if tweenConn then tweenConn:Disconnect() tweenConn = nil end
+    if tweenConn then tweenConn:Disconnect() tweenConn=nil end
+    local hum=getChar() and getChar():FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand=false end
     return result
 end
 
 local function safeFirePrompt(prompt)
     if not prompt or not prompt.Parent then return end
-    pcall(fireproximityprompt, prompt)
+    pcall(fireproximityprompt,prompt)
 end
 
 local function findPromptInModel(model)
@@ -147,34 +160,31 @@ local function findPromptInModel(model)
 end
 
 local function getChairPos(chair)
-    local b = chair:FindFirstChild("Base")
+    local b=chair:FindFirstChild("Base")
     if b and b:IsA("BasePart") then return b.Position end
-    local pp = chair.PrimaryPart
-    if pp then return pp.Position end
+    local pp=chair.PrimaryPart if pp then return pp.Position end
     return chair:GetPivot().Position
 end
 
 local function getCartPrompt(chair)
-    local att = chair:FindFirstChild("Attachment")
-    if not att then return nil end
-    local cp = att:FindFirstChild("CartPrompt")
+    local att=chair:FindFirstChild("Attachment") if not att then return nil end
+    local cp=att:FindFirstChild("CartPrompt")
     if cp and cp:IsA("ProximityPrompt") then return cp end
     return nil
 end
 
 local function getSeatPrompt(chair)
-    local col = chair:FindFirstChild("Collider")
-    if not col then return nil end
-    local sp = col:FindFirstChild("SeatPrompt")
+    local col=chair:FindFirstChild("Collider") if not col then return nil end
+    local sp=col:FindFirstChild("SeatPrompt")
     if sp and sp:IsA("ProximityPrompt") then return sp end
     return nil
 end
 
 local function getGrabPosition(chair)
-    local att = chair:FindFirstChild("Attachment")
+    local att=chair:FindFirstChild("Attachment")
     if att and att:IsA("Attachment") then
-        local cf = att.WorldCFrame
-        return cf.Position + cf.LookVector * (-2)
+        local cf=att.WorldCFrame
+        return cf.Position+cf.LookVector*(-2)
     end
     return getChairPos(chair)
 end
@@ -182,19 +192,17 @@ end
 local function lockChairParts(chair)
     for _,p in ipairs(chair:GetDescendants()) do
         if p:IsA("BasePart") then
-            p.CanCollide = false
-            p.CanTouch = false
-            p.CanQuery = false
-            p.Transparency = 1
-            p.Massless = true
-            p.CustomPhysicalProperties = PhysicalProperties.new(0,0,0,0,0)
+            p.CanCollide=false p.CanTouch=false p.CanQuery=false
+            p.Transparency=1 p.Massless=true
+            p.CustomPhysicalProperties=PhysicalProperties.new(0,0,0,0,0)
         end
+        if p:IsA("Sound") then p.Volume=0 p:Stop() end
     end
 end
 
 local function disableChairPrompts(chair)
     for _,d in ipairs(chair:GetDescendants()) do
-        if d:IsA("ProximityPrompt") then d.Enabled = false end
+        if d:IsA("ProximityPrompt") then d.Enabled=false end
     end
 end
 
@@ -202,74 +210,99 @@ local function enableAllPrompts()
     for c in pairs(allChairs) do
         if c and c.Parent then
             for _,d in ipairs(c:GetDescendants()) do
-                if d:IsA("ProximityPrompt") then d.Enabled = true end
+                if d:IsA("ProximityPrompt") then d.Enabled=true end
             end
         end
     end
 end
 
 local function stopAnchor()
-    if anchorConn then anchorConn:Disconnect() anchorConn = nil end
-    if reseatConn then reseatConn:Disconnect() reseatConn = nil end
-    anticheatOn = false
-    setHudOff()
+    if anchorConn then anchorConn:Disconnect() anchorConn=nil end
+    if reseatConn then reseatConn:Disconnect() reseatConn=nil end
+    anticheatOn=false setHudOff()
     enableAllPrompts()
-    activeChair = nil
+    activeChair=nil
+    warn("[ANCHOR] Stopped")
 end
 
 local function doSeatCycle(seatPrompt)
-    local char = getChar()
-    if char then char:SetAttribute("SeatedInSeat", false) end
+    local char=getChar()
+    if char then char:SetAttribute("SeatedInSeat",false) end
     task.wait(0.05)
     pcall(function() fireproximityprompt(seatPrompt) end)
     task.wait(0.05)
-    char = getChar()
-    if char then char:SetAttribute("SeatedInSeat", false) end
+    char=getChar()
+    if char then char:SetAttribute("SeatedInSeat",false) end
 end
 
+-- SeatedInSeat logic:
+-- false  = bypass active, anticheat ON
+-- true   = game seated us, force to false
+-- nil    = not seated at all, fire seatPrompt to re-seat
 local function anchorToPlayer(chair, seatPrompt)
-    if anchorConn then anchorConn:Disconnect() anchorConn = nil end
-    if reseatConn then reseatConn:Disconnect() reseatConn = nil end
-    activeChair = chair
+    if anchorConn then anchorConn:Disconnect() anchorConn=nil end
+    if reseatConn then reseatConn:Disconnect() reseatConn=nil end
+    activeChair=chair
+    warn("[ANCHOR] Started on",chair.Name)
 
     task.spawn(function()
-        while activeChair == chair and not isCancelled() do
+        while activeChair==chair and not isCancelled() do
             pcall(function() cartControlRemote:FireServer() end)
             task.wait(0.05)
         end
     end)
 
-    anchorConn = RunService.RenderStepped:Connect(function()
-        if not chair or not chair.Parent then stopAnchor() return end
-        local c = getChar()
-        local root = c and c:FindFirstChild("HumanoidRootPart")
+    anchorConn=RunService.RenderStepped:Connect(function()
+        if not chair or not chair.Parent then
+            warn("[ANCHOR] Chair gone")
+            stopAnchor() return
+        end
+        local c=getChar()
+        local root=c and c:FindFirstChild("HumanoidRootPart")
         if not root then return end
 
-        chair:PivotTo(root.CFrame * CFrame.new(0,-2,0))
+        -- Chair placed below and behind, no vertical contact with player
+        chair:PivotTo(root.CFrame*CFrame.new(0,-3.5,1))
 
-        if chair:GetAttribute("CartHitConnected") == true then
-            chair:SetAttribute("CartHitConnected", false)
+        for _,p in ipairs(chair:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.AssemblyLinearVelocity=Vector3.zero
+                p.AssemblyAngularVelocity=Vector3.zero
+                if p.CanCollide then p.CanCollide=false end
+                if p.CanTouch   then p.CanTouch=false end
+            end
         end
 
-        local seated = c:GetAttribute("SeatedInSeat")
-        if seated == false then
-            setHudOn()
-            anticheatOn = true
-        else
-            setHudOff()
-            anticheatOn = false
+        if chair:GetAttribute("CartHitConnected")==true then
+            chair:SetAttribute("CartHitConnected",false)
         end
-        if seated == true then
-            c:SetAttribute("SeatedInSeat", false)
+
+        local seated=c:GetAttribute("SeatedInSeat")
+        if seated==false then
+            -- Correct state: bypass active
+            if not anticheatOn then
+                anticheatOn=true setHudOn()
+                warn("[ANTICHEAT] On")
+            end
+        elseif seated==true then
+            -- Game tried to seat us: reject it
+            c:SetAttribute("SeatedInSeat",false)
+        elseif seated==nil then
+            -- Lost seat: anticheat off until reseatConn fixes it
+            if anticheatOn then
+                anticheatOn=false setHudOff()
+                warn("[ANTICHEAT] Lost seat — reseating")
+            end
         end
     end)
 
-    reseatConn = RunService.Heartbeat:Connect(function()
+    reseatConn=RunService.Heartbeat:Connect(function()
         if not chair or not chair.Parent then return end
-        if tostring(chair:GetAttribute("LastPusherId")) ~= playerUserId then return end
-        local c = getChar()
-        if not c then return end
-        if c:GetAttribute("SeatedInSeat") == nil then
+        if tostring(chair:GetAttribute("LastPusherId"))~=playerUserId then return end
+        local c=getChar() if not c then return end
+        local seated=c:GetAttribute("SeatedInSeat")
+        -- nil means we need to re-fire the seat prompt
+        if seated==nil then
             task.spawn(function() doSeatCycle(seatPrompt) end)
         end
     end)
@@ -277,32 +310,77 @@ end
 
 local function hookCharacter(character)
     character:GetAttributeChangedSignal("SeatedInSeat"):Connect(function()
-        if activeChair and character:GetAttribute("SeatedInSeat") == true then
-            character:SetAttribute("SeatedInSeat", false)
+        if activeChair and character:GetAttribute("SeatedInSeat")==true then
+            character:SetAttribute("SeatedInSeat",false)
         end
     end)
 end
 if player.Character then hookCharacter(player.Character) end
 player.CharacterAdded:Connect(hookCharacter)
 
+-- hookChair: registers only. Zero auto-grab logic.
+local function hookChair(chair)
+    if chair.Name~="ArchivesOfficeChair" then return end
+    if allChairs[chair] then return end
+    allChairs[chair]=true
+    chair.AncestryChanged:Connect(function()
+        if not chair.Parent then
+            allChairs[chair]=nil
+            if activeChair==chair then stopAnchor() end
+        end
+    end)
+end
+
+local function scanFolder(folder)
+    for _,d in ipairs(folder:GetDescendants()) do
+        if d.Name=="ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
+    end
+    folder.DescendantAdded:Connect(function(d)
+        if d.Name=="ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
+    end)
+end
+scanFolder(miscFolder)
+scanFolder(currentRoomsFolder)
+
+local function findNearestChair(exclude)
+    local root=getRoot() if not root then return nil end
+    local best=nil local bestDist=math.huge
+    local function check(d)
+        if d.Name~="ArchivesOfficeChair" or not d:IsA("Model") then return end
+        if exclude and d==exclude then return end
+        local dist=(root.Position-getChairPos(d)).Magnitude
+        if dist<bestDist then bestDist=dist best=d end
+    end
+    for _,d in ipairs(miscFolder:GetDescendants()) do check(d) end
+    for i=0,50 do
+        local rf=currentRoomsFolder:FindFirstChild(tostring(i))
+        if rf then for _,d in ipairs(rf:GetDescendants()) do check(d) end end
+    end
+    return best
+end
+
+-- Explicit grab only — never called by proximity signal
 local function grabAndBypass(chair)
     if isCancelled() then return false end
-    local cartPrompt = getCartPrompt(chair)
-    local seatPrompt = getSeatPrompt(chair)
-    if not cartPrompt or not seatPrompt then return false end
+    local cartPrompt=getCartPrompt(chair)
+    local seatPrompt=getSeatPrompt(chair)
+    if not cartPrompt or not seatPrompt then
+        warn("[GRAB] Missing prompts on",chair.Name) return false
+    end
+    warn("[GRAB] Attempting",chair.Name)
 
-    local grabStart = tick()
-    local owned = false
-    while tick() - grabStart < 8 do
+    local grabStart=tick() local owned=false
+    while tick()-grabStart<8 do
         if isCancelled() then return false end
         safeFirePrompt(cartPrompt)
         pcall(function() cartControlRemote:FireServer() end)
         task.wait(GRAB_INTERVAL)
-        if tostring(chair:GetAttribute("LastPusherId")) == playerUserId then
-            owned = true break
+        if tostring(chair:GetAttribute("LastPusherId"))==playerUserId then
+            owned=true break
         end
     end
-    if not owned then return false end
+    if not owned then warn("[GRAB] Not owned") return false end
+    warn("[GRAB] Owned")
 
     pcall(function() cartControlRemote:FireServer() end)
     task.wait(0.15)
@@ -311,128 +389,88 @@ local function grabAndBypass(chair)
     lockChairParts(chair)
     disableChairPrompts(chair)
     doSeatCycle(seatPrompt)
-    anchorToPlayer(chair, seatPrompt)
+    anchorToPlayer(chair,seatPrompt)
 
-    local ws = tick()
-    local confirmed = false
-    while tick() - ws < 5 do
+    local ws=tick() local confirmed=false
+    while tick()-ws<5 do
         if isCancelled() then return false end
-        local c = getChar()
-        if c and c:GetAttribute("SeatedInSeat") == false then
-            confirmed = true
-            break
+        local c=getChar()
+        if c and c:GetAttribute("SeatedInSeat")==false then
+            confirmed=true break
         end
         task.wait(0.1)
     end
-    
     task.wait(1)
+    warn("[GRAB] Confirmed:",confirmed,"AC:",anticheatOn)
     return confirmed and anticheatOn
 end
 
-local function hookChair(chair)
-    if chair.Name ~= "ArchivesOfficeChair" then return end
-    if allChairs[chair] then return end
-    allChairs[chair] = true
-    chair.AncestryChanged:Connect(function()
-        if not chair.Parent then
-            allChairs[chair] = nil
-            if activeChair == chair then stopAnchor() end
-        end
-    end)
-end
-
-local function scanFolder(folder)
-    for _,d in ipairs(folder:GetDescendants()) do
-        if d.Name == "ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
-    end
-    folder.DescendantAdded:Connect(function(d)
-        if d.Name == "ArchivesOfficeChair" and d:IsA("Model") then hookChair(d) end
-    end)
-end
-scanFolder(miscFolder)
-scanFolder(currentRoomsFolder)
-
-local function findNearestChair(exclude)
-    local root = getRoot()
-    if not root then return nil end
-    local best = nil 
-    local bestDist = math.huge
-    local function check(d)
-        if d.Name ~= "ArchivesOfficeChair" or not d:IsA("Model") then return end
-        if exclude and d == exclude then return end
-        local dist = (root.Position - getChairPos(d)).Magnitude
-        if dist < bestDist then bestDist = dist best = d end
-    end
-    for _,d in ipairs(miscFolder:GetDescendants()) do check(d) end
-    for i = 0, 50 do
-        local rf = currentRoomsFolder:FindFirstChild(tostring(i))
-        if rf then for _,d in ipairs(rf:GetDescendants()) do check(d) end end
-    end
-    return best
-end
-
+-- Room 0: tween WP1->WP2->WP3->WP4 then tween to grab pos at walk speed
 local function acquireFirstChair()
     if isCancelled() then return false end
-    tweenToPos(WP1, SPEED_WALK, 1.5)
+    warn("[INIT] WP1")
+    tweenToPos(WP1,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
     if isCancelled() then return false end
-    tweenToPos(WP2, SPEED_WALK, 1.5)
+    warn("[INIT] WP2")
+    tweenToPos(WP2,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
+    if isCancelled() then return false end
+    warn("[INIT] WP3")
+    tweenToPos(WP3,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
+    if isCancelled() then return false end
+    warn("[INIT] WP4")
+    tweenToPos(WP4,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
     if isCancelled() then return false end
 
-    local chair = findNearestChair(nil)
-    local ss = tick()
+    local chair=findNearestChair(nil)
+    local ss=tick()
     while not chair do
         if isCancelled() then return false end
-        if tick() - ss > CHAIR_SEARCH_LIMIT then return false end
-        task.wait(0.3)
-        chair = findNearestChair(nil)
+        if tick()-ss>CHAIR_SEARCH_LIMIT then warn("[INIT] Chair not found") return false end
+        task.wait(0.3) chair=findNearestChair(nil)
     end
+    warn("[INIT] Chair found:",chair.Name)
 
-    local grabPos = getGrabPosition(chair)
-    local root = getRoot()
-    if root then
-        root.CFrame = CFrame.new(grabPos) * root.CFrame.Rotation
-    end
-    task.wait(0.2)
+    local grabPos=getGrabPosition(chair)
+    tweenToPos(grabPos,SPEED_WALK_XZ,SPEED_WALK_Y,ARRIVE_DIST)
+    if isCancelled() then return false end
 
     return grabAndBypass(chair)
 end
 
+-- Rooms 10/20/30/40: tween to new chair while anchored, grab new, drop old only after owned
 local function switchChair()
-    local ss = tick()
-    local newChair = findNearestChair(activeChair)
+    local ss=tick()
+    local newChair=findNearestChair(activeChair)
     while not newChair do
         if isCancelled() then return false end
-        if tick() - ss > CHAIR_SEARCH_LIMIT then break end
-        task.wait(0.3)
-        newChair = findNearestChair(activeChair)
+        if tick()-ss>CHAIR_SEARCH_LIMIT then break end
+        task.wait(0.3) newChair=findNearestChair(activeChair)
     end
-    if not newChair then return false end
+    if not newChair then warn("[SWITCH] No chair found") return false end
+    warn("[SWITCH] Switching to",newChair.Name)
 
-    local cartPrompt = getCartPrompt(newChair)
-    local seatPrompt = getSeatPrompt(newChair)
+    local cartPrompt=getCartPrompt(newChair)
+    local seatPrompt=getSeatPrompt(newChair)
     if not cartPrompt or not seatPrompt then return false end
 
-    local grabPos = getGrabPosition(newChair)
-    tweenToPos(grabPos, SPEED_SWITCH, 1.5)
+    local grabPos=getGrabPosition(newChair)
+    tweenToPos(grabPos,SPEED_SWITCH_XZ,SPEED_Y,ARRIVE_DIST)
     if isCancelled() then return false end
 
-    stopAnchor()
-    pcall(function() cartControlRemote:FireServer() end)
-    task.wait(0.15)
-
-    local grabStart = tick()
-    local owned = false
-    while tick() - grabStart < 8 do
+    -- Grab new before releasing old
+    local grabStart=tick() local owned=false
+    while tick()-grabStart<8 do
         if isCancelled() then return false end
         safeFirePrompt(cartPrompt)
         pcall(function() cartControlRemote:FireServer() end)
         task.wait(GRAB_INTERVAL)
-        if tostring(newChair:GetAttribute("LastPusherId")) == playerUserId then
-            owned = true break
+        if tostring(newChair:GetAttribute("LastPusherId"))==playerUserId then
+            owned=true break
         end
     end
-    if not owned then return false end
+    if not owned then warn("[SWITCH] Not owned") return false end
 
+    stopAnchor()
     pcall(function() cartControlRemote:FireServer() end)
     task.wait(0.15)
     if isCancelled() then return false end
@@ -440,57 +478,42 @@ local function switchChair()
     lockChairParts(newChair)
     disableChairPrompts(newChair)
     doSeatCycle(seatPrompt)
-    anchorToPlayer(newChair, seatPrompt)
+    anchorToPlayer(newChair,seatPrompt)
 
-    local ws = tick()
-    local confirmed = false
-    while tick() - ws < 5 do
+    local ws=tick() local confirmed=false
+    while tick()-ws<5 do
         if isCancelled() then return false end
-        local c = getChar()
-        if c and c:GetAttribute("SeatedInSeat") == false then
-            confirmed = true
-            break
-        end
+        local c=getChar()
+        if c and c:GetAttribute("SeatedInSeat")==false then confirmed=true break end
         task.wait(0.1)
     end
-    
     task.wait(1)
+    warn("[SWITCH] Done. Confirmed:",confirmed)
     return confirmed and anticheatOn
 end
 
 local function acquireAnyChair()
     if isCancelled() then return false end
-    local ss = tick()
-    local chair = findNearestChair(nil)
-    local useNoclip = false
+    local ss=tick()
+    local chair=findNearestChair(nil)
+    local useSlow=false
     while not chair do
         if isCancelled() then return false end
-        if tick() - ss > CHAIR_SEARCH_LIMIT then useNoclip = true break end
-        task.wait(0.3)
-        chair = findNearestChair(nil)
+        if tick()-ss>CHAIR_SEARCH_LIMIT then useSlow=true break end
+        task.wait(0.3) chair=findNearestChair(nil)
     end
-    if not chair then return false end
-    
-    local grabPos = getGrabPosition(chair)
-    if useNoclip then
-        tweenToPos(grabPos, SPEED_NOCLIP, 1.5)
-    else
-        tweenToPos(grabPos, SPEED_SWITCH, 1.5)
-    end
+    if not chair then warn("[ACQUIRE] No chair") return false end
+    local grabPos=getGrabPosition(chair)
+    tweenToPos(grabPos,useSlow and SPEED_NOCLIP_XZ or SPEED_SWITCH_XZ,SPEED_Y,ARRIVE_DIST)
     if isCancelled() then return false end
-    
     return grabAndBypass(chair)
 end
 
 local function getRoomFolder(n) return currentRoomsFolder:FindFirstChild(tostring(n)) end
 
-local function detectCurrentRoom()
-    for i = 50, 0, -1 do if getRoomFolder(i) then return i end end return 0
-end
-
-local function waitForRoom(n, timeout)
-    local s = tick()
-    while tick() - s < timeout do
+local function waitForRoom(n,timeout)
+    local s=tick()
+    while tick()-s<timeout do
         if isCancelled() then return false end
         if getRoomFolder(n) then return true end
         task.wait(0.1)
@@ -500,90 +523,127 @@ end
 
 local function disableDoorCollision(door)
     for _,p in ipairs(door:GetDescendants()) do
-        if p:IsA("BasePart") then p.CanCollide = false end
+        if p:IsA("BasePart") then p.CanCollide=false end
     end
 end
 
 local function getDoorBasePart(door)
-    local inner = door:FindFirstChild("Door")
+    local inner=door:FindFirstChild("Door")
     if inner and inner:IsA("BasePart") then return inner end
-    local pp = door.PrimaryPart if pp then return pp end
+    local pp=door.PrimaryPart if pp then return pp end
     return door:FindFirstChildWhichIsA("BasePart")
 end
 
+-- openDoor: moves around the door while firing ClientOpen rapidly
 local function openDoor(roomNum)
     if isCancelled() then return false end
-    local rf = getRoomFolder(roomNum)
-    if not rf then return false end
-    local door = rf:FindFirstChild("Door")
-    if not door then return false end
+    local folderNum=roomNum-1
+    local rf=getRoomFolder(folderNum)
+    if not rf then warn("[DOOR] No folder",folderNum) return false end
+    local door=rf:FindFirstChild("Door")
+    if not door then warn("[DOOR] No Door in",folderNum) return false end
     disableDoorCollision(door)
-    
-    local doorPart = getDoorBasePart(door)
-    local initialCF = doorPart and doorPart.CFrame
-    local clientOpen = door:FindFirstChild("ClientOpen")
-    if not clientOpen then return false end
-    
-    local nextRoom = roomNum + 1
-    local speed = anticheatOn and SPEED_AC or SPEED_WALK
+    local doorPart=getDoorBasePart(door)
+    local initialCF=doorPart and doorPart.CFrame
+    local clientOpen=door:FindFirstChild("ClientOpen")
+    if not clientOpen then warn("[DOOR] No ClientOpen") return false end
 
+    local xzSpd=anticheatOn and SPEED_XZ or SPEED_WALK_XZ
+    local ySpd=anticheatOn and SPEED_Y or SPEED_WALK_Y
+
+    warn("[DOOR] Opening room",roomNum)
+
+    -- Move to door first
     if doorPart then
-        tweenToPos(doorPart.Position, speed, 1.5)
+        tweenToPos(doorPart.Position,xzSpd,ySpd,1.5)
         if isCancelled() then return false end
     end
 
-    local opened = false
-    local fs = tick()
-    local pingDir = 1
+    local opened=false
+    local fs=tick()
+    local pingDir=1
+    local pingTimer=0
+    local PING_INTERVAL=0.3
 
-    while tick() - fs < DOOR_TIMEOUT and not opened do
+    while tick()-fs<DOOR_TIMEOUT and not opened do
         if isCancelled() then return false end
+
+        -- Fire remote as fast as possible
         pcall(function() clientOpen:FireServer() end)
         task.wait(DOOR_FIRE_INTERVAL)
 
-        if getRoomFolder(nextRoom) then opened = true break end
+        if getRoomFolder(roomNum) then opened=true break end
 
         if doorPart and initialCF then
-            local ok, newCF = pcall(function() return doorPart.CFrame end)
+            local ok,newCF=pcall(function() return doorPart.CFrame end)
             if ok then
-                local pd = (newCF.Position - initialCF.Position).Magnitude
-                local ax,ay,az = initialCF:ToEulerAnglesXYZ()
-                local bx,by,bz = newCF:ToEulerAnglesXYZ()
-                local rd = math.abs(math.deg(bx-ax))
-                         + math.abs(math.deg(by-ay))
-                         + math.abs(math.deg(bz-az))
-                if rd > 5 or pd > 0.5 then opened = true break end
+                local pd=(newCF.Position-initialCF.Position).Magnitude
+                local ax,ay,az=initialCF:ToEulerAnglesXYZ()
+                local bx,by,bz=newCF:ToEulerAnglesXYZ()
+                local rd=math.abs(math.deg(bx-ax))+math.abs(math.deg(by-ay))+math.abs(math.deg(bz-az))
+                if rd>5 or pd>0.5 then opened=true break end
             end
         end
 
-        if doorPart and (tick()-fs) % 0.5 < DOOR_FIRE_INTERVAL then
-            local fwd = doorPart.CFrame.LookVector
-            tweenToPos(doorPart.Position + fwd * (pingDir * 5), speed, 1.5)
-            pingDir = -pingDir
+        -- Ping-pong around door every PING_INTERVAL seconds to keep trigger active
+        pingTimer=pingTimer+DOOR_FIRE_INTERVAL
+        if doorPart and pingTimer>=PING_INTERVAL then
+            pingTimer=0
+            local fwd=doorPart.CFrame.LookVector
+            local side=doorPart.CFrame.RightVector
+            local offset=fwd*(pingDir*3)+side*(pingDir*2)
+            tweenToPos(doorPart.Position+offset,xzSpd,ySpd,1.0)
+            pingDir=-pingDir
             if isCancelled() then return false end
         end
     end
 
-    if opened then waitForRoom(nextRoom + 1, 8) end
+    if opened then
+        warn("[DOOR] Opened room",roomNum)
+        waitForRoom(roomNum+1,8)
+    else
+        warn("[DOOR] Timeout room",roomNum)
+    end
     return opened
 end
 
+local function roomHasLootables(roomNum)
+    local rf=getRoomFolder(roomNum) if not rf then return false end
+    for _,d in ipairs(rf:GetDescendants()) do
+        if d.Name:find("Stardust") or d.Name:find("stardust") then return true end
+        if d:IsA("Model") and d.Name:match("^ArchivesDesk") then return true end
+        if d:IsA("Model") and d.Name:match("^HidingSpot") then return true end
+    end
+    return false
+end
+
 local function lootMoveTo(pos)
-    tweenToPos(pos, anticheatOn and SPEED_AC or SPEED_WALK, 1.5)
+    tweenToPos(pos,anticheatOn and SPEED_XZ or SPEED_WALK_XZ,anticheatOn and SPEED_Y or SPEED_WALK_Y,ARRIVE_DIST)
 end
 
 local function lootStardust(roomFolder)
-    local seen = {} 
-    local targets = {}
+    local seen={} local targets={}
     for _,d in ipairs(roomFolder:GetDescendants()) do
         if (d.Name:find("Stardust") or d.Name:find("stardust")) and not seen[d] then
-            seen[d] = true table.insert(targets, d)
+            seen[d]=true table.insert(targets,d)
         end
+    end
+    local root=getRoot()
+    if root then
+        table.sort(targets,function(a,b)
+            local function pos(x)
+                if x:IsA("BasePart") then return x.Position end
+                local m=x:FindFirstChild("Main")
+                if m and m:IsA("BasePart") then return m.Position end
+                return x:GetPivot().Position
+            end
+            return (root.Position-pos(a)).Magnitude<(root.Position-pos(b)).Magnitude
+        end)
     end
     for _,target in ipairs(targets) do
         if isCancelled() then return end
         if not target.Parent then continue end
-        local mainPart = (target:IsA("BasePart") and target)
+        local mainPart=(target:IsA("BasePart") and target)
             or target:FindFirstChild("Main")
             or target:FindFirstChildWhichIsA("BasePart")
         if mainPart and mainPart:IsA("BasePart") then lootMoveTo(mainPart.Position) end
@@ -592,57 +652,65 @@ local function lootStardust(roomFolder)
             if d:IsA("ProximityPrompt") then safeFirePrompt(d) end
         end
         if target:IsA("ProximityPrompt") then safeFirePrompt(target) end
-        local ws = tick()
-        while target.Parent and tick() - ws < 2 do task.wait(0.05) end
+        local ws=tick()
+        while target.Parent and tick()-ws<2 do task.wait(0.05) end
     end
 end
 
+-- Desks: move to each desk, fire ALL drawer prompts at once, move on immediately
 local function lootDesks(roomFolder)
-    local assets = roomFolder:FindFirstChild("Assets") or roomFolder
+    local assets=roomFolder:FindFirstChild("Assets") or roomFolder
+    local desks={}
     for _,d in ipairs(assets:GetDescendants()) do
-        if isCancelled() then return end
-        if d:IsA("Model") and d.Name:match("^ArchivesDesk") then 
-            local prompts = {}
-            for _,child in ipairs(d:GetDescendants()) do
-                if child.Name == "DrawerContainer" and child:IsA("Model") then
-                    local knob = child:FindFirstChild("Knob")
-                    if not knob then continue end
-                    local prompt = knob:FindFirstChild("ActivateEventPrompt") or findPromptInModel(knob)
-                    if not prompt then continue end
-                    local endPart = child:FindFirstChild("End")
-                    if endPart and endPart:IsA("BasePart") then
-                        lootMoveTo((endPart.CFrame * CFrame.new(0,0,2)).Position)
-                    end
-                    table.insert(prompts, prompt)
-                end
-            end
-            if isCancelled() then return end
-            for _,p in ipairs(prompts) do 
-                safeFirePrompt(p) 
-                task.wait(0.2)
-            end
-            task.wait(0.2)
-            lootStardust(roomFolder)
-        end
+        if d:IsA("Model") and d.Name:match("^ArchivesDesk") then table.insert(desks,d) end
     end
+    local root=getRoot()
+    if root then
+        table.sort(desks,function(a,b)
+            return (root.Position-a:GetPivot().Position).Magnitude<(root.Position-b:GetPivot().Position).Magnitude
+        end)
+    end
+    for _,desk in ipairs(desks) do
+        if isCancelled() then return end
+        if not desk.Parent then continue end
+        -- Move to desk pivot
+        lootMoveTo(desk:GetPivot().Position)
+        if isCancelled() then return end
+        -- Fire all drawer prompts simultaneously
+        for _,child in ipairs(desk:GetDescendants()) do
+            if child.Name=="DrawerContainer" and child:IsA("Model") then
+                local knob=child:FindFirstChild("Knob") if not knob then continue end
+                local prompt=knob:FindFirstChild("ActivateEventPrompt") or findPromptInModel(knob)
+                if prompt then safeFirePrompt(prompt) end
+            end
+        end
+        task.wait(0.1)
+    end
+    lootStardust(roomFolder)
 end
 
 local function lootHidingSpots(roomFolder)
-    local assets = roomFolder:FindFirstChild("Assets") or roomFolder
-    local spots = {}
+    local assets=roomFolder:FindFirstChild("Assets") or roomFolder
+    local spots={}
     for _,d in ipairs(assets:GetDescendants()) do
-        if d:IsA("Model") and d.Name:match("^HidingSpot") then table.insert(spots, d) end
+        if d:IsA("Model") and d.Name:match("^HidingSpot") then table.insert(spots,d) end
+    end
+    local root=getRoot()
+    if root then
+        table.sort(spots,function(a,b)
+            return (root.Position-a:GetPivot().Position).Magnitude<(root.Position-b:GetPivot().Position).Magnitude
+        end)
     end
     for _,spot in ipairs(spots) do
         if isCancelled() then return end
         if not spot.Parent then continue end
-        local prompt = spot:FindFirstChild("InteractPrompt") or findPromptInModel(spot)
+        local prompt=spot:FindFirstChild("InteractPrompt") or findPromptInModel(spot)
         if not prompt then continue end
-        local pp = prompt.Parent
+        local pp=prompt.Parent
         if pp and pp:IsA("BasePart") then
-            lootMoveTo((pp.CFrame * CFrame.new(0,0,-2)).Position)
+            lootMoveTo((pp.CFrame*CFrame.new(0,0,-2)).Position)
         else
-            lootMoveTo((spot:GetPivot() * CFrame.new(0,0,-2)).Position)
+            lootMoveTo((spot:GetPivot()*CFrame.new(0,0,-2)).Position)
         end
         if isCancelled() then return end
         safeFirePrompt(prompt)
@@ -653,13 +721,14 @@ end
 
 local function lootRoom(roomNum)
     if isCancelled() then return end
-    local rf = getRoomFolder(roomNum)
-    if not rf then return end
+    local rf=getRoomFolder(roomNum) if not rf then return end
+    warn("[LOOT] Room",roomNum)
     lootStardust(rf)
     if isCancelled() then return end
     lootDesks(rf)
     if isCancelled() then return end
     lootHidingSpots(rf)
+    warn("[LOOT] Room",roomNum,"done")
 end
 
 local function firePlayAgain()
@@ -672,20 +741,19 @@ local function blockDroneRemotes(model)
     for _,d in ipairs(model:GetDescendants()) do
         if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
             if hookfunction then
-                pcall(hookfunction, d.FireServer, function() end)
-                pcall(hookfunction, d.InvokeServer, function() end)
+                pcall(hookfunction,d.FireServer,function() end)
+                pcall(hookfunction,d.InvokeServer,function() end)
             end
         end
     end
 end
-
 for _,obj in ipairs(Workspace:GetChildren()) do
-    if obj:IsA("Model") and (obj.Name == "Drones" or obj.Name == "DronesStampede") then
+    if obj:IsA("Model") and (obj.Name=="Drones" or obj.Name=="DronesStampede") then
         blockDroneRemotes(obj)
     end
 end
 Workspace.ChildAdded:Connect(function(obj)
-    if obj:IsA("Model") and (obj.Name == "Drones" or obj.Name == "DronesStampede") then
+    if obj:IsA("Model") and (obj.Name=="Drones" or obj.Name=="DronesStampede") then
         task.wait(0.1) blockDroneRemotes(obj)
     end
 end)
@@ -694,71 +762,83 @@ local function roomLoop()
     while not isCancelled() do
         task.wait(0.05)
         if not anticheatOn then
-            local ok = false
-            for _ = 1, 3 do
+            warn("[LOOP] AC off — reacquiring")
+            local ok=false
+            for _=1,3 do
                 if isCancelled() then return end
-                ok = acquireAnyChair() if ok then break end
+                ok=acquireAnyChair() if ok then break end
                 task.wait(1)
             end
             if not ok or isCancelled() then return end
         end
 
-        local opened = openDoor(currentRoom)
+        local targetRoom=currentRoom+1
+        warn("[LOOP] Opening door to room",targetRoom)
+        local opened=openDoor(targetRoom)
         if isCancelled() then return end
         if not opened then task.wait(0.5) continue end
 
-        local nextRoom = currentRoom + 1
-        local loaded = waitForRoom(nextRoom, 12)
+        local loaded=waitForRoom(targetRoom,12)
         if not loaded or isCancelled() then task.wait(1) continue end
 
-        currentRoom = nextRoom
+        currentRoom=targetRoom
+        warn("[LOOP] In room",currentRoom)
 
-        lootRoom(currentRoom)
+        -- Always wait 3 seconds, then loot if there's anything
+        task.wait(3)
+        if roomHasLootables(currentRoom) then
+            lootRoom(currentRoom)
+        end
         if isCancelled() then return end
 
-        if currentRoom >= 49 then
+        if currentRoom>=49 then
+            warn("[LOOP] Done — PlayAgain")
             firePlayAgain()
-            scriptRunning = false return
+            scriptRunning=false return
         end
 
         if CHAIR_ROOMS[currentRoom] then
-            local ok = false
-            for _ = 1, 3 do
+            warn("[LOOP] Chair switch at room",currentRoom)
+            local ok=false
+            for _=1,3 do
                 if isCancelled() then return end
-                ok = switchChair() if ok then break end
+                ok=switchChair() if ok then break end
                 task.wait(1)
             end
+            if not ok then warn("[LOOP] Switch failed — continuing") end
         end
     end
-    scriptRunning = false
+    scriptRunning=false
 end
 
 local function mainLoop()
-    scriptRunning = true
-    getgenv().XvlamerHub_StardustFarmCancelled = false
+    scriptRunning=true
+    getgenv().XvlamerHub_StardustFarmCancelled=false
     task.wait(3)
     if isCancelled() then return end
-    currentRoom = detectCurrentRoom()
+    currentRoom=0
+    warn("[MAIN] Start room 0")
     if not anticheatOn then
-        local ok = false
-        if currentRoom == 0 then
-            ok = acquireFirstChair()
-        else
-            ok = acquireAnyChair()
+        local ok=acquireFirstChair()
+        if not ok or isCancelled() then
+            warn("[MAIN] Failed to acquire chair")
+            scriptRunning=false return
         end
-        if not ok or isCancelled() then scriptRunning = false return end
     end
     roomLoop()
 end
 
 local function resumeLoop()
-    currentRoom = detectCurrentRoom()
+    local best=0
+    for i=50,0,-1 do if getRoomFolder(i) then best=i break end end
+    currentRoom=best
+    warn("[RESUME] Room",currentRoom)
     if not anticheatOn then
-        local ok = acquireAnyChair()
-        if not ok or isCancelled() then scriptRunning = false return end
+        local ok=acquireAnyChair()
+        if not ok or isCancelled() then scriptRunning=false return end
     end
     roomLoop()
 end
 
-getgenv().XvlamerHub_StardustFarmCancelled = false
+getgenv().XvlamerHub_StardustFarmCancelled=false
 if scriptRunning then task.spawn(resumeLoop) else task.spawn(mainLoop) end
