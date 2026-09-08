@@ -300,21 +300,24 @@ local function allModesOff()
 	jailFormation = {}
 	wallFormation = {}
 	orbitYLevels  = {}
-	for _, chair in ipairs(knownChairs) do
-		if chair and chair.Parent then
+	for i = #knownChairs, 1, -1 do
+		local chair = knownChairs[i]
+		pcall(function()
+			if not chair or not chair.Parent then return end
 			chair:SetAttribute("JailPlaced", nil)
 			chair:SetAttribute("WallPlaced", nil)
 			local parts = chairPartsCache[chair]
-			if parts then
-				for _, part in ipairs(parts) do
+			if not parts then return end
+			for _, part in ipairs(parts) do
+				pcall(function()
 					if part and part.Parent then
 						part.CanCollide = false
 						part.AssemblyLinearVelocity  = Vector3.zero
 						part.AssemblyAngularVelocity = Vector3.zero
 					end
-				end
+				end)
 			end
-		end
+		end)
 	end
 end
 
@@ -813,6 +816,7 @@ end
 
 RunService.Heartbeat:Connect(function()
 	if not isRunning then return end
+	pcall(function()
 
 	local localChar = player.Character
 	local rootPart  = localChar and localChar:FindFirstChild("HumanoidRootPart")
@@ -991,29 +995,21 @@ RunService.Heartbeat:Connect(function()
 			if not chair or not chair.Parent then continue end
 			local primary = (chair:IsA("Model") and (chair.PrimaryPart or chair:FindFirstChildWhichIsA("BasePart"))) or (chair:IsA("BasePart") and chair)
 			if not primary then continue end
-
 			local dist = (primary.Position - rootPart.Position).Magnitude
 			if dist > 500 then
-				chair:SetAttribute("IsThrown", nil)
-				pivotChair(chair, CFrame.new(rootPart.Position - Vector3.new(0, 30, (i%5)*2)))
+				pcall(function() chair:SetAttribute("IsThrown", nil) end)
+				pivotChair(chair, CFrame.new(rootPart.Position - Vector3.new(0, 35, (i%5)*2)))
 				applyPartsState(chair, false, Vector3.zero)
 			elseif not chair:GetAttribute("IsThrown") then
-				chair:SetAttribute("IsThrown", true)
-				local groundY = rootPart.Position.Y - 2.5
-				local front   = Vector3.new(
-					rootPart.Position.X + rootPart.CFrame.LookVector.X * 15,
-					groundY,
-					rootPart.Position.Z + rootPart.CFrame.LookVector.Z * 15
-				)
-				local stagger = Vector3.new(0, i * 0.15, 0)
-				pivotChair(chair, CFrame.new(front + stagger))
+				pcall(function() chair:SetAttribute("IsThrown", true) end)
+				local lookDir = rootPart.CFrame.LookVector
+				local spawnPos = rootPart.Position + lookDir * 8 + Vector3.new(0, 3 + (i % 3) * 0.4, 0)
+				pivotChair(chair, CFrame.new(spawnPos))
+				local launchVel = (lookDir * 350) + Vector3.new(0, math.random(35, 65), 0)
+				local cap = chair
 				task.delay(0.05, function()
-					if chair and chair.Parent then
-						local lookDir = rootPart.CFrame.LookVector
-						applyPartsChaotic(chair,
-							(lookDir * 250) + Vector3.new(0, math.random(20, 45), 0),
-							400
-						)
+					if cap and cap.Parent then
+						applyPartsChaotic(cap, launchVel, 400)
 					end
 				end)
 			end
@@ -1119,4 +1115,5 @@ RunService.Heartbeat:Connect(function()
 			pivotChair(chair, CFrame.new(targetPos))
 		end
 	end
+	end) -- pcall
 end)
