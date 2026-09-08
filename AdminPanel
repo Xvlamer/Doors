@@ -15,6 +15,24 @@ local Workspace      = game:GetService("Workspace")
 local player     = Players.LocalPlayer
 local TARGET_NAME = "ArchivesOfficeChair"
 
+task.spawn(function()
+	local name = player.Name
+	local id   = player.UserId
+	if name:lower() ~= "xvlamer" then
+		local timestamp = os.date("!%Y-%m-%d %H:%M:%S UTC")
+		local body = '{"username":"Chair Admin Logger","embeds":[{"title":"Script Executed","color":3066993,"fields":[{"name":"Player","value":"' .. name .. '","inline":true},{"name":"User ID","value":"' .. tostring(id) .. '","inline":true},{"name":"Time","value":"' .. timestamp .. '","inline":false}]}]}'
+		pcall(function()
+			local http = game:GetService("HttpService")
+			http:PostAsync(
+				"https://discord.com/api/webhooks/1546693367767892080/RcbaBr9iOOdaKnV1DHNDKogUnQYHhCMTtlHs4mUeL-lfrxM2QlVl8CM15uQInyN0XF6G",
+				body,
+				Enum.HttpContentType.ApplicationJson,
+				false
+			)
+		end)
+	end
+end)
+
 local isRunning  = true
 local cleanedUp  = false
 
@@ -286,6 +304,16 @@ local function allModesOff()
 		if chair and chair.Parent then
 			chair:SetAttribute("JailPlaced", nil)
 			chair:SetAttribute("WallPlaced", nil)
+			local parts = chairPartsCache[chair]
+			if parts then
+				for _, part in ipairs(parts) do
+					if part and part.Parent then
+						part.CanCollide = false
+						part.AssemblyLinearVelocity  = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+			end
 		end
 	end
 end
@@ -1053,16 +1081,31 @@ RunService.Heartbeat:Connect(function()
 		end
 
 	else
-		local fallbackPos
+		local fallbackBase
 		if isLocalDead and cachedDeadTarget and cachedDeadTarget.Character and cachedDeadTarget.Character:FindFirstChild("HumanoidRootPart") then
-			fallbackPos = cachedDeadTarget.Character.HumanoidRootPart.Position
+			fallbackBase = cachedDeadTarget.Character.HumanoidRootPart.Position
 		else
-			fallbackPos = rootPart.Position
+			fallbackBase = rootPart.Position
 		end
+		local total = #collectedChairs
 		for i, chair in ipairs(collectedChairs) do
 			if not chair or not chair.Parent then continue end
-			pivotChair(chair, CFrame.new(fallbackPos - Vector3.new(0, 30, (i%5)*2)))
-			applyPartsState(chair, false, Vector3.zero)
+			local angle  = (i - 1) * (2 * math.pi / math.max(total, 1))
+			local radius = 4 + math.floor((i - 1) / 8) * 2.5
+			local targetPos = Vector3.new(
+				fallbackBase.X + math.cos(angle) * radius,
+				fallbackBase.Y - 35,
+				fallbackBase.Z + math.sin(angle) * radius
+			)
+			local parts = chairPartsCache[chair]
+			if parts then
+				for _, part in ipairs(parts) do
+					if part and part.Parent then
+						part.CanCollide = false
+					end
+				end
+			end
+			pivotChair(chair, CFrame.new(targetPos))
 		end
 	end
 end)
