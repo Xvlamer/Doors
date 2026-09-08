@@ -282,6 +282,12 @@ local function allModesOff()
 	jailFormation = {}
 	wallFormation = {}
 	orbitYLevels  = {}
+	for _, chair in ipairs(knownChairs) do
+		if chair and chair.Parent then
+			chair:SetAttribute("JailPlaced", nil)
+			chair:SetAttribute("WallPlaced", nil)
+		end
+	end
 end
 
 local function clearTargetVisuals(p)
@@ -481,11 +487,6 @@ local function buildJailFormation()
 	local remainder       = #collectedChairs % numTargets
 	local chairIndex      = 1
 
-	local CAGE_RADIUS = 5.5
-	local FLOOR_Y     = -2.5
-	local CEIL_Y      =  3.5
-	local SPACING     =  2.5
-
 	for tIdx, p in ipairs(activeTargets) do
 		local tHrp = p.Character.HumanoidRootPart
 		local tPos = tHrp.Position
@@ -499,45 +500,39 @@ local function buildJailFormation()
 			end
 		end
 
-		local slots = {}
+		local pairCount = math.floor(#assigned / 2)
+		if pairCount < 1 then pairCount = 1 end
 
-		local northZ = tPos.Z - CAGE_RADIUS
-		local southZ = tPos.Z + CAGE_RADIUS
-		local westX  = tPos.X - CAGE_RADIUS
-		local eastX  = tPos.X + CAGE_RADIUS
+		local baseRadius = math.max(3.5, pairCount * 0.55)
+		local outerRadius = baseRadius + 1
 
-		local halfSteps = math.floor(CAGE_RADIUS / SPACING)
-		for step = -halfSteps, halfSteps do
-			local offset = step * SPACING
-			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + FLOOR_Y, northZ), yaw = math.pi })
-			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + FLOOR_Y, southZ), yaw = 0 })
-			table.insert(slots, { pos = Vector3.new(westX, tPos.Y + FLOOR_Y, tPos.Z + offset), yaw = -math.pi / 2 })
-			table.insert(slots, { pos = Vector3.new(eastX, tPos.Y + FLOOR_Y, tPos.Z + offset), yaw = math.pi / 2 })
-		end
+		for i = 1, pairCount do
+			local angle = (i - 1) * (2 * math.pi / pairCount)
+			local dx    = math.cos(angle)
+			local dz    = math.sin(angle)
 
-		for step = -halfSteps, halfSteps do
-			local offset = step * SPACING
-			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + CEIL_Y, northZ), yaw = math.pi })
-			table.insert(slots, { pos = Vector3.new(tPos.X + offset, tPos.Y + CEIL_Y, southZ), yaw = 0 })
-			table.insert(slots, { pos = Vector3.new(westX, tPos.Y + CEIL_Y, tPos.Z + offset), yaw = -math.pi / 2 })
-			table.insert(slots, { pos = Vector3.new(eastX, tPos.Y + CEIL_Y, tPos.Z + offset), yaw = math.pi / 2 })
-		end
+			local groundY    = tPos.Y - 3
+			local innerPos = Vector3.new(tPos.X + dx * baseRadius,  groundY, tPos.Z + dz * baseRadius)
+			local outerPos = Vector3.new(tPos.X + dx * outerRadius, groundY, tPos.Z + dz * outerRadius)
 
-		for step = -halfSteps, halfSteps do
-			local offset = step * SPACING
-			local roofY = tPos.Y + CEIL_Y + SPACING
-			table.insert(slots, { pos = Vector3.new(tPos.X + offset, roofY, northZ), yaw = math.pi, pitchDown = true })
-			table.insert(slots, { pos = Vector3.new(tPos.X + offset, roofY, southZ), yaw = 0, pitchDown = true })
-			table.insert(slots, { pos = Vector3.new(westX, roofY, tPos.Z + offset), yaw = -math.pi / 2, pitchDown = true })
-			table.insert(slots, { pos = Vector3.new(eastX, roofY, tPos.Z + offset), yaw = math.pi / 2, pitchDown = true })
-		end
+			local faceInYaw  = math.atan2(dx, dz)
+			local faceOutYaw = math.atan2(-dx, -dz)
 
-		for i = 1, math.min(#assigned, #slots) do
-			local chair = assigned[i]
-			local slot  = slots[i]
-			if not chair then break end
-			local pitch = slot.pitchDown and math.pi or 0
-			jailFormation[chair] = { pos = slot.pos, cf = CFrame.new(slot.pos) * CFrame.Angles(pitch, slot.yaw, 0) }
+			local innerChair = assigned[i]
+			local outerChair = assigned[i + pairCount]
+
+			if innerChair then
+				jailFormation[innerChair] = {
+					pos = innerPos,
+					cf  = CFrame.new(innerPos) * CFrame.Angles(0, faceInYaw, 0)
+				}
+			end
+			if outerChair then
+				jailFormation[outerChair] = {
+					pos = outerPos,
+					cf  = CFrame.new(outerPos) * CFrame.Angles(0, faceOutYaw, 0)
+				}
+			end
 		end
 	end
 end
@@ -548,26 +543,44 @@ local function buildWallFormation()
 	if not rootPart or #collectedChairs == 0 then return end
 
 	local total    = #collectedChairs
-	local maxRows  = 4
-	local maxPerRow = math.max(math.ceil(total / maxRows), 1)
 	local rightVec = rootPart.CFrame.RightVector
 	local lookVec  = rootPart.CFrame.LookVector
-	local centerPos = rootPart.Position + lookVec * 25 + Vector3.new(0, -3, 0)
 	local spacingX = 2.6
 	local spacingY = 2.8
+	local maxRows  = 3
 
-	local rawYaw = math.atan2(lookVec.X, lookVec.Z)
-	local snapped = math.round(rawYaw / (math.pi / 2)) * (math.pi / 2)
+	local rawYaw   = math.atan2(lookVec.X, lookVec.Z)
+	local snapped  = math.round(rawYaw / (math.pi / 2)) * (math.pi / 2)
 	local seatAngle = snapped
 
+	local layerDists = { 25, 27 }
+	local layerSplit = math.floor(total / 2)
+
+	local layers = {
+		{ chairs = {}, dist = 25 },
+		{ chairs = {}, dist = 27 },
+	}
 	for i, chair in ipairs(collectedChairs) do
-		local row      = math.floor((i-1) / maxPerRow)
-		local col      = (i-1) % maxPerRow
-		local rowCount = math.min(total - row * maxPerRow, maxPerRow)
-		local xOffset  = (col - (rowCount - 1) / 2) * spacingX
-		local yOffset  = row * spacingY
-		local targetPos = centerPos + rightVec * xOffset + Vector3.new(0, yOffset, 0)
-		wallFormation[chair] = CFrame.new(targetPos) * CFrame.Angles(0, seatAngle, 0)
+		if i <= layerSplit then
+			table.insert(layers[1].chairs, chair)
+		else
+			table.insert(layers[2].chairs, chair)
+		end
+	end
+
+	for _, layer in ipairs(layers) do
+		local lTotal    = #layer.chairs
+		local maxPerRow = math.max(math.ceil(lTotal / maxRows), 1)
+		local centerPos = rootPart.Position + lookVec * layer.dist + Vector3.new(0, -3, 0)
+		for i, chair in ipairs(layer.chairs) do
+			local row      = math.floor((i-1) / maxPerRow)
+			local col      = (i-1) % maxPerRow
+			local rowCount = math.min(lTotal - row * maxPerRow, maxPerRow)
+			local xOffset  = (col - (rowCount - 1) / 2) * spacingX
+			local yOffset  = row * spacingY
+			local targetPos = centerPos + rightVec * xOffset + Vector3.new(0, yOffset, 0)
+			wallFormation[chair] = CFrame.new(targetPos) * CFrame.Angles(0, seatAngle, 0)
+		end
 	end
 end
 
@@ -686,9 +699,22 @@ local function removeESP(chair)
 	end)
 end
 
+local chairPartsCache = {}
+
+local function cacheChairParts(chair)
+	local parts = {}
+	for _, part in ipairs(chair:GetDescendants()) do
+		if part:IsA("BasePart") then
+			table.insert(parts, part)
+		end
+	end
+	chairPartsCache[chair] = parts
+end
+
 local function registerChair(obj)
 	if obj.Name == TARGET_NAME and not table.find(knownChairs, obj) then
 		table.insert(knownChairs, obj)
+		task.defer(function() pcall(cacheChairParts, obj) end)
 	end
 end
 
@@ -697,7 +723,10 @@ descendantAddedConn = Workspace.DescendantAdded:Connect(function(obj)
 end)
 descendantRemovingConn = Workspace.DescendantRemoving:Connect(function(obj)
 	local idx = table.find(knownChairs, obj)
-	if idx then table.remove(knownChairs, idx) end
+	if idx then
+		table.remove(knownChairs, idx)
+		chairPartsCache[obj] = nil
+	end
 end)
 for _, obj in ipairs(Workspace:GetDescendants()) do
 	pcall(registerChair, obj)
@@ -712,9 +741,11 @@ local function pivotChair(chair, cf)
 end
 
 local function applyPartsState(chair, canCollide, velocity)
-	for _, part in ipairs(chair:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.Anchored  = false
+	local parts = chairPartsCache[chair]
+	if not parts then return end
+	for _, part in ipairs(parts) do
+		if part and part.Parent then
+			part.Anchored   = false
 			part.CanCollide = canCollide
 			if velocity then
 				part.AssemblyLinearVelocity  = velocity
@@ -725,8 +756,10 @@ local function applyPartsState(chair, canCollide, velocity)
 end
 
 local function applyPartsChaotic(chair, linVel, angVelRange)
-	for _, part in ipairs(chair:GetDescendants()) do
-		if part:IsA("BasePart") then
+	local parts = chairPartsCache[chair]
+	if not parts then return end
+	for _, part in ipairs(parts) do
+		if part and part.Parent then
 			part.Anchored   = false
 			part.CanCollide = true
 			part.AssemblyLinearVelocity  = linVel
@@ -858,7 +891,10 @@ RunService.Heartbeat:Connect(function()
 			local entry = jailFormation[chair]
 			if entry then
 				pivotChair(chair, entry.cf)
-				applyPartsState(chair, true, Vector3.zero)
+				if not chair:GetAttribute("JailPlaced") then
+					chair:SetAttribute("JailPlaced", true)
+					applyPartsState(chair, true, Vector3.zero)
+				end
 			else
 				local fallback = rootPart.Position - Vector3.new(0, 30, 0)
 				pivotChair(chair, CFrame.new(fallback))
@@ -872,7 +908,10 @@ RunService.Heartbeat:Connect(function()
 			local cf = wallFormation[chair]
 			if cf then
 				pivotChair(chair, cf)
-				applyPartsState(chair, true, Vector3.zero)
+				if not chair:GetAttribute("WallPlaced") then
+					chair:SetAttribute("WallPlaced", true)
+					applyPartsState(chair, true, Vector3.zero)
+				end
 			end
 		end
 
@@ -917,7 +956,7 @@ RunService.Heartbeat:Connect(function()
 			local dist = (primary.Position - rootPart.Position).Magnitude
 			if dist > 500 then
 				chair:SetAttribute("IsThrown", nil)
-				pivotChair(chair, CFrame.new(rootPart.Position - Vector3.new(0,30, (i%5)*2)))
+				pivotChair(chair, CFrame.new(rootPart.Position - Vector3.new(0, 30, (i%5)*2)))
 				applyPartsState(chair, false, Vector3.zero)
 			elseif not chair:GetAttribute("IsThrown") then
 				chair:SetAttribute("IsThrown", true)
@@ -933,7 +972,7 @@ RunService.Heartbeat:Connect(function()
 					if chair and chair.Parent then
 						local lookDir = rootPart.CFrame.LookVector
 						applyPartsChaotic(chair,
-							(lookDir * 250) + Vector3.new(0, math.random(20,45), 0),
+							(lookDir * 250) + Vector3.new(0, math.random(20, 45), 0),
 							400
 						)
 					end
@@ -942,19 +981,50 @@ RunService.Heartbeat:Connect(function()
 		end
 
 	elseif currentMode == "Fling" and numTargets > 0 then
+		local elapsed = t - (modeTimers["Fling"] or t)
 		local cIdx = 1
 		for _, p in ipairs(activeTargets) do
 			local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 			if not hrp then continue end
-			for localIdx = 1, 3 do
+			local count = math.min(#collectedChairs - cIdx + 1, math.ceil(#collectedChairs / numTargets))
+			for localIdx = 1, count do
 				local chair = collectedChairs[cIdx]; cIdx += 1
 				if not chair or not chair.Parent then continue end
-				local angle = (localIdx-1) * (2*math.pi / 3)
-				pivotChair(chair, CFrame.new(hrp.Position + Vector3.new(math.cos(angle)*0.5, -2, math.sin(angle)*0.5)))
-				applyPartsChaotic(chair,
-					Vector3.new(math.random(-80,80), math.random(150,250), math.random(-80,80)),
-					999
-				)
+				if elapsed < 0.12 then
+					local angle  = (localIdx - 1) * (2 * math.pi / math.max(count, 1))
+					local spiral = elapsed * 8
+					local rx     = math.cos(angle + spiral) * (0.3 + elapsed * 4)
+					local rz     = math.sin(angle + spiral) * (0.3 + elapsed * 4)
+					pivotChair(chair, CFrame.new(hrp.Position + Vector3.new(rx, -1 + localIdx * 0.2, rz)))
+					for _, part in ipairs(chair:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.Anchored    = false
+							part.CanCollide  = true
+							part.AssemblyAngularVelocity = Vector3.new(
+								math.random(-999, 999),
+								math.random(-999, 999),
+								math.random(-999, 999)
+							)
+						end
+					end
+				elseif elapsed < 0.13 then
+					for _, part in ipairs(chair:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.Anchored   = false
+							part.CanCollide = true
+							part.AssemblyLinearVelocity  = Vector3.new(
+								math.random(-120, 120),
+								math.random(280, 480),
+								math.random(-120, 120)
+							)
+							part.AssemblyAngularVelocity = Vector3.new(
+								math.random(-9999, 9999),
+								math.random(-9999, 9999),
+								math.random(-9999, 9999)
+							)
+						end
+					end
+				end
 			end
 		end
 
@@ -969,14 +1039,14 @@ RunService.Heartbeat:Connect(function()
 			for localIdx = 1, count do
 				local chair = collectedChairs[cIdx]; cIdx += 1
 				if not chair or not chair.Parent then continue end
-				local radius  = 3.5 + math.sin(t * 15 + localIdx) * 1.5
-				local angle   = t * 35 + localIdx * 1.5
-				local x       = math.cos(angle) * radius
-				local z       = math.sin(angle) * radius
-				local yOff    = math.sin(t * 25 + localIdx) * 3 + 2.5
+				local radius = 3.5 + math.sin(t * 15 + localIdx) * 1.5
+				local angle  = t * 35 + localIdx * 1.5
+				local x      = math.cos(angle) * radius
+				local z      = math.sin(angle) * radius
+				local yOff   = math.sin(t * 25 + localIdx) * 3 + 2.5
 				pivotChair(chair, CFrame.new(hrp.Position + Vector3.new(x, yOff, z)))
 				applyPartsChaotic(chair,
-					Vector3.new(math.random(-400,400), math.random(200,500), math.random(-400,400)),
+					Vector3.new(math.random(-400, 400), math.random(200, 500), math.random(-400, 400)),
 					99999
 				)
 			end
