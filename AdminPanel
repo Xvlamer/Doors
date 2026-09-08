@@ -398,7 +398,8 @@ local function setUIVisible(v)
 	end
 end
 
-minBtn.MouseButton1Click:Connect(function()
+minBtn.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
 	minimized = not minimized
 	contentContainer.Visible = not minimized
 	if minimized then
@@ -441,10 +442,19 @@ local function cleanup()
 end
 
 gui.AncestryChanged:Connect(function(_, parent) if not parent then cleanup() end end)
-closeBtn.MouseButton1Click:Connect(function() confirmFrame.Visible = true end)
-yesBtn.MouseButton1Click:Connect(function() cleanup(); gui:Destroy() end)
-noBtn.MouseButton1Click:Connect(function() confirmFrame.Visible = false end)
-mobileToggleBtn.MouseButton1Click:Connect(function() setUIVisible(not mainFrame.Visible) end)
+
+local function connectBtn(btn, fn)
+	btn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			fn()
+		end
+	end)
+end
+
+connectBtn(closeBtn,        function() confirmFrame.Visible = true end)
+connectBtn(yesBtn,          function() cleanup(); gui:Destroy() end)
+connectBtn(noBtn,           function() confirmFrame.Visible = false end)
+connectBtn(mobileToggleBtn, function() setUIVisible(not mainFrame.Visible) end)
 
 local function refreshTitleTargetCount()
 	local count = 0
@@ -468,7 +478,8 @@ local function updatePlayerList()
 			btn.Font             = Enum.Font.Gotham
 			btn.Parent           = scroll
 			local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = btn
-			btn.MouseButton1Click:Connect(function()
+			btn.InputBegan:Connect(function(input)
+				if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
 				if selectedTargets[p] then
 					selectedTargets[p] = nil
 					btn.BackgroundColor3 = Color3.fromRGB(22,22,32)
@@ -692,12 +703,12 @@ local function triggerWall()
 	end
 end
 
-killBtn.MouseButton1Click:Connect(triggerKill)
-jailBtn.MouseButton1Click:Connect(triggerJail)
-orbitBtn.MouseButton1Click:Connect(triggerOrbit)
-throwBtn.MouseButton1Click:Connect(triggerThrow)
-flingBtn.MouseButton1Click:Connect(triggerFling)
-wallBtn.MouseButton1Click:Connect(triggerWall)
+connectBtn(killBtn,  triggerKill)
+connectBtn(jailBtn,  triggerJail)
+connectBtn(orbitBtn, triggerOrbit)
+connectBtn(throwBtn, triggerThrow)
+connectBtn(flingBtn, triggerFling)
+connectBtn(wallBtn,  triggerWall)
 
 inputBeganConn = UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
